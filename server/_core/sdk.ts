@@ -313,7 +313,9 @@ class SDKServer {
     }
 
     await db.upsertUser({
-      openId: user.openId,
+      openId: user.openId ?? "",
+      name: user.name ?? undefined,
+      email: user.email ?? undefined,
       lastSignedIn: signedInAt,
     });
 
@@ -337,9 +339,14 @@ function buildCronUser(
     id: -1,
     openId: userInfo.openId,
     name: userInfo.name || "Manus Scheduled Task",
-    email: null,
+    email: "cron@system.local",
+    passwordHash: null,
     loginMethod: null,
-    role: "user",
+    role: "admin" as const,
+    active: true,
+    mustChangePassword: false,
+    resetToken: null,
+    resetTokenExpiresAt: null,
     createdAt: now,
     updatedAt: now,
     lastSignedIn: now,

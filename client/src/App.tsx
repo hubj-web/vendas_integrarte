@@ -4,32 +4,129 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import Home from "./pages/Home";
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import Orders from "./pages/Orders";
+import OrderDetail from "./pages/OrderDetail";
+import NewOrder from "./pages/NewOrder";
+import DeliveryRoutes from "./pages/DeliveryRoutes";
+import DeliveryPayments from "./pages/DeliveryPayments";
+import Reports from "./pages/Reports";
+import Products from "./pages/admin/Products";
+import ProductTypes from "./pages/admin/ProductTypes";
+import Minipizzas from "./pages/admin/Minipizzas";
+import Jellies from "./pages/admin/Jellies";
+import DeliveryMethods from "./pages/admin/DeliveryMethods";
+import Users from "./pages/admin/Users";
+import AppLayout from "./components/AppLayout";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
+      <Route path="/login" component={Login} />
+      <Route path="/">
+        <ProtectedRoute>
+          <AppLayout>
+            <Dashboard />
+          </AppLayout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/pedidos">
+        <ProtectedRoute>
+          <AppLayout>
+            <Orders />
+          </AppLayout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/pedidos/novo">
+        <ProtectedRoute roles={["admin", "launcher"]}>
+          <AppLayout>
+            <NewOrder />
+          </AppLayout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/pedidos/:id">
+        <ProtectedRoute>
+          <AppLayout>
+            <OrderDetail />
+          </AppLayout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/rotas">
+        <ProtectedRoute>
+          <AppLayout>
+            <DeliveryRoutes />
+          </AppLayout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/entregas">
+        <ProtectedRoute>
+          <AppLayout>
+            <DeliveryPayments />
+          </AppLayout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/relatorios">
+        <ProtectedRoute roles={["admin", "launcher"]}>
+          <AppLayout>
+            <Reports />
+          </AppLayout>
+        </ProtectedRoute>
+      </Route>
+      {/* Admin routes */}
+      <Route path="/admin/produtos">
+        <ProtectedRoute roles={["admin"]}>
+          <AppLayout>
+            <Products />
+          </AppLayout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/admin/tipos-produto">
+        <ProtectedRoute roles={["admin"]}>
+          <AppLayout>
+            <ProductTypes />
+          </AppLayout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/admin/minipizzas">
+        <ProtectedRoute roles={["admin"]}>
+          <AppLayout>
+            <Minipizzas />
+          </AppLayout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/admin/geleias">
+        <ProtectedRoute roles={["admin"]}>
+          <AppLayout>
+            <Jellies />
+          </AppLayout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/admin/formas-entrega">
+        <ProtectedRoute roles={["admin"]}>
+          <AppLayout>
+            <DeliveryMethods />
+          </AppLayout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/admin/usuarios">
+        <ProtectedRoute roles={["admin"]}>
+          <AppLayout>
+            <Users />
+          </AppLayout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
+      <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
           <Router />
