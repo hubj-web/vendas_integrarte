@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { useLocalAuth } from "@/hooks/useLocalAuth";
+import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -21,21 +21,20 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
-  { label: "Dashboard", href: "/", icon: LayoutDashboard },
-  { label: "Novo Pedido", href: "/pedidos/novo", icon: ShoppingBag, roles: ["admin", "launcher"] },
-  { label: "Pedidos", href: "/pedidos", icon: ClipboardList },
-  { label: "Rotas de Entrega", href: "/rotas", icon: MapPin },
-  { label: "Entregas", href: "/entregas", icon: Truck, roles: ["admin", "delivery"] },
-  { label: "Pagamentos", href: "/pagamentos", icon: CreditCard, roles: ["admin", "launcher"] },
-  { label: "Relatórios", href: "/relatorios", icon: BarChart3, roles: ["admin", "launcher"] },
+  { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
+  { label: "Pedidos", href: "/admin/pedidos", icon: ClipboardList },
+  { label: "Rotas de Entrega", href: "/admin/rotas", icon: MapPin },
+  { label: "Entregas", href: "/admin/entregas-pagamentos", icon: Truck },
+  { label: "Relatórios", href: "/admin/relatorios", icon: BarChart3 },
 ];
 
 const adminNavItems: NavItem[] = [
-  { label: "Produtos", href: "/admin/produtos", icon: Package },
-  { label: "Minipizzas", href: "/admin/minipizzas", icon: Pizza },
-  { label: "Geleias", href: "/admin/geleias", icon: Grape },
-  { label: "Formas de Entrega", href: "/admin/entregas", icon: Truck },
-  { label: "Usuários", href: "/admin/usuarios", icon: Users },
+  { label: "Produtos", href: "/admin/config/produtos", icon: Package },
+  { label: "Tipos de Produto", href: "/admin/config/tipos", icon: Package },
+  { label: "Minipizzas", href: "/admin/config/minipizzas", icon: Pizza },
+  { label: "Geleias", href: "/admin/config/geleias", icon: Grape },
+  { label: "Formas de Entrega", href: "/admin/config/formas-entrega", icon: Truck },
+  { label: "Usuários", href: "/admin/config/usuarios", icon: Users },
 ];
 
 function NavLink({ item, currentPath, collapsed }: { item: NavItem; currentPath: string; collapsed: boolean }) {
@@ -62,7 +61,9 @@ function NavLink({ item, currentPath, collapsed }: { item: NavItem; currentPath:
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { user, logout } = useLocalAuth();
+  const { data: user } = trpc.auth.me.useQuery();
+  const logoutMutation = trpc.auth.logout.useMutation();
+  const utils = trpc.useUtils();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -71,8 +72,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const visibleNav = navItems.filter(item => !item.roles || (role && item.roles.includes(role)));
 
   async function handleLogout() {
-    await logout();
+    await logoutMutation.mutateAsync();
+    await utils.auth.me.invalidate();
     toast.success("Sessão encerrada.");
+    window.location.href = "/admin";
   }
 
   const roleLabel = role === "admin" ? "Administrador" : role === "launcher" ? "Lançador" : "Entregador";

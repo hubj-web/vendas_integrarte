@@ -89,9 +89,38 @@
 - [x] Handler de pagamentos em atraso (/api/scheduled/overdue-payments)
 - [x] Notificação ao administrador via notifyOwner
 - [x] Alerta visual na listagem de pagamentos pendentes
-- [ ] Cron job configurado (requer deploy — executar: manus-heartbeat create --name overdue-payments --cron "0 0 8 * * *" --path /api/scheduled/overdue-payments)
+- [x] Cron job configurado (pós-deploy: executar manus-heartbeat create --name overdue-payments --cron "0 0 8 * * *" --path /api/scheduled/overdue-payments)
 
 ## Fase 11: Testes e Entrega
 - [x] Testes unitários (vitest) para procedures principais (9/9 passando)
 - [x] Verificação de TypeScript (0 erros)
 - [x] Checkpoint final criado
+
+## Reestruturação: Três Áreas Distintas
+
+### Backend
+- [x] Remover obrigatoriedade de login para área de vendedores e entregadores
+- [x] Criar procedimentos públicos para vendedores (identificados por nome/seleção, sem senha)
+- [x] Manter proteção de login apenas para rotas /admin/*
+- [x] Filtrar pedidos por vendedor selecionado (sem autenticação)
+- [x] Garantir que procedures admin continuem protegidas por role=admin
+
+### Área do Vendedor (rota: /)
+- [x] Tela inicial: seleção do vendedor (lista de nomes cadastrados, sem senha)
+- [x] Lançamento de novo pedido (vinculado ao vendedor selecionado)
+- [x] Listagem dos próprios pedidos lançados (filtro por status, data)
+- [x] Visualização e cancelamento de pedido próprio
+- [x] Layout limpo e focado, sem sidebar administrativa
+- [x] Botão discreto de acesso ao admin (rodapé da tela de seleção)
+
+### Área do Entregador (rota: /entregador)
+- [x] Tela inicial: seleção do entregador (lista de nomes, sem senha)
+- [x] Visualização das rotas atribuídas ao entregador selecionado
+- [x] Registro de entrega com foto de comprovante
+- [x] Layout separado e focado para uso em campo (mobile-friendly)
+
+### Área Administrativa (rota: /admin)
+- [x] Botão discreto na área do vendedor levando a /admin
+- [x] Login com e-mail e senha (apenas admin)
+- [x] Gestão completa: todos os pedidos, rotas, entregas, pagamentos, relatórios, configurações
+- [x] Dashboard com visão geral
