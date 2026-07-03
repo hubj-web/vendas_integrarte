@@ -10,6 +10,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, Layers, Tag } from "lucide-react";
 
 export default function ProductTypes() {
@@ -22,22 +23,23 @@ export default function ProductTypes() {
     onError: (e) => toast.error(e.message),
   });
 
+  const { data: categories = [] } = trpc.catalog.categories.list.useQuery();
   const [open, setOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [editing, setEditing] = useState<{ id: number; name: string; category: string | null; description: string | null; active: boolean } | null>(null);
-  const [form, setForm] = useState({ name: "", category: "", description: "", active: true });
+  const [editing, setEditing] = useState<{ id: number; name: string; categoryId: number | null; description: string | null; active: boolean } | null>(null);
+  const [form, setForm] = useState({ name: "", categoryId: "", description: "", active: true });
 
   function openCreate() {
     setEditing(null);
-    setForm({ name: "", category: "", description: "", active: true });
+    setForm({ name: "", categoryId: "", description: "", active: true });
     setOpen(true);
   }
 
   function openEdit(t: typeof types[0]) {
-    setEditing({ ...t, category: (t as typeof t & { category?: string | null }).category ?? null });
+    setEditing({ id: t.id, name: t.name, categoryId: t.categoryId ?? null, description: t.description ?? null, active: t.active });
     setForm({
       name: t.name,
-      category: (t as typeof t & { category?: string | null }).category ?? "",
+      categoryId: t.categoryId ? String(t.categoryId) : "",
       description: t.description ?? "",
       active: t.active,
     });
@@ -46,30 +48,34 @@ export default function ProductTypes() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const categoryId = form.categoryId && form.categoryId !== "none" ? Number(form.categoryId) : null;
     if (editing) {
       updateMutation.mutate({
         id: editing.id,
         name: form.name,
-        category: form.category || null,
+        categoryId,
         description: form.description || undefined,
         active: form.active,
       });
     } else {
       createMutation.mutate({
         name: form.name,
-        category: form.category || undefined,
+        categoryId,
         description: form.description || undefined,
       });
     }
   }
 
   // Agrupar por categoria para exibição
-  type TypeWithCategory = typeof types[0] & { category?: string | null };
-  const grouped: Record<string, TypeWithCategory[]> = {};
-  for (const t of types as TypeWithCategory[]) {
-    const cat = t.category || "Sem categoria";
-    if (!grouped[cat]) grouped[cat] = [];
-    grouped[cat].push(t);
+  const grouped: Record<string, typeof types> = {};
+  const uncategorized: typeof types = [];
+  for (const t of types) {
+    if (t.categoryName) {
+      if (!grouped[t.categoryName]) grouped[t.categoryName] = [];
+      grouped[t.categoryName].push(t);
+    } else {
+      uncategorized.push(t);
+    }
   }
 
   return (
@@ -88,7 +94,7 @@ export default function ProductTypes() {
         </div>
       ) : (
         <div className="space-y-6">
-          {Object.entries(grouped).map(([cat, items]) => (
+          {[...Object.entries(grouped), ...(uncategorized.length > 0 ? [["Sem categoria", uncategorized] as [string, typeof types]] : [])].map(([cat, items]) => (
             <div key={cat}>
               <div className="flex items-center gap-2 mb-3">
                 <Tag className="w-4 h-4 text-primary" />
@@ -150,13 +156,18 @@ export default function ProductTypes() {
             </div>
             <div className="space-y-2">
               <Label>Categoria</Label>
-              <Input
-                value={form.category}
-                onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                className="bg-input"
-                placeholder="Ex: Produtos Congelados, Doces e Conservas..."
-              />
-              <p className="text-xs text-muted-foreground">Agrupa tipos de produto na tela de pedido. Deixe em branco para usar o nome do tipo.</p>
+              <Select value={form.categoryId} onValueChange={v => setForm(f => ({ ...f, categoryId: v }))}>
+                <SelectTrigger className="bg-input">
+                  <SelectValue placeholder="Sem categoria" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem categoria</SelectItem>
+                  {categories.map(c => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Crie categorias em <strong>Configurações → Categorias</strong></p>
             </div>
             <div className="space-y-2">
               <Label>Descrição</Label>

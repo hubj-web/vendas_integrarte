@@ -124,3 +124,16 @@
 - [x] Login com e-mail e senha (apenas admin)
 - [x] Gestão completa: todos os pedidos, rotas, entregas, pagamentos, relatórios, configurações
 - [x] Dashboard com visão geral
+
+## Cadastro de Categorias Independente
+
+- [ ] Criar tabela `product_categories` no banco de dados
+- [ ] Migrar dados existentes de categoria (campo texto) para a nova tabela
+- [ ] Atualizar tabela `product_types` para usar FK `categoryId` em vez de campo texto
+- [ ] Criar router `catalog.categories` com CRUD completo no backend
+- [ ] Atualizar router `catalog.productTypes` para incluir `categoryId`
+- [ ] Criar página `/admin/categories` com CRUD de categorias
+- [ ] Adicionar link de Categorias na sidebar administrativa
+- [ ] Atualizar página de Tipos de Produto para selecionar categoria via dropdown
+- [ ] Atualizar tela de lançamento de pedido para agrupar por categoria via JOIN
+- [ ] Atualizar seller router para retornar categoria via JOIN

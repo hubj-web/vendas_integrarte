@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
   LayoutDashboard, ShoppingBag, ClipboardList, Truck, Package,
   BarChart3, Settings, Users, LogOut, Menu, X, ChevronRight,
-  Pizza, Grape, MapPin, CreditCard, AlertCircle,
+  Pizza, Grape, MapPin, CreditCard, AlertCircle, Tag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +29,7 @@ const navItems: NavItem[] = [
 ];
 
 const adminNavItems: NavItem[] = [
+  { label: "Categorias", href: "/admin/config/categorias", icon: Tag },
   { label: "Produtos", href: "/admin/config/produtos", icon: Package },
   { label: "Tipos de Produto", href: "/admin/config/tipos", icon: Package },
   { label: "Minipizzas", href: "/admin/config/minipizzas", icon: Pizza },

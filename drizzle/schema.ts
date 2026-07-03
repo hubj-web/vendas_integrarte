@@ -32,10 +32,24 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
 // ─── PRODUCT TYPES (customizable categories) ──────────────────────────────────
+// ─── PRODUCT CATEGORIES ─────────────────────────────────────────────────────────────────
+export const productCategories = mysqlTable("product_categories", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull().unique(),
+  description: text("description"),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ProductCategory = typeof productCategories.$inferSelect;
+
+// ─── PRODUCT TYPES ─────────────────────────────────────────────────────────────────────────────
 export const productTypes = mysqlTable("product_types", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 100 }).notNull().unique(),
-  category: varchar("category", { length: 100 }), // ex: "Produtos Congelados", "Doces", etc.
+  categoryId: int("categoryId"),
   description: text("description"),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

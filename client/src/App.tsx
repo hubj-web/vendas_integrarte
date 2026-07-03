@@ -28,6 +28,7 @@ import OrderDetail from "./pages/OrderDetail";
 import DeliveryRoutes from "./pages/DeliveryRoutes";
 import DeliveryPayments from "./pages/DeliveryPayments";
 import Reports from "./pages/Reports";
+import Categories from "./pages/admin/Categories";
 import Products from "./pages/admin/Products";
 import ProductTypes from "./pages/admin/ProductTypes";
 import Minipizzas from "./pages/admin/Minipizzas";
@@ -108,6 +109,11 @@ function AdminArea() {
       <Route path="/admin/relatorios">
         <AdminGuard>
           <AppLayout><Reports /></AppLayout>
+        </AdminGuard>
+      </Route>
+      <Route path="/admin/config/categorias">
+        <AdminGuard>
+          <AppLayout><Categories /></AppLayout>
         </AdminGuard>
       </Route>
       <Route path="/admin/config/produtos">

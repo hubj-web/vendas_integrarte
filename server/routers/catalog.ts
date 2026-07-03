@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { z } from "zod";
 import {
-  productTypes, products, productChangeHistory,
+  productCategories, productTypes, products, productChangeHistory,
   minipizzaTypes, minipizzaFlavors, minipizzaTypeFlavorMatrix,
   jellyFlavors, deliveryMethods,
   orderItems, orderMinipizzas, orderJellies,
@@ -15,23 +15,67 @@ const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   return next({ ctx });
 });
 
+// ─── PRODUCT CATEGORIES ───────────────────────────────────────────────────────
+const categoriesRouter = router({
+  list: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select().from(productCategories).orderBy(asc(productCategories.sortOrder), asc(productCategories.name));
+  }),
+  create: adminProcedure
+    .input(z.object({ name: z.string().min(2), description: z.string().optional(), sortOrder: z.number().optional() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.insert(productCategories).values({ name: input.name, description: input.description, sortOrder: input.sortOrder ?? 0 });
+      return { success: true };
+    }),
+  update: adminProcedure
+    .input(z.object({ id: z.number(), name: z.string().min(2).optional(), description: z.string().optional(), sortOrder: z.number().optional(), active: z.boolean().optional() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { id, ...data } = input;
+      await db.update(productCategories).set(data).where(eq(productCategories.id, id));
+      return { success: true };
+    }),
+  delete: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const linked = await db.select().from(productTypes).where(eq(productTypes.categoryId, input.id)).limit(1);
+      if (linked.length > 0) throw new TRPCError({ code: "CONFLICT", message: "Categoria possui tipos de produto associados. Remova os vínculos antes de excluir." });
+      await db.delete(productCategories).where(eq(productCategories.id, input.id));
+      return { success: true };
+    }),
+});
+
 // ─── PRODUCT TYPES ────────────────────────────────────────────────────────────
 const productTypesRouter = router({
   list: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];
-    return db.select().from(productTypes).orderBy(asc(productTypes.name));
+    return db.select({
+      id: productTypes.id, name: productTypes.name, description: productTypes.description,
+      active: productTypes.active, createdAt: productTypes.createdAt,
+      categoryId: productTypes.categoryId,
+      categoryName: productCategories.name,
+    })
+      .from(productTypes)
+      .leftJoin(productCategories, eq(productTypes.categoryId, productCategories.id))
+      .orderBy(asc(productCategories.sortOrder), asc(productTypes.name));
   }),
   create: adminProcedure
-    .input(z.object({ name: z.string().min(2), category: z.string().optional(), description: z.string().optional() }))
+    .input(z.object({ name: z.string().min(2), categoryId: z.number().nullable().optional(), description: z.string().optional() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.insert(productTypes).values({ name: input.name, category: input.category ?? null, description: input.description });
+      await db.insert(productTypes).values({ name: input.name, categoryId: input.categoryId ?? null, description: input.description });
       return { success: true };
     }),
   update: adminProcedure
-    .input(z.object({ id: z.number(), name: z.string().min(2).optional(), category: z.string().nullable().optional(), description: z.string().optional(), active: z.boolean().optional() }))
+    .input(z.object({ id: z.number(), name: z.string().min(2).optional(), categoryId: z.number().nullable().optional(), description: z.string().optional(), active: z.boolean().optional() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -64,10 +108,13 @@ const productsRouter = router({
         active: products.active, createdAt: products.createdAt,
         productTypeId: products.productTypeId,
         typeName: productTypes.name,
+        categoryId: productTypes.categoryId,
+        categoryName: productCategories.name,
       })
         .from(products)
         .leftJoin(productTypes, eq(products.productTypeId, productTypes.id))
-        .orderBy(asc(products.name));
+        .leftJoin(productCategories, eq(productTypes.categoryId, productCategories.id))
+        .orderBy(asc(productCategories.sortOrder), asc(productTypes.name), asc(products.name));
 
       return rows.filter(p => {
         if (input?.typeId && p.productTypeId !== input.typeId) return false;
@@ -104,7 +151,6 @@ const productsRouter = router({
       if (!current[0]) throw new TRPCError({ code: "NOT_FOUND" });
 
       const { id, ...data } = input;
-      // Record history
       for (const [field, newVal] of Object.entries(data)) {
         const oldVal = (current[0] as Record<string, unknown>)[field];
         if (oldVal !== undefined && String(oldVal) !== String(newVal)) {
@@ -210,7 +256,6 @@ const minipizzaFlavorsRouter = router({
       await db.delete(minipizzaFlavors).where(eq(minipizzaFlavors.id, input.id));
       return { success: true };
     }),
-  // Matrix
   getMatrix: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];
@@ -305,6 +350,7 @@ const deliveryMethodsRouter = router({
 });
 
 export const catalogRouter = router({
+  categories: categoriesRouter,
   productTypes: productTypesRouter,
   products: productsRouter,
   minipizzaTypes: minipizzaTypesRouter,
