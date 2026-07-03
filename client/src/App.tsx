@@ -71,89 +71,15 @@ function DelivererArea() {
   );
 }
 
-// ── ADMIN AREA ──
-function AdminArea() {
-  return (
-    <Switch>
-      {/* Login page — no guard */}
-      <Route path="/admin">
-        <AdminLogin />
-      </Route>
-
-      {/* Protected admin pages */}
-      <Route path="/admin/dashboard">
-        <AdminGuard>
-          <AppLayout><Dashboard /></AppLayout>
-        </AdminGuard>
-      </Route>
-      <Route path="/admin/pedidos/:id">
-        <AdminGuard>
-          <AppLayout><OrderDetail /></AppLayout>
-        </AdminGuard>
-      </Route>
-      <Route path="/admin/pedidos">
-        <AdminGuard>
-          <AppLayout><Orders /></AppLayout>
-        </AdminGuard>
-      </Route>
-      <Route path="/admin/rotas">
-        <AdminGuard>
-          <AppLayout><DeliveryRoutes /></AppLayout>
-        </AdminGuard>
-      </Route>
-      <Route path="/admin/entregas-pagamentos">
-        <AdminGuard>
-          <AppLayout><DeliveryPayments /></AppLayout>
-        </AdminGuard>
-      </Route>
-      <Route path="/admin/relatorios">
-        <AdminGuard>
-          <AppLayout><Reports /></AppLayout>
-        </AdminGuard>
-      </Route>
-      <Route path="/admin/config/categorias">
-        <AdminGuard>
-          <AppLayout><Categories /></AppLayout>
-        </AdminGuard>
-      </Route>
-      <Route path="/admin/config/produtos">
-        <AdminGuard>
-          <AppLayout><Products /></AppLayout>
-        </AdminGuard>
-      </Route>
-      <Route path="/admin/config/tipos">
-        <AdminGuard>
-          <AppLayout><ProductTypes /></AppLayout>
-        </AdminGuard>
-      </Route>
-      <Route path="/admin/config/minipizzas">
-        <AdminGuard>
-          <AppLayout><Minipizzas /></AppLayout>
-        </AdminGuard>
-      </Route>
-      <Route path="/admin/config/geleias">
-        <AdminGuard>
-          <AppLayout><Jellies /></AppLayout>
-        </AdminGuard>
-      </Route>
-      <Route path="/admin/config/formas-entrega">
-        <AdminGuard>
-          <AppLayout><DeliveryMethods /></AppLayout>
-        </AdminGuard>
-      </Route>
-      <Route path="/admin/config/usuarios">
-        <AdminGuard>
-          <AppLayout><Users /></AppLayout>
-        </AdminGuard>
-      </Route>
-    </Switch>
-  );
-}
-
+// ── ROUTER ──
+// NOTE: All admin routes are declared directly here (flat, no nesting) because
+// wouter's regexparam treats :rest* as a single-segment wildcard in strict mode,
+// so /admin/:rest* does NOT match /admin/config/categorias (two extra segments).
+// Keeping routes flat avoids this limitation entirely.
 function Router() {
   return (
     <Switch>
-      {/* Deliverer area — /entregador/* */}
+      {/* ── DELIVERER ── */}
       <Route path="/entregador/:rest*">
         <DelivererProvider>
           <DelivererArea />
@@ -165,15 +91,55 @@ function Router() {
         </DelivererProvider>
       </Route>
 
-      {/* Admin area — /admin/* */}
-      <Route path="/admin/:rest*">
-        <AdminArea />
+      {/* ── ADMIN CONFIG (most specific first) ── */}
+      <Route path="/admin/config/categorias">
+        <AdminGuard><AppLayout><Categories /></AppLayout></AdminGuard>
       </Route>
-      <Route path="/admin">
-        <AdminArea />
+      <Route path="/admin/config/produtos">
+        <AdminGuard><AppLayout><Products /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/config/tipos">
+        <AdminGuard><AppLayout><ProductTypes /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/config/minipizzas">
+        <AdminGuard><AppLayout><Minipizzas /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/config/geleias">
+        <AdminGuard><AppLayout><Jellies /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/config/formas-entrega">
+        <AdminGuard><AppLayout><DeliveryMethods /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/config/usuarios">
+        <AdminGuard><AppLayout><Users /></AppLayout></AdminGuard>
       </Route>
 
-      {/* Seller area — / and /vendedor/* */}
+      {/* ── ADMIN PAGES ── */}
+      <Route path="/admin/pedidos/:id">
+        <AdminGuard><AppLayout><OrderDetail /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/pedidos">
+        <AdminGuard><AppLayout><Orders /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/rotas">
+        <AdminGuard><AppLayout><DeliveryRoutes /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/entregas-pagamentos">
+        <AdminGuard><AppLayout><DeliveryPayments /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/relatorios">
+        <AdminGuard><AppLayout><Reports /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/dashboard">
+        <AdminGuard><AppLayout><Dashboard /></AppLayout></AdminGuard>
+      </Route>
+
+      {/* ── ADMIN LOGIN (last — /admin is a prefix and would swallow everything above) ── */}
+      <Route path="/admin">
+        <AdminLogin />
+      </Route>
+
+      {/* ── SELLER ── */}
       <Route path="/vendedor/:rest*">
         <SellerProvider>
           <SellerArea />
