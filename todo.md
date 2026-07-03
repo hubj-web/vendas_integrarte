@@ -137,3 +137,11 @@
 - [ ] Atualizar página de Tipos de Produto para selecionar categoria via dropdown
 - [ ] Atualizar tela de lançamento de pedido para agrupar por categoria via JOIN
 - [ ] Atualizar seller router para retornar categoria via JOIN
+
+## Correção de Bug Crítico (Sessão Atual)
+
+- [x] BUG CRÍTICO: Login do administrador não funciona — role sobrescrito para 'launcher' pelo upsertOAuthUser
+  - Causa raiz: sdk.authenticateRequest chamava upsertUser (com role hardcoded 'launcher') para usuários já existentes
+  - Correção: db.ts agora usa SELECT + UPDATE separados (nunca sobrescreve role); sdk.ts chama updateLastSignedIn em vez de upsertUser para usuários existentes
+  - Banco corrigido: role='admin', loginMethod='local' para openId='local-admin'
+  - 9/9 testes passando após correção

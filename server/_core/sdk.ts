@@ -312,12 +312,11 @@ class SDKServer {
       throw ForbiddenError("User not found");
     }
 
-    await db.upsertUser({
-      openId: user.openId ?? "",
-      name: user.name ?? undefined,
-      email: user.email ?? undefined,
-      lastSignedIn: signedInAt,
-    });
+    // Only update lastSignedIn — never call upsertUser for existing users
+    // to avoid overwriting manually-set roles (e.g. admin)
+    if (user.openId) {
+      await db.updateLastSignedIn(user.openId);
+    }
 
     return user;
   }
