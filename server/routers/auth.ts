@@ -14,7 +14,7 @@ export const authRouter = router({
   me: publicProcedure.query((opts) => opts.ctx.user),
 
   login: publicProcedure
-    .input(z.object({ email: z.string().email(), password: z.string().min(1) }))
+    .input(z.object({ email: z.string().min(1), password: z.string().min(1) }))
     .mutation(async ({ input, ctx }) => {
       const user = await getUserByEmail(input.email);
       if (!user || !user.active) {

@@ -48,14 +48,14 @@ export default function AdminLogin() {
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="email">E-mail</Label>
+            <Label htmlFor="email">Usuário</Label>
             <Input
               id="email"
-              type="email"
+              type="text"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="admin@sistema.com"
-              autoComplete="email"
+              placeholder="Nome de usuário"
+              autoComplete="username"
               required
             />
           </div>
