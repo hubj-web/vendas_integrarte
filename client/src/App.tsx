@@ -35,6 +35,7 @@ import Minipizzas from "./pages/admin/Minipizzas";
 import Jellies from "./pages/admin/Jellies";
 import DeliveryMethods from "./pages/admin/DeliveryMethods";
 import Users from "./pages/admin/Users";
+import Exports from "./pages/Exports";
 import NotFound from "./pages/NotFound";
 
 // ── SELLER AREA ──
@@ -129,6 +130,9 @@ function Router() {
       </Route>
       <Route path="/admin/relatorios">
         <AdminGuard><AppLayout><Reports /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/exportar">
+        <AdminGuard><Exports /></AdminGuard>
       </Route>
       <Route path="/admin/dashboard">
         <AdminGuard><AppLayout><Dashboard /></AppLayout></AdminGuard>
