@@ -7,14 +7,13 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, User, UserPlus,
-  ChevronRight, Check, Pizza, Grape, Package
+  ChevronRight, Check, Pizza, Grape, Package, Tag
 } from "lucide-react";
 
 const fmt = (v: number) =>
@@ -27,19 +26,15 @@ interface CartItem {
   quantity: number;
   unitPrice: number;
   subtotal: number;
-  // for minipizza
   minipizzaTypeId?: number;
   flavorIds?: number[];
-  // for jelly
   jellyFlavorId?: number;
-  // for product
   productId?: number;
 }
 
 export default function SellerNewOrder() {
   const { seller } = useSeller();
   const [, navigate] = useLocation();
-  const utils = trpc.useUtils();
 
   const { data: catalog } = trpc.seller.catalog.useQuery();
 
@@ -71,6 +66,10 @@ export default function SellerNewOrder() {
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "pix">("pix");
   const [notes, setNotes] = useState("");
 
+  // Category product dialog
+  const [activeCategoryKey, setActiveCategoryKey] = useState<string | null>(null);
+  const [productQtys, setProductQtys] = useState<Record<number, number>>({});
+
   // Minipizza wizard
   const [mpWizard, setMpWizard] = useState<{
     step: "type" | "flavors" | "quantity";
@@ -89,21 +88,74 @@ export default function SellerNewOrder() {
 
   const totalAmount = useMemo(() => cart.reduce((s, i) => s + i.subtotal, 0), [cart]);
 
-  // Add product to cart
-  const addProduct = (p: { id: number; name: string; price: string }) => {
-    const existing = cart.find(c => c.type === "product" && c.productId === p.id);
-    if (existing) {
-      setCart(cart.map(c =>
-        c.type === "product" && c.productId === p.id
-          ? { ...c, quantity: c.quantity + 1, subtotal: (c.quantity + 1) * c.unitPrice }
-          : c
-      ));
-    } else {
-      setCart([...cart, {
-        type: "product", id: `p-${p.id}`, label: p.name,
-        quantity: 1, unitPrice: Number(p.price), subtotal: Number(p.price),
-        productId: p.id,
-      }]);
+  // Group products by category
+  const groupedProducts = useMemo(() => {
+    if (!catalog) return [];
+    type PType = { id: number; name: string; category?: string | null };
+    const typeMap = Object.fromEntries((catalog.productTypes as PType[]).map(t => [t.id, t]));
+    const grouped: Record<string, typeof catalog.products> = {};
+    for (const p of catalog.products) {
+      const t = typeMap[p.productTypeId];
+      const cat = (t?.category) || (t?.name) || "Outros";
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(p);
+    }
+    return Object.entries(grouped);
+  }, [catalog]);
+
+  // Products in the active category dialog
+  const activeCategoryProducts = useMemo(() => {
+    if (!activeCategoryKey) return [];
+    const entry = groupedProducts.find(([cat]) => cat === activeCategoryKey);
+    return entry ? entry[1] : [];
+  }, [activeCategoryKey, groupedProducts]);
+
+  // Open category dialog
+  const openCategoryDialog = (cat: string) => {
+    setActiveCategoryKey(cat);
+    // Pre-populate qtys from cart
+    const qtys: Record<number, number> = {};
+    for (const item of cart) {
+      if (item.type === "product" && item.productId !== undefined) {
+        qtys[item.productId] = item.quantity;
+      }
+    }
+    setProductQtys(qtys);
+  };
+
+  const closeCategoryDialog = () => {
+    setActiveCategoryKey(null);
+    setProductQtys({});
+  };
+
+  const setProductQty = (productId: number, qty: number) => {
+    setProductQtys(prev => ({ ...prev, [productId]: Math.max(0, qty) }));
+  };
+
+  const confirmCategoryProducts = () => {
+    if (!activeCategoryKey) return;
+    // Remove all products from this category from cart, then re-add with new qtys
+    const categoryProductIds = new Set(activeCategoryProducts.map(p => p.id));
+    const newCart = cart.filter(c => !(c.type === "product" && c.productId !== undefined && categoryProductIds.has(c.productId)));
+    const additions: CartItem[] = [];
+    for (const p of activeCategoryProducts) {
+      const qty = productQtys[p.id] ?? 0;
+      if (qty > 0) {
+        additions.push({
+          type: "product",
+          id: `p-${p.id}`,
+          label: p.name,
+          quantity: qty,
+          unitPrice: Number(p.price),
+          subtotal: qty * Number(p.price),
+          productId: p.id,
+        });
+      }
+    }
+    setCart([...newCart, ...additions]);
+    closeCategoryDialog();
+    if (additions.length > 0) {
+      toast.success(`${additions.length} produto(s) adicionado(s) ao pedido.`);
     }
   };
 
@@ -119,7 +171,7 @@ export default function SellerNewOrder() {
 
   const toggleMpFlavor = (fId: number) => {
     if (!mpWizard) return;
-    const maxFlavors = 2; // configurable
+    const maxFlavors = 2;
     const has = mpWizard.flavorIds.includes(fId);
     if (!has && mpWizard.flavorIds.length >= maxFlavors) {
       toast.error(`Máximo de ${maxFlavors} sabores por minipizza.`);
@@ -241,6 +293,18 @@ export default function SellerNewOrder() {
     return new Set(compat);
   }, [mpWizard?.typeId, catalog]);
 
+  // Count items in cart per category (for badge)
+  const categoryCartCount = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const [cat, prods] of groupedProducts) {
+      const catIds = new Set(prods.map(p => p.id));
+      const count = cart.filter(c => c.type === "product" && c.productId !== undefined && catIds.has(c.productId))
+        .reduce((s, c) => s + c.quantity, 0);
+      if (count > 0) counts[cat] = count;
+    }
+    return counts;
+  }, [cart, groupedProducts]);
+
   return (
     <div className="space-y-5 pb-10">
       <h2 className="text-lg font-semibold text-foreground">Novo Pedido</h2>
@@ -297,46 +361,44 @@ export default function SellerNewOrder() {
         </CardContent>
       </Card>
 
-      {/* ── PRODUCTS ── */}
+      {/* ── PRODUCTS (category buttons) ── */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
             <Package className="w-4 h-4" /> Produtos
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-0 space-y-3">
-          {(() => {
-            if (!catalog) return null;
-            type PType = { id: number; name: string; category?: string | null };
-            const typeMap = Object.fromEntries((catalog.productTypes as PType[]).map(t => [t.id, t]));
-            const grouped: Record<string, typeof catalog.products> = {};
-            for (const p of catalog.products) {
-              const t = typeMap[p.productTypeId];
-              const cat = (t?.category) || (t?.name) || 'Outros';
-              if (!grouped[cat]) grouped[cat] = [];
-              grouped[cat].push(p);
-            }
-            return Object.entries(grouped).map(([cat, prods], idx) => (
-              <div key={cat}>
-                {idx > 0 && <Separator className="my-2" />}
-                <p className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">{cat}</p>
-                <div className="space-y-1.5">
-                  {prods.map(p => (
-                    <div key={p.id} className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{p.name}</p>
-                        <p className="text-xs text-muted-foreground">{fmt(Number(p.price))}</p>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => addProduct({ id: p.id, name: p.name, price: p.price })} className="gap-1 h-8">
-                        <Plus className="w-3.5 h-3.5" /> Adicionar
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ));
-          })()}
+        <CardContent className="pt-0 space-y-2">
+          {/* One button per category */}
+          {groupedProducts.map(([cat]) => {
+            const count = categoryCartCount[cat];
+            return (
+              <Button
+                key={cat}
+                variant="outline"
+                size="sm"
+                onClick={() => openCategoryDialog(cat)}
+                className="gap-2 w-full justify-between h-11"
+              >
+                <span className="flex items-center gap-2">
+                  <Tag className="w-4 h-4" />
+                  {cat}
+                </span>
+                <span className="flex items-center gap-2">
+                  {count !== undefined && count > 0 && (
+                    <span className="bg-primary text-primary-foreground text-xs font-bold px-2 py-0.5 rounded-full">
+                      {count}
+                    </span>
+                  )}
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                </span>
+              </Button>
+            );
+          })}
+
           <Separator />
+
+          {/* Minipizza & Jelly buttons */}
           <Button variant="outline" size="sm" onClick={startMpWizard} className="gap-2 w-full">
             <Pizza className="w-4 h-4" /> Adicionar Minipizza
           </Button>
@@ -365,7 +427,7 @@ export default function SellerNewOrder() {
                   <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => changeQty(item.id, -1)}>
                     <Minus className="w-3 h-3" />
                   </Button>
-                  <span className="w-6 text-center text-sm">{item.quantity}</span>
+                  <span className="w-6 text-center text-sm font-medium">{item.quantity}</span>
                   <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => changeQty(item.id, 1)}>
                     <Plus className="w-3 h-3" />
                   </Button>
@@ -471,6 +533,75 @@ export default function SellerNewOrder() {
               disabled={!newCustomer.name || !newCustomer.phone || createCustomerMutation.isPending}
             >
               Cadastrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── CATEGORY PRODUCTS DIALOG ── */}
+      <Dialog open={!!activeCategoryKey} onOpenChange={v => { if (!v) closeCategoryDialog(); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Tag className="w-4 h-4 text-primary" />
+              {activeCategoryKey}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+            {activeCategoryProducts.map(p => {
+              const qty = productQtys[p.id] ?? 0;
+              return (
+                <div
+                  key={p.id}
+                  className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
+                    qty > 0 ? "border-primary/40 bg-primary/5" : "border-border"
+                  }`}
+                >
+                  <div className="flex-1 min-w-0 mr-3">
+                    <p className="text-sm font-medium text-foreground">{p.name}</p>
+                    <p className="text-xs text-muted-foreground">{fmt(Number(p.price))}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {qty > 0 ? (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setProductQty(p.id, qty - 1)}
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </Button>
+                        <span className="w-7 text-center text-sm font-bold text-primary">{qty}</span>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setProductQty(p.id, qty + 1)}
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 h-8"
+                        onClick={() => setProductQty(p.id, 1)}
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Adicionar
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={closeCategoryDialog}>Cancelar</Button>
+            <Button onClick={confirmCategoryProducts} className="gap-2">
+              <Check className="w-4 h-4" />
+              Confirmar
             </Button>
           </DialogFooter>
         </DialogContent>
