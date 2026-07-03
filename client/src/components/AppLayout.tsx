@@ -84,17 +84,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const sidebarContent = (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className={cn("flex items-center gap-3 px-4 py-5", collapsed && "justify-center")}>
-        <div className="w-9 h-9 rounded-xl bg-primary/15 border border-primary/25 flex items-center justify-center flex-shrink-0">
-          <ShoppingBag className="w-5 h-5 text-primary" />
-        </div>
-        {!collapsed && (
-          <div>
-            <p className="text-sm font-bold text-sidebar-foreground leading-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
-              Gestão
-            </p>
-            <p className="text-xs text-muted-foreground">de Pedidos</p>
+      <div className={cn("flex items-center justify-center px-4 py-4", collapsed && "py-3")}>
+        {collapsed ? (
+          <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center">
+            <ShoppingBag className="w-5 h-5 text-white" />
           </div>
+        ) : (
+          <img
+            src="/manus-storage/integrarte-logo_3af31856.png"
+            alt="Integrarte"
+            className="h-16 w-auto object-contain"
+          />
         )}
       </div>
 
@@ -190,7 +190,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <button onClick={() => setMobileOpen(true)} className="text-muted-foreground">
             <Menu className="w-5 h-5" />
           </button>
-          <ShoppingBag className="w-5 h-5 text-primary" />
+          <img src="/manus-storage/integrarte-logo_3af31856.png" alt="Integrarte" className="h-8 w-auto object-contain" />
           <span className="font-semibold text-foreground text-sm">Gestão de Pedidos</span>
         </header>
 

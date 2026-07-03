@@ -1,7 +1,9 @@
 import { type ReactNode } from "react";
 import { useDeliverer } from "@/contexts/DelivererContext";
 import { Button } from "@/components/ui/button";
-import { Truck, LogOut } from "lucide-react";
+import { LogOut } from "lucide-react";
+
+const LOGO_URL = "/manus-storage/integrarte-logo_3af31856.png";
 
 interface DelivererLayoutProps {
   children: ReactNode;
@@ -11,26 +13,24 @@ export default function DelivererLayout({ children }: DelivererLayoutProps) {
   const { deliverer, clearDeliverer } = useDeliverer();
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-blue-50 flex flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-sm">
-        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
-              <Truck className="w-4 h-4 text-primary" />
-            </div>
-            <div>
-              <span className="text-sm font-semibold text-foreground">Área do Entregador</span>
-              {deliverer && (
-                <span className="text-xs text-muted-foreground ml-2">— {deliverer.name}</span>
-              )}
-            </div>
+      <header className="sticky top-0 z-40 border-b border-gray-100 bg-white/90 backdrop-blur-sm shadow-sm">
+        <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src={LOGO_URL} alt="Integrarte" className="h-10 w-auto object-contain" />
+            {deliverer && (
+              <div className="hidden sm:block">
+                <span className="text-xs text-muted-foreground">Entregador:</span>
+                <span className="text-sm font-bold text-secondary ml-1">{deliverer.name}</span>
+              </div>
+            )}
           </div>
           <Button
             variant="ghost"
             size="sm"
             onClick={clearDeliverer}
-            className="text-muted-foreground hover:text-foreground gap-1.5 text-xs"
+            className="text-muted-foreground hover:text-destructive gap-1.5 text-xs"
           >
             <LogOut className="w-3.5 h-3.5" />
             Sair
