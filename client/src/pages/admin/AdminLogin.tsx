@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Eye, EyeOff } from "lucide-react";
 import { useLocation } from "wouter";
+import { COOKIE_NAME } from "@/const";
 
 const LOGO_URL = "/manus-storage/integrarte-logo_3af31856.png";
 
@@ -24,6 +25,22 @@ export default function AdminLogin() {
         await logoutMutation.mutateAsync();
         return;
       }
+
+      // Store the admin session token in sessionStorage so it is sent as
+      // Authorization: Bearer on every subsequent request. This is necessary
+      // because the browser may block HttpOnly cookies when the app runs inside
+      // an iframe (SameSite=None + Secure policy on Safari / iOS WebView).
+      if (data.sessionToken) {
+        try {
+          sessionStorage.setItem(
+            "manus-cookie",
+            `${COOKIE_NAME}=${data.sessionToken}`
+          );
+        } catch {
+          // sessionStorage unavailable — cookie-only fallback will be used
+        }
+      }
+
       await utils.auth.me.invalidate();
       navigate("/admin/dashboard");
     },

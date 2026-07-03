@@ -74,8 +74,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   async function handleLogout() {
     await logoutMutation.mutateAsync();
+    // Clear admin session token from sessionStorage (Bearer fallback)
+    try { sessionStorage.removeItem("manus-cookie"); } catch {}
     await utils.auth.me.invalidate();
-    toast.success("Sessão encerrada.");
+    toast.success("Sess\u00e3o encerrada.");
     window.location.href = "/admin";
   }
 
