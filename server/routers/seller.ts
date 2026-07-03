@@ -16,7 +16,9 @@ import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
 
 // Helper: validate that userId belongs to a launcher
+// id=-1 is the special "Outro" (guest) seller — allowed without DB lookup
 async function requireLauncher(userId: number) {
+  if (userId === -1) return null; // guest seller: sem vínculo a usuário cadastrado
   const db = await getDb();
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
   const result = await db.select().from(users)
@@ -183,7 +185,8 @@ export const sellerRouter = router({
       const db = await getDb();
       if (!db) return { orders: [], total: 0 };
       const { sql, count } = await import("drizzle-orm");
-      const conditions = [eq(orders.launcherId, input.sellerId)];
+      // sellerId=-1 é vendedor avulso: mostra todos os pedidos sem filtro de launcher
+      const conditions = input.sellerId === -1 ? [] : [eq(orders.launcherId, input.sellerId)];
       if (input.status && input.status !== "all") {
         conditions.push(eq(orders.status, input.status as any));
       }
