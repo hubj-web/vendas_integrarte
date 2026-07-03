@@ -304,18 +304,38 @@ export default function SellerNewOrder() {
             <Package className="w-4 h-4" /> Produtos
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-0 space-y-2">
-          {catalog?.products.map(p => (
-            <div key={p.id} className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-foreground">{p.name}</p>
-                <p className="text-xs text-muted-foreground">{fmt(Number(p.price))}</p>
+        <CardContent className="pt-0 space-y-3">
+          {(() => {
+            if (!catalog) return null;
+            type PType = { id: number; name: string; category?: string | null };
+            const typeMap = Object.fromEntries((catalog.productTypes as PType[]).map(t => [t.id, t]));
+            const grouped: Record<string, typeof catalog.products> = {};
+            for (const p of catalog.products) {
+              const t = typeMap[p.productTypeId];
+              const cat = (t?.category) || (t?.name) || 'Outros';
+              if (!grouped[cat]) grouped[cat] = [];
+              grouped[cat].push(p);
+            }
+            return Object.entries(grouped).map(([cat, prods], idx) => (
+              <div key={cat}>
+                {idx > 0 && <Separator className="my-2" />}
+                <p className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">{cat}</p>
+                <div className="space-y-1.5">
+                  {prods.map(p => (
+                    <div key={p.id} className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{p.name}</p>
+                        <p className="text-xs text-muted-foreground">{fmt(Number(p.price))}</p>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => addProduct({ id: p.id, name: p.name, price: p.price })} className="gap-1 h-8">
+                        <Plus className="w-3.5 h-3.5" /> Adicionar
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <Button variant="outline" size="sm" onClick={() => addProduct({ id: p.id, name: p.name, price: p.price })} className="gap-1 h-8">
-                <Plus className="w-3.5 h-3.5" /> Adicionar
-              </Button>
-            </div>
-          ))}
+            ));
+          })()}
           <Separator />
           <Button variant="outline" size="sm" onClick={startMpWizard} className="gap-2 w-full">
             <Pizza className="w-4 h-4" /> Adicionar Minipizza

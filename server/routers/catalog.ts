@@ -23,15 +23,15 @@ const productTypesRouter = router({
     return db.select().from(productTypes).orderBy(asc(productTypes.name));
   }),
   create: adminProcedure
-    .input(z.object({ name: z.string().min(2), description: z.string().optional() }))
+    .input(z.object({ name: z.string().min(2), category: z.string().optional(), description: z.string().optional() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.insert(productTypes).values({ name: input.name, description: input.description });
+      await db.insert(productTypes).values({ name: input.name, category: input.category ?? null, description: input.description });
       return { success: true };
     }),
   update: adminProcedure
-    .input(z.object({ id: z.number(), name: z.string().min(2).optional(), description: z.string().optional(), active: z.boolean().optional() }))
+    .input(z.object({ id: z.number(), name: z.string().min(2).optional(), category: z.string().nullable().optional(), description: z.string().optional(), active: z.boolean().optional() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });

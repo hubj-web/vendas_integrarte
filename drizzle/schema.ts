@@ -35,6 +35,7 @@ export type InsertUser = typeof users.$inferInsert;
 export const productTypes = mysqlTable("product_types", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 100 }).notNull().unique(),
+  category: varchar("category", { length: 100 }), // ex: "Produtos Congelados", "Doces", etc.
   description: text("description"),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
