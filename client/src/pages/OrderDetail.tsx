@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { ArrowLeft, User, MapPin, CreditCard, Package, Clock, XCircle, Loader2 } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Link } from "wouter";
+import { OrderReceiptButton } from "@/components/OrderReceipt";
 
 const statusFlow: Record<string, string[]> = {
   production: ["in_route", "cancelled"],
@@ -79,6 +80,7 @@ export default function OrderDetail() {
             <Link href="/pedidos">
               <Button variant="outline" size="sm" className="gap-2"><ArrowLeft className="w-4 h-4" />Voltar</Button>
             </Link>
+            <OrderReceiptButton order={order} />
             {canChangeStatus && nextStatuses.filter(s => s !== "cancelled").map(s => (
               <Button key={s} size="sm" className="bg-primary text-primary-foreground gap-2" onClick={() => { setNewStatus(s); setStatusOpen(true); }}>
                 {statusLabels[s]}
