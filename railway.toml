@@ -1,7 +1,6 @@
 [build]
 builder = "nixpacks"
-buildCommand = "pnpm install --frozen-lockfile && pnpm build"
-
+buildCommand = "pnpm install --frozen-lockfile && pnpm build && node scripts/seed-railway.mjs"
 [build.nixpacksPlan.variables]
 NODE_VERSION = "22"
 
