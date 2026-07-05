@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { useLocation } from "wouter";
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, User, UserPlus,
-  ChevronRight, Check, Pizza, Grape, Package, Tag
+  ChevronRight, Check, Pizza, Grape, Package, Tag, MapPin
 } from "lucide-react";
 
 const fmt = (v: number) =>
@@ -40,7 +40,16 @@ export default function SellerNewOrder() {
 
   // Customer
   const [customerSearch, setCustomerSearch] = useState("");
-  const [selectedCustomer, setSelectedCustomer] = useState<{ id: number; name: string; phone: string } | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<{ 
+    id: number; 
+    name: string; 
+    phone: string;
+    street?: string | null;
+    number?: string | null;
+    neighborhood?: string | null;
+    city?: string | null;
+    locationReference?: string | null;
+  } | null>(null);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", street: "", neighborhood: "", city: "" });
 
@@ -51,7 +60,14 @@ export default function SellerNewOrder() {
 
   const createCustomerMutation = trpc.seller.createCustomer.useMutation({
     onSuccess: (data) => {
-      setSelectedCustomer({ id: data.id, name: newCustomer.name, phone: newCustomer.phone });
+      setSelectedCustomer({ 
+        id: data.id, 
+        name: newCustomer.name, 
+        phone: newCustomer.phone,
+        street: newCustomer.street,
+        neighborhood: newCustomer.neighborhood,
+        city: newCustomer.city
+      });
       setShowNewCustomer(false);
       setNewCustomer({ name: "", phone: "", street: "", neighborhood: "", city: "" });
       toast.success("Cliente cadastrado!");
@@ -274,11 +290,23 @@ export default function SellerNewOrder() {
     if (cart.length === 0) { toast.error("Adicione pelo menos um item."); return; }
     if (!deliveryMethodId) { toast.error("Selecione a forma de entrega."); return; }
 
+    // Prepare delivery address
+    let finalAddress = deliveryAddress;
+    if (deliveryAddressType === "customer" && selectedCustomer) {
+      const parts = [
+        selectedCustomer.street,
+        selectedCustomer.number,
+        selectedCustomer.neighborhood,
+        selectedCustomer.city
+      ].filter(Boolean);
+      finalAddress = parts.join(", ");
+    }
+
     createOrderMutation.mutate({
       sellerId: seller!.id,
       customerId: selectedCustomer.id,
       deliveryMethodId: Number(deliveryMethodId),
-      deliveryAddress: deliveryAddress || undefined,
+      deliveryAddress: finalAddress || undefined,
       paymentMethod,
       notes: notes || undefined,
       totalAmount: totalAmount.toFixed(2),
@@ -361,7 +389,7 @@ export default function SellerNewOrder() {
                   {searchResults.map(c => (
                     <button
                       key={c.id}
-                      onClick={() => { setSelectedCustomer({ id: c.id, name: c.name, phone: c.phone }); setCustomerSearch(""); }}
+                      onClick={() => { setSelectedCustomer(c); setCustomerSearch(""); }}
                       className="w-full flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors text-left border-b border-border last:border-0"
                     >
                       <User className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -388,49 +416,79 @@ export default function SellerNewOrder() {
             <Package className="w-4 h-4" /> Produtos
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-0 space-y-2">
-          {/* One button per category */}
+        <CardContent className="pt-0 grid grid-cols-1 gap-2">
           {groupedProducts.map(([cat]) => {
-            const count = categoryCartCount[cat];
-            const isMiniPizza = cat === "MiniPizzas";
-            const isJelly = cat === "geleias";
-            const isCongelados = cat === "congelados";
-
-            let icon = <Tag className="w-4 h-4" />;
-            let label = `Adicionar ${cat}`;
-
-            if (isMiniPizza) {
-              icon = <Pizza className="w-4 h-4" />;
-              label = "Adicionar MiniPizzas";
-            } else if (isJelly) {
-              icon = <Grape className="w-4 h-4" />;
-              label = "Adicionar geleias";
-            } else if (isCongelados) {
-              icon = <Package className="w-4 h-4" />;
-              label = "Adicionar congelados";
+            const count = categoryCartCount[cat] || 0;
+            const label = cat.charAt(0).toUpperCase() + cat.slice(1);
+            
+            // Especial handling for MiniPizzas and geleias as requested
+            if (cat === "MiniPizzas") {
+              return (
+                <Button
+                  key={cat}
+                  variant="outline"
+                  className="h-14 justify-between px-4 border-border hover:border-primary/40 hover:bg-primary/5 group relative"
+                  onClick={startMpWizard}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                      <Pizza className="w-4 h-4" />
+                    </div>
+                    <span className="font-medium text-foreground">Adicionar MiniPizzas</span>
+                  </div>
+                  {cart.filter(c => c.type === "minipizza").length > 0 && (
+                    <span className="bg-primary text-primary-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                      {cart.filter(c => c.type === "minipizza").reduce((s, c) => s + c.quantity, 0)}
+                    </span>
+                  )}
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                </Button>
+              );
             }
-            const onClick = isMiniPizza ? startMpWizard : (isJelly ? () => setShowJellyDialog(true) : () => openCategoryDialog(cat));
+
+            if (cat === "geleias") {
+              return (
+                <Button
+                  key={cat}
+                  variant="outline"
+                  className="h-14 justify-between px-4 border-border hover:border-primary/40 hover:bg-primary/5 group relative"
+                  onClick={() => setShowJellyDialog(true)}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                      <Grape className="w-4 h-4" />
+                    </div>
+                    <span className="font-medium text-foreground">Adicionar geleias</span>
+                  </div>
+                  {cart.filter(c => c.type === "jelly").length > 0 && (
+                    <span className="bg-primary text-primary-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                      {cart.filter(c => c.type === "jelly").reduce((s, c) => s + c.quantity, 0)}
+                    </span>
+                  )}
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                </Button>
+              );
+            }
 
             return (
               <Button
                 key={cat}
                 variant="outline"
-                size="sm"
-                onClick={onClick}
-                className="gap-2 w-full justify-between h-11"
+                className="h-14 justify-between px-4 border-border hover:border-primary/40 hover:bg-primary/5 group relative"
+                onClick={() => openCategoryDialog(cat)}
               >
-                <span className="flex items-center gap-2 text-sm font-medium">
-                  {icon}
-                  {label}
-                </span>
-                <span className="flex items-center gap-2">
-                  {count !== undefined && count > 0 && (
-                    <span className="bg-primary text-primary-foreground text-xs font-bold px-2 py-0.5 rounded-full">
-                      {count}
-                    </span>
-                  )}
-                  <Plus className="w-4 h-4 text-muted-foreground" />
-                </span>
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                    <Tag className="w-4 h-4" />
+                  </div>
+                  <span className="font-medium text-foreground">Adicionar {label}</span>
+                </div>
+                {count > 0 && (
+                  <span className="bg-primary text-primary-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {count}
+                  </span>
+                )}
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
               </Button>
             );
           })}
@@ -439,37 +497,34 @@ export default function SellerNewOrder() {
 
       {/* ── CART ── */}
       {cart.length > 0 && (
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <ShoppingCart className="w-4 h-4" /> Carrinho
+        <Card className="bg-card border-border overflow-hidden">
+          <CardHeader className="pb-2 bg-muted/30">
+            <CardTitle className="text-sm font-medium text-foreground flex items-center gap-2">
+              <ShoppingCart className="w-4 h-4" /> Itens no Pedido
             </CardTitle>
           </CardHeader>
-          <CardContent className="pt-0 space-y-3">
-            {cart.map(item => (
-              <div key={item.id} className="flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{item.label}</p>
-                  <p className="text-xs text-muted-foreground">{fmt(item.unitPrice)} × {item.quantity} = {fmt(item.subtotal)}</p>
+          <CardContent className="p-0">
+            <div className="divide-y divide-border">
+              {cart.map(item => (
+                <div key={item.id} className="p-3 flex items-center justify-between group">
+                  <div className="flex-1 min-w-0 mr-3">
+                    <p className="text-sm font-medium text-foreground leading-tight mb-0.5">{item.label}</p>
+                    <p className="text-xs text-muted-foreground">{item.quantity} × {fmt(item.unitPrice)}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center bg-muted/50 rounded-lg border border-border p-1">
+                      <button onClick={() => changeQty(item.id, -1)} className="p-1 hover:text-primary transition-colors"><Minus className="w-3.5 h-3.5" /></button>
+                      <span className="w-6 text-center text-xs font-bold">{item.quantity}</span>
+                      <button onClick={() => changeQty(item.id, 1)} className="p-1 hover:text-primary transition-colors"><Plus className="w-3.5 h-3.5" /></button>
+                    </div>
+                    <button onClick={() => removeFromCart(item.id)} className="text-muted-foreground hover:text-destructive transition-colors p-1"><Trash2 className="w-4 h-4" /></button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => changeQty(item.id, -1)}>
-                    <Minus className="w-3 h-3" />
-                  </Button>
-                  <span className="w-6 text-center text-sm font-medium">{item.quantity}</span>
-                  <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => changeQty(item.id, 1)}>
-                    <Plus className="w-3 h-3" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeFromCart(item.id)}>
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-            <Separator />
-            <div className="flex justify-between font-semibold text-foreground">
-              <span>Total</span>
-              <span>{fmt(totalAmount)}</span>
+              ))}
+            </div>
+            <div className="p-3 bg-primary/5 flex justify-between items-center border-t border-border">
+              <span className="text-sm font-medium text-foreground">Total do Pedido</span>
+              <span className="text-lg font-bold text-primary">{fmt(totalAmount)}</span>
             </div>
           </CardContent>
         </Card>
@@ -477,27 +532,28 @@ export default function SellerNewOrder() {
 
       {/* ── DELIVERY & PAYMENT ── */}
       <Card className="bg-card border-border">
-        <CardContent className="pt-4 space-y-4">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+            <ChevronRight className="w-4 h-4" /> Entrega e Pagamento
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-4">
           <div className="space-y-1.5">
             <Label className="text-sm">Forma de Entrega</Label>
-            <Select value={deliveryMethodId} onValueChange={val => {
-              setDeliveryMethodId(val);
-              const method = catalog?.deliveryMethods.find(m => String(m.id) === val);
-              if (method?.name.toLowerCase().includes("gratuita")) {
-                setDeliveryAddressType("customer");
-              }
-            }}>
-              <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+            <Select value={deliveryMethodId} onValueChange={setDeliveryMethodId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione..." />
+              </SelectTrigger>
               <SelectContent>
-                {catalog?.deliveryMethods.map(d => (
-                  <SelectItem key={d.id} value={String(d.id)}>{d.name}</SelectItem>
+                {catalog?.deliveryMethods.map(m => (
+                  <SelectItem key={m.id} value={m.id.toString()}>{m.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
           {(() => {
-            const method = catalog?.deliveryMethods.find(m => String(m.id) === deliveryMethodId);
+            const method = catalog?.deliveryMethods.find(m => m.id.toString() === deliveryMethodId);
             if (!method) return null;
 
             const isFreeDelivery = method.name.toLowerCase().includes("gratuita");
@@ -546,7 +602,17 @@ export default function SellerNewOrder() {
                   <div className="text-xs text-muted-foreground bg-background p-2 rounded border border-border">
                     <p className="font-medium text-foreground mb-1">Usando endereço cadastrado:</p>
                     {selectedCustomer ? (
-                      <p>O pedido será entregue no endereço cadastrado no perfil do cliente.</p>
+                      <div className="flex items-start gap-2">
+                        <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        <p>
+                          {[
+                            selectedCustomer.street,
+                            selectedCustomer.number,
+                            selectedCustomer.neighborhood,
+                            selectedCustomer.city
+                          ].filter(Boolean).join(", ") || "Endereço não cadastrado para este cliente."}
+                        </p>
+                      </div>
                     ) : (
                       <p className="text-destructive">Selecione um cliente para ver o endereço.</p>
                     )}
