@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { overduePaymentsHandler } from "../routers/notifications";
+import { registerDbSetupRoute } from "../dbSetup";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -39,6 +40,8 @@ async function startServer() {
   registerOAuthRoutes(app);
   // Health check for Railway
   app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+  // One-time database setup route (safe to run multiple times)
+  registerDbSetupRoute(app);
   // Scheduled notification handlers
   app.post("/api/scheduled/overdue-payments", overduePaymentsHandler);
   // tRPC API
