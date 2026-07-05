@@ -263,7 +263,7 @@ const ordersRouter = router({
         paymentStatus: "pending",
       });
 
-      const orderId = Number((result as any).insertId);
+      const orderId = Number((result as any)[0].insertId);
 
       // Insert items
       if (input.items.length > 0) {
@@ -276,7 +276,7 @@ const ordersRouter = router({
           orderId, minipizzaTypeId: mp.minipizzaTypeId,
           quantity: mp.quantity, unitPrice: mp.unitPrice, subtotal: mp.subtotal,
         });
-        const mpId = Number((mpResult as any).insertId);
+        const mpId = Number((mpResult as any)[0].insertId);
         if (mp.flavorIds.length > 0) {
           await db.insert(orderMinipizzaFlavors).values(
             mp.flavorIds.map(fId => ({ orderMinipizzaId: mpId, minipizzaFlavorId: fId }))

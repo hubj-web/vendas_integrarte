@@ -63,6 +63,7 @@ export default function SellerNewOrder() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [deliveryMethodId, setDeliveryMethodId] = useState<string>("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [deliveryAddressType, setDeliveryAddressType] = useState<"customer" | "other">("customer");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "pix">("pix");
   const [notes, setNotes] = useState("");
 
@@ -91,16 +92,35 @@ export default function SellerNewOrder() {
   // Group products by category
   const groupedProducts = useMemo(() => {
     if (!catalog) return [];
-    type PType = { id: number; name: string; category?: string | null };
-    const typeMap = Object.fromEntries((catalog.productTypes as PType[]).map(t => [t.id, t]));
+    const typeMap = Object.fromEntries((catalog.productTypes as any[]).map(t => [t.id, t]));
     const grouped: Record<string, typeof catalog.products> = {};
+    
     for (const p of catalog.products) {
       const t = typeMap[p.productTypeId];
-      const cat = (t?.category) || (t?.name) || "Outros";
+      const typeName = (t?.name || "").toLowerCase();
+      const catName = (t?.categoryName || t?.category || "").toLowerCase();
+      
+      let cat = "Outros";
+      if (catName.includes("congelado") || ["pão de queijo", "biscoito", "broa"].some(sub => typeName.includes(sub))) {
+        cat = "congelados";
+      } else if (catName.includes("minipizza") || typeName.includes("minipizza")) {
+        cat = "MiniPizzas";
+      } else if (catName.includes("geleia") || typeName.includes("geleia")) {
+        cat = "geleias";
+      } else {
+        cat = t?.categoryName || t?.category || t?.name || "Outros";
+      }
+      
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push(p);
     }
-    return Object.entries(grouped);
+    
+    return Object.entries(grouped).sort((a, b) => {
+      const order = { "congelados": 1, "MiniPizzas": 2, "geleias": 3 };
+      const valA = order[a[0] as keyof typeof order] || 99;
+      const valB = order[b[0] as keyof typeof order] || 99;
+      return valA - valB;
+    });
   }, [catalog]);
 
   // Products in the active category dialog
@@ -372,17 +392,36 @@ export default function SellerNewOrder() {
           {/* One button per category */}
           {groupedProducts.map(([cat]) => {
             const count = categoryCartCount[cat];
+            const isMiniPizza = cat === "MiniPizzas";
+            const isJelly = cat === "geleias";
+            const isCongelados = cat === "congelados";
+
+            let icon = <Tag className="w-4 h-4" />;
+            let label = `Adicionar ${cat}`;
+
+            if (isMiniPizza) {
+              icon = <Pizza className="w-4 h-4" />;
+              label = "Adicionar MiniPizzas";
+            } else if (isJelly) {
+              icon = <Grape className="w-4 h-4" />;
+              label = "Adicionar geleias";
+            } else if (isCongelados) {
+              icon = <Package className="w-4 h-4" />;
+              label = "Adicionar congelados";
+            }
+            const onClick = isMiniPizza ? startMpWizard : (isJelly ? () => setShowJellyDialog(true) : () => openCategoryDialog(cat));
+
             return (
               <Button
                 key={cat}
                 variant="outline"
                 size="sm"
-                onClick={() => openCategoryDialog(cat)}
+                onClick={onClick}
                 className="gap-2 w-full justify-between h-11"
               >
-                <span className="flex items-center gap-2">
-                  <Tag className="w-4 h-4" />
-                  {cat}
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  {icon}
+                  {label}
                 </span>
                 <span className="flex items-center gap-2">
                   {count !== undefined && count > 0 && (
@@ -390,21 +429,11 @@ export default function SellerNewOrder() {
                       {count}
                     </span>
                   )}
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  <Plus className="w-4 h-4 text-muted-foreground" />
                 </span>
               </Button>
             );
           })}
-
-          <Separator />
-
-          {/* Minipizza & Jelly buttons */}
-          <Button variant="outline" size="sm" onClick={startMpWizard} className="gap-2 w-full">
-            <Pizza className="w-4 h-4" /> Adicionar Minipizza
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowJellyDialog(true)} className="gap-2 w-full">
-            <Grape className="w-4 h-4" /> Adicionar Geleia
-          </Button>
         </CardContent>
       </Card>
 
@@ -451,7 +480,13 @@ export default function SellerNewOrder() {
         <CardContent className="pt-4 space-y-4">
           <div className="space-y-1.5">
             <Label className="text-sm">Forma de Entrega</Label>
-            <Select value={deliveryMethodId} onValueChange={setDeliveryMethodId}>
+            <Select value={deliveryMethodId} onValueChange={val => {
+              setDeliveryMethodId(val);
+              const method = catalog?.deliveryMethods.find(m => String(m.id) === val);
+              if (method?.name.toLowerCase().includes("gratuita")) {
+                setDeliveryAddressType("customer");
+              }
+            }}>
               <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
               <SelectContent>
                 {catalog?.deliveryMethods.map(d => (
@@ -460,10 +495,66 @@ export default function SellerNewOrder() {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-sm">Endereço de Entrega (opcional)</Label>
-            <Input value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} placeholder="Rua, número, bairro..." />
-          </div>
+
+          {(() => {
+            const method = catalog?.deliveryMethods.find(m => String(m.id) === deliveryMethodId);
+            if (!method) return null;
+
+            const isFreeDelivery = method.name.toLowerCase().includes("gratuita");
+            const requiresAddress = method.requiresAddress || isFreeDelivery;
+
+            if (!requiresAddress) return null;
+
+            return (
+              <div className="space-y-3 p-3 border border-border rounded-lg bg-muted/20">
+                {isFreeDelivery && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Onde será a entrega?</Label>
+                    <div className="flex gap-2">
+                      <Button 
+                        type="button"
+                        variant={deliveryAddressType === "customer" ? "default" : "outline"} 
+                        size="sm" 
+                        className="flex-1 text-xs"
+                        onClick={() => setDeliveryAddressType("customer")}
+                      >
+                        Endereço do Cliente
+                      </Button>
+                      <Button 
+                        type="button"
+                        variant={deliveryAddressType === "other" ? "default" : "outline"} 
+                        size="sm" 
+                        className="flex-1 text-xs"
+                        onClick={() => setDeliveryAddressType("other")}
+                      >
+                        Outro Endereço
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {(deliveryAddressType === "other" || !isFreeDelivery) ? (
+                  <div className="space-y-1.5">
+                    <Label className="text-sm">Endereço de Entrega</Label>
+                    <Input 
+                      value={deliveryAddress} 
+                      onChange={e => setDeliveryAddress(e.target.value)} 
+                      placeholder="Rua, número, bairro..." 
+                    />
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground bg-background p-2 rounded border border-border">
+                    <p className="font-medium text-foreground mb-1">Usando endereço cadastrado:</p>
+                    {selectedCustomer ? (
+                      <p>O pedido será entregue no endereço cadastrado no perfil do cliente.</p>
+                    ) : (
+                      <p className="text-destructive">Selecione um cliente para ver o endereço.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <div className="space-y-1.5">
             <Label className="text-sm">Forma de Pagamento</Label>
             <div className="flex gap-2">
