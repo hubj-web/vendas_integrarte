@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { User, ChevronRight, Lock, PenLine, ArrowLeft } from "lucide-react";
 import { Link } from "wouter";
 
-const LOGO_URL = "/manus-storage/integrarte-logo_3af31856.png";
+const LOGO_URL = "/integrarte-logo.png";
 
 export default function SelectSeller() {
   const { setSeller } = useSeller();

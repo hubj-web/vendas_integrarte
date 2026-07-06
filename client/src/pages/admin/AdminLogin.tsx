@@ -8,7 +8,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { useLocation } from "wouter";
 import { COOKIE_NAME } from "@/const";
 
-const LOGO_URL = "/manus-storage/integrarte-logo_3af31856.png";
+const LOGO_URL = "/integrarte-logo.png";
 
 export default function AdminLogin() {
   const [, navigate] = useLocation();

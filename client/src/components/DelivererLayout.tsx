@@ -3,7 +3,7 @@ import { useDeliverer } from "@/contexts/DelivererContext";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
 
-const LOGO_URL = "/manus-storage/integrarte-logo_3af31856.png";
+const LOGO_URL = "/integrarte-logo.png";
 
 interface DelivererLayoutProps {
   children: ReactNode;

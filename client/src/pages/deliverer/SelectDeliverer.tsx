@@ -3,7 +3,7 @@ import { useDeliverer } from "@/contexts/DelivererContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { User, ChevronRight } from "lucide-react";
 
-const LOGO_URL = "/manus-storage/integrarte-logo_3af31856.png";
+const LOGO_URL = "/integrarte-logo.png";
 
 export default function SelectDeliverer() {
   const { setDeliverer } = useDeliverer();

@@ -95,7 +95,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         ) : (
           <img
-            src="/manus-storage/integrarte-logo_3af31856.png"
+            src="/integrarte-logo.png"
             alt="Integrarte"
             className="h-16 w-auto object-contain"
           />
@@ -194,7 +194,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <button onClick={() => setMobileOpen(true)} className="text-muted-foreground">
             <Menu className="w-5 h-5" />
           </button>
-          <img src="/manus-storage/integrarte-logo_3af31856.png" alt="Integrarte" className="h-8 w-auto object-contain" />
+          <img src="/integrarte-logo.png" alt="Integrarte" className="h-8 w-auto object-contain" />
           <span className="font-semibold text-foreground text-sm">Gestão de Pedidos</span>
         </header>
 
