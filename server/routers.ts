@@ -3,7 +3,7 @@ import { router } from "./_core/trpc";
 import { authRouter } from "./routers/auth";
 import { usersRouter } from "./routers/users";
 import { catalogRouter } from "./routers/catalog";
-import { ordersRouter2 } from "./routers/orders";
+import { ordersRouter } from "./routers/orders";
 import { deliveryRouter } from "./routers/delivery";
 import { reportsRouter } from "./routers/reports";
 import { sellerRouter } from "./routers/seller";
@@ -14,7 +14,7 @@ export const appRouter = router({
   auth: authRouter,
   users: usersRouter,
   catalog: catalogRouter,
-  orders: ordersRouter2,
+  orders: ordersRouter,
   delivery: deliveryRouter,
   reports: reportsRouter,
   seller: sellerRouter,
