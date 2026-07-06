@@ -36,7 +36,7 @@ const customersRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const result = await db.insert(customers).values(input);
-      return { success: true, id: Number((result as any).insertId) };
+      return { success: true, id: Number((result as any)[0].insertId) };
     }),
 
   update: protectedProcedure
@@ -83,7 +83,7 @@ const orderJellySchema = z.object({
   subtotal: z.string(),
 });
 
-const ordersRouter = router({
+export const ordersRouter = router({
   list: protectedProcedure
     .input(z.object({
       page: z.number().default(1),
@@ -356,16 +356,9 @@ const ordersRouter = router({
       id: orders.id, totalAmount: orders.totalAmount,
       deliveryDate: orders.deliveryDate, createdAt: orders.createdAt,
       customerName: customers.name, customerPhone: customers.phone,
-    })
-      .from(orders)
+    }).from(orders)
       .leftJoin(customers, eq(orders.customerId, customers.id))
-      .where(and(eq(orders.status, "delivered"), eq(orders.paymentStatus, "pending")))
-      .orderBy(desc(orders.deliveryDate));
+      .where(and(eq(orders.paymentStatus, "pending"), eq(orders.status, "delivered")));
     return rows;
   }),
-});
-
-export const ordersRouter2 = router({
-  customers: customersRouter,
-  orders: ordersRouter,
 });

@@ -45,7 +45,13 @@ export const sellerRouter = router({
     const db = await getDb();
     if (!db) return { productTypes: [], products: [], minipizzaTypes: [], minipizzaFlavors: [], compatibility: [], jellyFlavors: [], deliveryMethods: [] };
     const [ptypes, prods, mptypes, mpflavors, compat, jflavors, dmethods] = await Promise.all([
-      db.select().from(productTypes).where(eq(productTypes.active, true)),
+      db.select({
+        id: productTypes.id,
+        name: productTypes.name,
+        categoryName: (productTypes as any).category,
+      })
+        .from(productTypes)
+        .where(eq(productTypes.active, true)),
       db.select().from(products).where(eq(products.active, true)),
       db.select().from(minipizzaTypes).where(eq(minipizzaTypes.active, true)),
       db.select().from(minipizzaFlavors).where(eq(minipizzaFlavors.active, true)),
@@ -96,7 +102,7 @@ export const sellerRouter = router({
         zipCode: input.zipCode,
         locationReference: input.locationReference,
       });
-      return { id: Number((result as any).insertId) };
+      return { id: Number((result as any)[0].insertId) };
     }),
 
   /** Lança um novo pedido (requer sellerId válido com role=launcher) */

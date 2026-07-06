@@ -78,8 +78,8 @@ export default function SellerNewOrder() {
   // Cart
   const [cart, setCart] = useState<CartItem[]>([]);
   const [deliveryMethodId, setDeliveryMethodId] = useState<string>("");
+  const [deliveryAddressOption, setDeliveryAddressOption] = useState<"customer" | "other">("customer");
   const [deliveryAddress, setDeliveryAddress] = useState("");
-  const [deliveryAddressType, setDeliveryAddressType] = useState<"customer" | "other">("customer");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "pix">("pix");
   const [notes, setNotes] = useState("");
 
@@ -108,13 +108,14 @@ export default function SellerNewOrder() {
   // Group products by category
   const groupedProducts = useMemo(() => {
     if (!catalog) return [];
-    const typeMap = Object.fromEntries((catalog.productTypes as any[]).map(t => [t.id, t]));
+    type PType = { id: number; name: string; categoryName?: string | null };
+    const typeMap = Object.fromEntries((catalog.productTypes as PType[]).map(t => [t.id, t]));
     const grouped: Record<string, typeof catalog.products> = {};
     
     for (const p of catalog.products) {
       const t = typeMap[p.productTypeId];
       const typeName = (t?.name || "").toLowerCase();
-      const catName = (t?.categoryName || t?.category || "").toLowerCase();
+      const catName = (t?.categoryName || (t as any)?.category || "").toLowerCase();
       
       let cat = "Outros";
       if (catName.includes("congelado") || ["pão de queijo", "biscoito", "broa"].some(sub => typeName.includes(sub))) {
@@ -124,7 +125,7 @@ export default function SellerNewOrder() {
       } else if (catName.includes("geleia") || typeName.includes("geleia")) {
         cat = "geleias";
       } else {
-        cat = t?.categoryName || t?.category || t?.name || "Outros";
+        cat = t?.categoryName || (t as any)?.category || t?.name || "Outros";
       }
       
       if (!grouped[cat]) grouped[cat] = [];
@@ -133,8 +134,8 @@ export default function SellerNewOrder() {
     
     return Object.entries(grouped).sort((a, b) => {
       const order = { "congelados": 1, "MiniPizzas": 2, "geleias": 3 };
-      const valA = order[a[0] as keyof typeof order] || 99;
-      const valB = order[b[0] as keyof typeof order] || 99;
+      const valA = (order as any)[a[0]] || 99;
+      const valB = (order as any)[b[0]] || 99;
       return valA - valB;
     });
   }, [catalog]);
@@ -290,16 +291,11 @@ export default function SellerNewOrder() {
     if (cart.length === 0) { toast.error("Adicione pelo menos um item."); return; }
     if (!deliveryMethodId) { toast.error("Selecione a forma de entrega."); return; }
 
-    // Prepare delivery address
     let finalAddress = deliveryAddress;
-    if (deliveryAddressType === "customer" && selectedCustomer) {
-      const parts = [
-        selectedCustomer.street,
-        selectedCustomer.number,
-        selectedCustomer.neighborhood,
-        selectedCustomer.city
-      ].filter(Boolean);
-      finalAddress = parts.join(", ");
+    if (deliveryAddressOption === "customer" && selectedCustomer) {
+      const c = selectedCustomer as any;
+      finalAddress = [c.street, c.number, c.neighborhood, c.city].filter(Boolean).join(", ");
+      if (c.locationReference) finalAddress += ` (${c.locationReference})`;
     }
 
     createOrderMutation.mutate({
@@ -367,519 +363,473 @@ export default function SellerNewOrder() {
         <CardContent className="pt-0 space-y-3">
           {selectedCustomer ? (
             <div className="flex items-center justify-between bg-primary/5 border border-primary/20 rounded-lg p-3">
-              <div>
-                <p className="font-medium text-foreground">{selectedCustomer.name}</p>
-                <p className="text-xs text-muted-foreground">{selectedCustomer.phone}</p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+                  {selectedCustomer.name.charAt(0)}
+                </div>
+                <div>
+                  <p className="font-semibold text-foreground">{selectedCustomer.name}</p>
+                  <p className="text-xs text-muted-foreground">{selectedCustomer.phone}</p>
+                </div>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedCustomer(null)} className="text-xs">Trocar</Button>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedCustomer(null)} className="text-muted-foreground hover:text-destructive">
+                Alterar
+              </Button>
             </div>
           ) : (
-            <>
+            <div className="space-y-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
                   placeholder="Buscar cliente por nome ou telefone..."
                   value={customerSearch}
-                  onChange={e => setCustomerSearch(e.target.value)}
-                  className="pl-9"
+                  onChange={(e) => setCustomerSearch(e.target.value)}
+                  className="pl-9 bg-input border-border focus:ring-primary"
                 />
               </div>
+              
               {searchResults && searchResults.length > 0 && (
-                <div className="border border-border rounded-lg overflow-hidden">
+                <div className="border border-border rounded-lg bg-card overflow-hidden divide-y divide-border">
                   {searchResults.map(c => (
                     <button
                       key={c.id}
-                      onClick={() => { setSelectedCustomer(c); setCustomerSearch(""); }}
-                      className="w-full flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors text-left border-b border-border last:border-0"
+                      className="w-full text-left p-3 hover:bg-accent transition-colors flex items-center justify-between"
+                      onClick={() => {
+                        setSelectedCustomer(c);
+                        setCustomerSearch("");
+                      }}
                     >
-                      <User className="w-4 h-4 text-muted-foreground shrink-0" />
                       <div>
-                        <p className="text-sm font-medium text-foreground">{c.name}</p>
+                        <p className="font-medium text-foreground">{c.name}</p>
                         <p className="text-xs text-muted-foreground">{c.phone}</p>
                       </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
                     </button>
                   ))}
                 </div>
               )}
-              <Button variant="outline" size="sm" onClick={() => setShowNewCustomer(true)} className="gap-2 w-full">
+              
+              <Button
+                variant="outline"
+                className="w-full gap-2 border-dashed border-primary/40 text-primary hover:bg-primary/5"
+                onClick={() => setShowNewCustomer(true)}
+              >
                 <UserPlus className="w-4 h-4" /> Cadastrar novo cliente
               </Button>
-            </>
+            </div>
           )}
         </CardContent>
       </Card>
 
-      {/* ── PRODUCTS (category buttons) ── */}
+      {/* ── PRODUCTS ── */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
             <Package className="w-4 h-4" /> Produtos
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-0 grid grid-cols-1 gap-2">
-          {groupedProducts.map(([cat]) => {
-            const count = categoryCartCount[cat] || 0;
-            const label = cat.charAt(0).toUpperCase() + cat.slice(1);
-            
-            // Especial handling for MiniPizzas and geleias as requested
-            if (cat === "MiniPizzas") {
-              return (
-                <Button
-                  key={cat}
-                  variant="outline"
-                  className="h-14 justify-between px-4 border-border hover:border-primary/40 hover:bg-primary/5 group relative"
-                  onClick={startMpWizard}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                      <Pizza className="w-4 h-4" />
-                    </div>
-                    <span className="font-medium text-foreground">Adicionar MiniPizzas</span>
-                  </div>
-                  {cart.filter(c => c.type === "minipizza").length > 0 && (
-                    <span className="bg-primary text-primary-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                      {cart.filter(c => c.type === "minipizza").reduce((s, c) => s + c.quantity, 0)}
-                    </span>
-                  )}
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                </Button>
-              );
-            }
-
-            if (cat === "geleias") {
-              return (
-                <Button
-                  key={cat}
-                  variant="outline"
-                  className="h-14 justify-between px-4 border-border hover:border-primary/40 hover:bg-primary/5 group relative"
-                  onClick={() => setShowJellyDialog(true)}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                      <Grape className="w-4 h-4" />
-                    </div>
-                    <span className="font-medium text-foreground">Adicionar geleias</span>
-                  </div>
-                  {cart.filter(c => c.type === "jelly").length > 0 && (
-                    <span className="bg-primary text-primary-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                      {cart.filter(c => c.type === "jelly").reduce((s, c) => s + c.quantity, 0)}
-                    </span>
-                  )}
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                </Button>
-              );
-            }
-
-            return (
+        <CardContent className="pt-0 space-y-3">
+          {/* Category Buttons */}
+          <div className="grid grid-cols-1 gap-2">
+            {groupedProducts.map(([cat]) => (
               <Button
                 key={cat}
                 variant="outline"
-                className="h-14 justify-between px-4 border-border hover:border-primary/40 hover:bg-primary/5 group relative"
+                className="justify-between h-12 border-border hover:border-primary/50 hover:bg-primary/5"
                 onClick={() => openCategoryDialog(cat)}
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                    <Tag className="w-4 h-4" />
-                  </div>
-                  <span className="font-medium text-foreground">Adicionar {label}</span>
+                <div className="flex items-center gap-2">
+                  <Tag className="w-4 h-4 text-primary/70" />
+                  <span className="capitalize">Adicionar {cat}</span>
                 </div>
-                {count > 0 && (
-                  <span className="bg-primary text-primary-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                    {count}
+                <div className="flex items-center gap-2">
+                  {categoryCartCount[cat] > 0 && (
+                    <span className="bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                      {categoryCartCount[cat]}
+                    </span>
+                  )}
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                </div>
+              </Button>
+            ))}
+
+            <Button
+              variant="outline"
+              className="justify-between h-12 border-border hover:border-primary/50 hover:bg-primary/5"
+              onClick={startMpWizard}
+            >
+              <div className="flex items-center gap-2">
+                <Pizza className="w-4 h-4 text-primary/70" />
+                <span>Adicionar MiniPizzas</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {cart.filter(c => c.type === "minipizza").length > 0 && (
+                  <span className="bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                    {cart.filter(c => c.type === "minipizza").reduce((s, c) => s + c.quantity, 0)}
                   </span>
                 )}
                 <ChevronRight className="w-4 h-4 text-muted-foreground" />
-              </Button>
-            );
-          })}
+              </div>
+            </Button>
+
+            <Button
+              variant="outline"
+              className="justify-between h-12 border-border hover:border-primary/50 hover:bg-primary/5"
+              onClick={() => setShowJellyDialog(true)}
+            >
+              <div className="flex items-center gap-2">
+                <Grape className="w-4 h-4 text-primary/70" />
+                <span>Adicionar geleias</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {cart.filter(c => c.type === "jelly").length > 0 && (
+                  <span className="bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                    {cart.filter(c => c.type === "jelly").reduce((s, c) => s + c.quantity, 0)}
+                  </span>
+                )}
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              </div>
+            </Button>
+          </div>
+
+          {/* Cart Items */}
+          {cart.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <Separator className="bg-border/50" />
+              <div className="divide-y divide-border/40">
+                {cart.map((item) => (
+                  <div key={item.id} className="py-3 flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-foreground">{item.label}</p>
+                      <p className="text-xs text-muted-foreground">{fmt(item.unitPrice)} cada</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="flex items-center gap-2 bg-accent/50 rounded-lg p-1">
+                        <Button variant="ghost" size="icon" className="w-7 h-7 rounded-md" onClick={() => changeQty(item.id, -1)}>
+                          <Minus className="w-3 h-3" />
+                        </Button>
+                        <span className="text-sm font-bold min-w-[1.5rem] text-center">{item.quantity}</span>
+                        <Button variant="ghost" size="icon" className="w-7 h-7 rounded-md" onClick={() => changeQty(item.id, 1)}>
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-bold text-primary">{fmt(item.subtotal)}</span>
+                        <Button variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:text-destructive" onClick={() => removeFromCart(item.id)}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
-
-      {/* ── CART ── */}
-      {cart.length > 0 && (
-        <Card className="bg-card border-border overflow-hidden">
-          <CardHeader className="pb-2 bg-muted/30">
-            <CardTitle className="text-sm font-medium text-foreground flex items-center gap-2">
-              <ShoppingCart className="w-4 h-4" /> Itens no Pedido
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="divide-y divide-border">
-              {cart.map(item => (
-                <div key={item.id} className="p-3 flex items-center justify-between group">
-                  <div className="flex-1 min-w-0 mr-3">
-                    <p className="text-sm font-medium text-foreground leading-tight mb-0.5">{item.label}</p>
-                    <p className="text-xs text-muted-foreground">{item.quantity} × {fmt(item.unitPrice)}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center bg-muted/50 rounded-lg border border-border p-1">
-                      <button onClick={() => changeQty(item.id, -1)} className="p-1 hover:text-primary transition-colors"><Minus className="w-3.5 h-3.5" /></button>
-                      <span className="w-6 text-center text-xs font-bold">{item.quantity}</span>
-                      <button onClick={() => changeQty(item.id, 1)} className="p-1 hover:text-primary transition-colors"><Plus className="w-3.5 h-3.5" /></button>
-                    </div>
-                    <button onClick={() => removeFromCart(item.id)} className="text-muted-foreground hover:text-destructive transition-colors p-1"><Trash2 className="w-4 h-4" /></button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="p-3 bg-primary/5 flex justify-between items-center border-t border-border">
-              <span className="text-sm font-medium text-foreground">Total do Pedido</span>
-              <span className="text-lg font-bold text-primary">{fmt(totalAmount)}</span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* ── DELIVERY & PAYMENT ── */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-            <ChevronRight className="w-4 h-4" /> Entrega e Pagamento
-          </CardTitle>
+          <CardTitle className="text-sm font-medium text-muted-foreground">Entrega e Pagamento</CardTitle>
         </CardHeader>
         <CardContent className="pt-0 space-y-4">
-          <div className="space-y-1.5">
-            <Label className="text-sm">Forma de Entrega</Label>
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Forma de Entrega</Label>
             <Select value={deliveryMethodId} onValueChange={setDeliveryMethodId}>
-              <SelectTrigger>
+              <SelectTrigger className="bg-input border-border">
                 <SelectValue placeholder="Selecione..." />
               </SelectTrigger>
               <SelectContent>
                 {catalog?.deliveryMethods.map(m => (
-                  <SelectItem key={m.id} value={m.id.toString()}>{m.name}</SelectItem>
+                  <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
-          {(() => {
-            const method = catalog?.deliveryMethods.find(m => m.id.toString() === deliveryMethodId);
-            if (!method) return null;
-
-            const isFreeDelivery = method.name.toLowerCase().includes("gratuita");
-            const requiresAddress = method.requiresAddress || isFreeDelivery;
-
-            if (!requiresAddress) return null;
-
-            return (
-              <div className="space-y-3 p-3 border border-border rounded-lg bg-muted/20">
-                {isFreeDelivery && (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Onde será a entrega?</Label>
-                    <div className="flex gap-2">
-                      <Button 
-                        type="button"
-                        variant={deliveryAddressType === "customer" ? "default" : "outline"} 
-                        size="sm" 
-                        className="flex-1 text-xs"
-                        onClick={() => setDeliveryAddressType("customer")}
-                      >
-                        Endereço do Cliente
-                      </Button>
-                      <Button 
-                        type="button"
-                        variant={deliveryAddressType === "other" ? "default" : "outline"} 
-                        size="sm" 
-                        className="flex-1 text-xs"
-                        onClick={() => setDeliveryAddressType("other")}
-                      >
-                        Outro Endereço
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {(deliveryAddressType === "other" || !isFreeDelivery) ? (
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Endereço de Entrega</Label>
-                    <Input 
-                      value={deliveryAddress} 
-                      onChange={e => setDeliveryAddress(e.target.value)} 
-                      placeholder="Rua, número, bairro..." 
-                    />
-                  </div>
-                ) : (
-                  <div className="text-xs text-muted-foreground bg-background p-2 rounded border border-border">
-                    <p className="font-medium text-foreground mb-1">Usando endereço cadastrado:</p>
-                    {selectedCustomer ? (
-                      <div className="flex items-start gap-2">
-                        <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                        <p>
-                          {[
-                            selectedCustomer.street,
-                            selectedCustomer.number,
-                            selectedCustomer.neighborhood,
-                            selectedCustomer.city
-                          ].filter(Boolean).join(", ") || "Endereço não cadastrado para este cliente."}
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="text-destructive">Selecione um cliente para ver o endereço.</p>
-                    )}
-                  </div>
-                )}
+          {deliveryMethodId && catalog?.deliveryMethods.find(m => String(m.id) === deliveryMethodId)?.requiresAddress && (
+            <div className="space-y-3 p-3 bg-accent/30 rounded-lg border border-border/50">
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-foreground flex items-center gap-2">
+                  <MapPin className="w-3 h-3 text-primary" /> Endereço para entrega
+                </Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={deliveryAddressOption === "customer" ? "default" : "outline"}
+                    className="text-xs h-8"
+                    onClick={() => setDeliveryAddressOption("customer")}
+                  >
+                    Endereço do Cliente
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={deliveryAddressOption === "other" ? "default" : "outline"}
+                    className="text-xs h-8"
+                    onClick={() => setDeliveryAddressOption("other")}
+                  >
+                    Outro Endereço
+                  </Button>
+                </div>
               </div>
-            );
-          })()}
-          <div className="space-y-1.5">
-            <Label className="text-sm">Forma de Pagamento</Label>
-            <div className="flex gap-2">
-              {(["pix", "cash"] as const).map(m => (
-                <button
-                  key={m}
-                  onClick={() => setPaymentMethod(m)}
-                  className={`flex-1 py-2.5 rounded-lg border text-sm font-medium transition-all ${
-                    paymentMethod === m
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:border-primary/30"
-                  }`}
-                >
-                  {m === "pix" ? "PIX" : "Dinheiro"}
-                </button>
-              ))}
+
+              {deliveryAddressOption === "customer" ? (
+                <div className="text-xs text-muted-foreground italic bg-background/50 p-2 rounded border border-border/30">
+                  {selectedCustomer ? (
+                    [selectedCustomer.street, selectedCustomer.number, selectedCustomer.neighborhood, selectedCustomer.city].filter(Boolean).join(", ") || "Cliente sem endereço cadastrado."
+                  ) : "Selecione um cliente primeiro."}
+                </div>
+              ) : (
+                <Input
+                  placeholder="Rua, número, bairro..."
+                  value={deliveryAddress}
+                  onChange={(e) => setDeliveryAddress(e.target.value)}
+                  className="bg-background border-border text-sm"
+                />
+              )}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Forma de Pagamento</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant={paymentMethod === "pix" ? "default" : "outline"}
+                className="h-10 font-bold"
+                onClick={() => setPaymentMethod("pix")}
+              >
+                PIX
+              </Button>
+              <Button
+                variant={paymentMethod === "cash" ? "default" : "outline"}
+                className="h-10 font-bold"
+                onClick={() => setPaymentMethod("cash")}
+              >
+                Dinheiro
+              </Button>
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-sm">Observações (opcional)</Label>
-            <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Alguma observação sobre o pedido..." className="min-h-[60px]" />
+
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Observações (opcional)</Label>
+            <Textarea
+              placeholder="Alguma observação sobre o pedido..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="bg-input border-border min-h-[80px]"
+            />
           </div>
         </CardContent>
       </Card>
 
-      {/* Submit */}
-      <Button
-        className="w-full h-12 text-base font-semibold"
-        onClick={submitOrder}
-        disabled={createOrderMutation.isPending}
-      >
-        {createOrderMutation.isPending ? "Lançando..." : `Confirmar Pedido — ${fmt(totalAmount)}`}
-      </Button>
+      {/* ── SUBMIT ── */}
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-md border-t border-border z-10 max-w-md mx-auto">
+        <Button
+          className="w-full h-12 text-lg font-bold shadow-lg shadow-primary/20"
+          disabled={cart.length === 0 || createOrderMutation.isPending}
+          onClick={submitOrder}
+        >
+          {createOrderMutation.isPending ? "Processando..." : `Confirmar Pedido — ${fmt(totalAmount)}`}
+        </Button>
+      </div>
 
-      {/* ── NEW CUSTOMER DIALOG ── */}
-      <Dialog open={showNewCustomer} onOpenChange={setShowNewCustomer}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Novo Cliente</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Nome *</Label>
-              <Input value={newCustomer.name} onChange={e => setNewCustomer(p => ({ ...p, name: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Telefone *</Label>
-              <Input value={newCustomer.phone} onChange={e => setNewCustomer(p => ({ ...p, phone: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Rua</Label>
-              <Input value={newCustomer.street} onChange={e => setNewCustomer(p => ({ ...p, street: e.target.value }))} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Bairro</Label>
-                <Input value={newCustomer.neighborhood} onChange={e => setNewCustomer(p => ({ ...p, neighborhood: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Cidade</Label>
-                <Input value={newCustomer.city} onChange={e => setNewCustomer(p => ({ ...p, city: e.target.value }))} />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowNewCustomer(false)}>Cancelar</Button>
-            <Button
-              onClick={() => createCustomerMutation.mutate(newCustomer)}
-              disabled={!newCustomer.name || !newCustomer.phone || createCustomerMutation.isPending}
-            >
-              Cadastrar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── CATEGORY PRODUCTS DIALOG ── */}
-      <Dialog open={!!activeCategoryKey} onOpenChange={v => { if (!v) closeCategoryDialog(); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Tag className="w-4 h-4 text-primary" />
-              {activeCategoryKey}
-            </DialogTitle>
+      {/* ── DIALOGS ── */}
+      {/* Category Products Dialog */}
+      <Dialog open={activeCategoryKey !== null} onOpenChange={(open) => !open && closeCategoryDialog()}>
+        <DialogContent className="max-w-sm max-h-[80vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="p-4 border-b border-border">
+            <DialogTitle className="capitalize">Adicionar {activeCategoryKey}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-            {activeCategoryProducts.map(p => {
-              const qty = productQtys[p.id] ?? 0;
-              return (
-                <div
-                  key={p.id}
-                  className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
-                    qty > 0 ? "border-primary/40 bg-primary/5" : "border-border"
-                  }`}
-                >
-                  <div className="flex-1 min-w-0 mr-3">
-                    <p className="text-sm font-medium text-foreground">{p.name}</p>
-                    <p className="text-xs text-muted-foreground">{fmt(Number(p.price))}</p>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {qty > 0 ? (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => setProductQty(p.id, qty - 1)}
-                        >
-                          <Minus className="w-3.5 h-3.5" />
-                        </Button>
-                        <span className="w-7 text-center text-sm font-bold text-primary">{qty}</span>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => setProductQty(p.id, qty + 1)}
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                        </Button>
-                      </>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1.5 h-8"
-                        onClick={() => setProductQty(p.id, 1)}
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Adicionar
-                      </Button>
-                    )}
-                  </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {activeCategoryProducts.map(p => (
+              <div key={p.id} className="flex items-center justify-between gap-4 bg-accent/20 p-3 rounded-xl border border-border/40">
+                <div className="flex-1">
+                  <p className="font-semibold text-foreground text-sm">{p.name}</p>
+                  <p className="text-xs text-primary font-bold">{fmt(Number(p.price))}</p>
                 </div>
-              );
-            })}
+                <div className="flex items-center gap-2 bg-background rounded-lg p-1 border border-border/50">
+                  <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => setProductQty(p.id, (productQtys[p.id] || 0) - 1)}>
+                    <Minus className="w-3 h-3" />
+                  </Button>
+                  <span className="text-sm font-bold min-w-[1.5rem] text-center">{productQtys[p.id] || 0}</span>
+                  <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => setProductQty(p.id, (productQtys[p.id] || 0) + 1)}>
+                    <Plus className="w-3 h-3" />
+                  </Button>
+                </div>
+              </div>
+            ))}
           </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={closeCategoryDialog}>Cancelar</Button>
-            <Button onClick={confirmCategoryProducts} className="gap-2">
-              <Check className="w-4 h-4" />
-              Confirmar
+          <DialogFooter className="p-4 border-t border-border bg-accent/10">
+            <Button className="w-full font-bold" onClick={confirmCategoryProducts}>
+              Adicionar ao Pedido
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── MINIPIZZA WIZARD DIALOG ── */}
-      <Dialog open={showMpDialog} onOpenChange={v => { if (!v) { setShowMpDialog(false); setMpWizard(null); } }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {mpWizard?.step === "type" && "Minipizza — Escolha o Tipo"}
-              {mpWizard?.step === "flavors" && "Minipizza — Escolha os Sabores"}
-              {mpWizard?.step === "quantity" && "Minipizza — Quantidade"}
-            </DialogTitle>
+      {/* Minipizza Wizard Dialog */}
+      <Dialog open={showMpDialog} onOpenChange={setShowMpDialog}>
+        <DialogContent className="max-w-sm max-h-[80vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="p-4 border-b border-border">
+            <DialogTitle>Montar Minipizza</DialogTitle>
           </DialogHeader>
-
-          {mpWizard?.step === "type" && (
-            <div className="space-y-2">
-              {catalog?.minipizzaTypes.map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => selectMpType(t)}
-                  className="w-full flex items-center justify-between p-3 rounded-lg border border-border hover:border-primary/40 hover:bg-primary/5 transition-all text-left"
-                >
-                  <div>
-                    <p className="font-medium text-foreground">{t.name}</p>
-                    <p className="text-xs text-muted-foreground">{fmt(Number(t.price))}</p>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                </button>
-              ))}
-            </div>
-          )}
-
-          {mpWizard?.step === "flavors" && (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">Selecione até 2 sabores compatíveis com <strong>{mpWizard.typeName}</strong>.</p>
-              <div className="grid grid-cols-2 gap-2">
-                {catalog?.minipizzaFlavors
-                  .filter(f => compatibleFlavorIds.has(f.id))
-                  .map(f => {
-                    const selected = mpWizard.flavorIds.includes(f.id);
-                    return (
-                      <button
-                        key={f.id}
-                        onClick={() => toggleMpFlavor(f.id)}
-                        className={`flex items-center gap-2 p-2.5 rounded-lg border text-sm transition-all ${
-                          selected ? "border-primary bg-primary/10 text-primary" : "border-border text-foreground hover:border-primary/30"
-                        }`}
-                      >
-                        {selected && <Check className="w-3.5 h-3.5 shrink-0" />}
-                        <span className="truncate">{f.name}</span>
-                      </button>
-                    );
-                  })}
+          
+          <div className="flex-1 overflow-y-auto p-4">
+            {mpWizard?.step === "type" && (
+              <div className="space-y-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Escolha o tamanho:</p>
+                {catalog?.minipizzaTypes.map(t => (
+                  <Button key={t.id} variant="outline" className="w-full h-14 justify-between border-border" onClick={() => selectMpType(t)}>
+                    <div className="text-left">
+                      <p className="font-bold">{t.name}</p>
+                      <p className="text-xs text-muted-foreground">{t.units} unidades</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-primary" />
+                  </Button>
+                ))}
               </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setMpWizard(w => w ? { ...w, step: "type" } : w)}>Voltar</Button>
-                <Button onClick={confirmMpFlavors}>Próximo</Button>
-              </DialogFooter>
-            </div>
-          )}
+            )}
 
-          {mpWizard?.step === "quantity" && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">Quantas unidades de <strong>{mpWizard.typeName}</strong>?</p>
-              <div className="flex items-center justify-center gap-4">
-                <Button variant="outline" size="icon" onClick={() => setMpWizard(w => w ? { ...w, quantity: Math.max(1, w.quantity - 1) } : w)}>
-                  <Minus className="w-4 h-4" />
-                </Button>
-                <span className="text-2xl font-bold w-10 text-center">{mpWizard.quantity}</span>
-                <Button variant="outline" size="icon" onClick={() => setMpWizard(w => w ? { ...w, quantity: w.quantity + 1 } : w)}>
-                  <Plus className="w-4 h-4" />
-                </Button>
+            {mpWizard?.step === "flavors" && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Escolha até 2 sabores:</p>
+                  <Badge variant="secondary" className="text-[10px]">{mpWizard.flavorIds.length}/2</Badge>
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  {catalog?.minipizzaFlavors
+                    .filter(f => compatibleFlavorIds.has(f.id))
+                    .map(f => {
+                      const selected = mpWizard.flavorIds.includes(f.id);
+                      return (
+                        <Button
+                          key={f.id}
+                          variant={selected ? "default" : "outline"}
+                          className={`h-12 justify-between border-border ${selected ? "bg-primary shadow-md shadow-primary/20" : ""}`}
+                          onClick={() => toggleMpFlavor(f.id)}
+                        >
+                          <span>{f.name}</span>
+                          {selected && <Check className="w-4 h-4" />}
+                        </Button>
+                      );
+                    })}
+                </div>
+                <Button className="w-full mt-4 font-bold" onClick={confirmMpFlavors}>Continuar</Button>
               </div>
-              <p className="text-center text-sm text-muted-foreground">
-                Subtotal: {fmt(mpWizard.quantity * mpWizard.typePrice)}
-              </p>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setMpWizard(w => w ? { ...w, step: "flavors" } : w)}>Voltar</Button>
-                <Button onClick={confirmMpWizard}>Adicionar ao Pedido</Button>
-              </DialogFooter>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+            )}
 
-      {/* ── JELLY DIALOG ── */}
-      <Dialog open={showJellyDialog} onOpenChange={setShowJellyDialog}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Adicionar Geleia</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
-              {catalog?.jellyFlavors.map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => setJellyFlavorId(f.id)}
-                  className={`flex flex-col p-3 rounded-lg border text-sm transition-all ${
-                    jellyFlavorId === f.id ? "border-primary bg-primary/10 text-primary" : "border-border text-foreground hover:border-primary/30"
-                  }`}
-                >
-                  <span className="font-medium">{f.name}</span>
-                  <span className="text-xs opacity-70">{fmt(Number(f.price))}</span>
-                </button>
-              ))}
-            </div>
-            {jellyFlavorId && (
-              <div className="flex items-center justify-center gap-4">
-                <Button variant="outline" size="icon" onClick={() => setJellyQty(q => Math.max(1, q - 1))}>
-                  <Minus className="w-4 h-4" />
-                </Button>
-                <span className="text-xl font-bold w-8 text-center">{jellyQty}</span>
-                <Button variant="outline" size="icon" onClick={() => setJellyQty(q => q + 1)}>
-                  <Plus className="w-4 h-4" />
-                </Button>
+            {mpWizard?.step === "quantity" && (
+              <div className="space-y-6 py-4 flex flex-col items-center">
+                <div className="text-center space-y-1">
+                  <p className="text-sm font-medium text-muted-foreground">Quantos pacotes de</p>
+                  <p className="font-bold text-lg">{mpWizard.typeName}?</p>
+                </div>
+                
+                <div className="flex items-center gap-6 bg-accent/30 p-4 rounded-2xl border border-border/50">
+                  <Button variant="outline" size="icon" className="w-12 h-12 rounded-xl" onClick={() => setMpWizard(w => w ? { ...w, quantity: Math.max(1, w.quantity - 1) } : w)}>
+                    <Minus className="w-5 h-5" />
+                  </Button>
+                  <span className="text-3xl font-black min-w-[3rem] text-center">{mpWizard.quantity}</span>
+                  <Button variant="outline" size="icon" className="w-12 h-12 rounded-xl" onClick={() => setMpWizard(w => w ? { ...w, quantity: w.quantity + 1 } : w)}>
+                    <Plus className="w-5 h-5" />
+                  </Button>
+                </div>
+                
+                <Button className="w-full font-bold h-12" onClick={confirmMpWizard}>Confirmar e Adicionar</Button>
               </div>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowJellyDialog(false)}>Cancelar</Button>
-            <Button onClick={addJelly} disabled={!jellyFlavorId}>Adicionar</Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* Jelly Dialog */}
+      <Dialog open={showJellyDialog} onOpenChange={setShowJellyDialog}>
+        <DialogContent className="max-w-sm p-0 overflow-hidden">
+          <DialogHeader className="p-4 border-b border-border">
+            <DialogTitle>Adicionar Geleia</DialogTitle>
+          </DialogHeader>
+          <div className="p-4 space-y-5">
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Sabor da Geleia</Label>
+              <div className="grid grid-cols-1 gap-2">
+                {catalog?.jellyFlavors.map(f => {
+                  const selected = jellyFlavorId === f.id;
+                  return (
+                    <Button
+                      key={f.id}
+                      variant={selected ? "default" : "outline"}
+                      className={`h-12 justify-between border-border ${selected ? "bg-primary" : ""}`}
+                      onClick={() => setJellyFlavorId(f.id)}
+                    >
+                      <span>{f.name}</span>
+                      <span className="text-xs font-bold">{fmt(Number(f.price))}</span>
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {jellyFlavorId && (
+              <div className="space-y-4 pt-2 flex flex-col items-center">
+                <Separator className="bg-border/50" />
+                <Label className="text-xs text-muted-foreground">Quantidade</Label>
+                <div className="flex items-center gap-4">
+                  <Button variant="outline" size="icon" className="w-10 h-10" onClick={() => setJellyQty(Math.max(1, jellyQty - 1))}>
+                    <Minus className="w-4 h-4" />
+                  </Button>
+                  <span className="text-xl font-bold min-w-[2rem] text-center">{jellyQty}</span>
+                  <Button variant="outline" size="icon" className="w-10 h-10" onClick={() => setJellyQty(jellyQty + 1)}>
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+                <Button className="w-full font-bold h-12" onClick={addJelly}>Adicionar ao Pedido</Button>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* New Customer Dialog */}
+      <Dialog open={showNewCustomer} onOpenChange={setShowNewCustomer}>
+        <DialogContent className="max-w-sm max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Novo Cliente</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="name">Nome Completo</Label>
+              <Input id="name" value={newCustomer.name} onChange={e => setNewCustomer({ ...newCustomer, name: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Telefone / WhatsApp</Label>
+              <Input id="phone" value={newCustomer.phone} onChange={e => setNewCustomer({ ...newCustomer, phone: e.target.value })} className="bg-input border-border" />
+            </div>
+            <Separator className="bg-border/50" />
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-tighter">Endereço (opcional)</p>
+            <div className="space-y-2">
+              <Label htmlFor="street">Rua e Número</Label>
+              <Input id="street" value={newCustomer.street} onChange={e => setNewCustomer({ ...newCustomer, street: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="neighborhood">Bairro</Label>
+                <Input id="neighborhood" value={newCustomer.neighborhood} onChange={e => setNewCustomer({ ...newCustomer, neighborhood: e.target.value })} className="bg-input border-border" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="city">Cidade</Label>
+                <Input id="city" value={newCustomer.city} onChange={e => setNewCustomer({ ...newCustomer, city: e.target.value })} className="bg-input border-border" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="pt-2">
+            <Button variant="outline" onClick={() => setShowNewCustomer(false)}>Cancelar</Button>
+            <Button
+              disabled={!newCustomer.name || !newCustomer.phone || createCustomerMutation.isPending}
+              onClick={() => createCustomerMutation.mutate(newCustomer)}
+            >
+              {createCustomerMutation.isPending ? "Salvando..." : "Salvar Cliente"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
