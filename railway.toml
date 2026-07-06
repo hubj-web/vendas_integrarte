@@ -3,7 +3,6 @@ builder = "nixpacks"
 buildCommand = "pnpm install --frozen-lockfile && pnpm build"
 [build.nixpacksPlan.variables]
 NODE_VERSION = "22"
-PORT = "3000"
 
 [deploy]
 startCommand = "NODE_ENV=production node dist/index.js"
