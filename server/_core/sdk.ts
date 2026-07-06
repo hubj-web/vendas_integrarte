@@ -268,6 +268,7 @@ class SDKServer {
     }
 
     const session = await this.verifySession(sessionToken);
+    console.log("[Auth Debug] verifySession result:", session ? `openId=${session.openId}` : "null");
 
     if (!session) {
       throw ForbiddenError("Invalid session cookie");
@@ -285,6 +286,13 @@ class SDKServer {
     const sessionUserId = session.openId;
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
+    console.log("[Auth Debug] getUserByOpenId result:", user ? `id=${user.id}, role=${user.role}` : "null");
+
+    // For local auth users (openId starts with "local-"), skip OAuth sync
+    if (!user && sessionUserId.startsWith("local-")) {
+      console.error("[Auth Debug] Local user NOT FOUND in DB for openId:", sessionUserId);
+      throw ForbiddenError("Local user not found in database");
+    }
 
     // If user not in DB, sync from OAuth server automatically
     if (!user) {
