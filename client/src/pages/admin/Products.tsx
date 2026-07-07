@@ -18,12 +18,14 @@ type Product = {
   id: number; name: string; unit: string; price: string;
   description: string | null; active: boolean;
   productTypeId: number; typeName: string | null;
+  categoryId?: number | null; categoryName?: string | null;
 };
 
 const units = ["bandeja", "caixa", "pote", "unidade", "pacote", "kg", "g", "litro", "ml"];
 
 export default function Products() {
   const utils = trpc.useUtils();
+  const { data: categories = [] } = trpc.catalog.categories.list.useQuery();
   const { data: types = [] } = trpc.catalog.productTypes.list.useQuery();
   const { data: products = [], isLoading } = trpc.catalog.products.list.useQuery();
   const createMutation = trpc.catalog.products.create.useMutation({ onSuccess: () => { utils.catalog.products.list.invalidate(); toast.success("Produto criado!"); setOpen(false); } });
@@ -34,35 +36,59 @@ export default function Products() {
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [editing, setEditing] = useState<Product | null>(null);
   const [search, setSearch] = useState("");
-  const [filterType, setFilterType] = useState<string>("all");
+  const [filterCategory, setFilterCategory] = useState<string>("all");
 
-  const [form, setForm] = useState({ name: "", productTypeId: "", unit: "unidade", price: "", description: "", active: true });
+  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", description: "", active: true });
+
+  // Obter tipos filtrados pela categoria selecionada
+  const typesForCategory = form.categoryId
+    ? types.filter(t => String(t.categoryId) === form.categoryId)
+    : types;
 
   function openCreate() {
     setEditing(null);
-    setForm({ name: "", productTypeId: "", unit: "unidade", price: "", description: "", active: true });
+    setForm({ name: "", categoryId: "", unit: "unidade", price: "", description: "", active: true });
     setOpen(true);
   }
 
   function openEdit(p: Product) {
     setEditing(p);
-    setForm({ name: p.name, productTypeId: String(p.productTypeId), unit: p.unit, price: p.price, description: p.description ?? "", active: p.active });
+    // Encontrar a categoria do tipo de produto
+    const type = types.find(t => t.id === p.productTypeId);
+    const catId = type?.categoryId ? String(type.categoryId) : (p.categoryId ? String(p.categoryId) : "");
+    setForm({ name: p.name, categoryId: catId, unit: p.unit, price: p.price, description: p.description ?? "", active: p.active });
     setOpen(true);
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.productTypeId) return toast.error("Selecione um tipo de produto.");
-    if (editing) {
-      updateMutation.mutate({ id: editing.id, name: form.name, productTypeId: Number(form.productTypeId), unit: form.unit, price: form.price, description: form.description, active: form.active });
+    if (!form.categoryId) return toast.error("Selecione uma categoria.");
+
+    // Encontrar ou usar o primeiro tipo da categoria selecionada
+    const categoryTypes = types.filter(t => String(t.categoryId) === form.categoryId);
+    let productTypeId: number;
+
+    if (categoryTypes.length > 0) {
+      productTypeId = categoryTypes[0].id;
     } else {
-      createMutation.mutate({ name: form.name, productTypeId: Number(form.productTypeId), unit: form.unit, price: form.price, description: form.description || undefined, active: form.active });
+      // Se não tem tipo para essa categoria, usar tipo genérico (id 5 - Outros)
+      const genericType = types.find(t => t.name === "Outros");
+      productTypeId = genericType?.id ?? 1;
+    }
+
+    if (editing) {
+      updateMutation.mutate({ id: editing.id, name: form.name, productTypeId, unit: form.unit, price: form.price, description: form.description, active: form.active });
+    } else {
+      createMutation.mutate({ name: form.name, productTypeId, unit: form.unit, price: form.price, description: form.description || undefined, active: form.active });
     }
   }
 
   const filtered = products.filter(p => {
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
-    if (filterType !== "all" && String(p.productTypeId) !== filterType) return false;
+    if (filterCategory !== "all") {
+      const type = types.find(t => t.id === p.productTypeId);
+      if (!type || String(type.categoryId) !== filterCategory) return false;
+    }
     return true;
   });
 
@@ -82,11 +108,11 @@ export default function Products() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Buscar produto..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 bg-input" />
         </div>
-        <Select value={filterType} onValueChange={setFilterType}>
-          <SelectTrigger className="w-44 bg-input"><SelectValue placeholder="Tipo" /></SelectTrigger>
+        <Select value={filterCategory} onValueChange={setFilterCategory}>
+          <SelectTrigger className="w-44 bg-input"><SelectValue placeholder="Categoria" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Todos os tipos</SelectItem>
-            {types.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}
+            <SelectItem value="all">Todas as categorias</SelectItem>
+            {categories.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -97,7 +123,7 @@ export default function Products() {
           <TableHeader>
             <TableRow className="border-border hover:bg-transparent">
               <TableHead className="text-muted-foreground">Nome</TableHead>
-              <TableHead className="text-muted-foreground">Tipo</TableHead>
+              <TableHead className="text-muted-foreground">Categoria</TableHead>
               <TableHead className="text-muted-foreground">Unidade</TableHead>
               <TableHead className="text-muted-foreground">Preço</TableHead>
               <TableHead className="text-muted-foreground">Status</TableHead>
@@ -119,25 +145,29 @@ export default function Products() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map(p => (
-                <TableRow key={p.id} className="border-border hover:bg-muted/20">
-                  <TableCell className="font-medium">{p.name}</TableCell>
-                  <TableCell><Badge variant="outline" className="text-xs">{p.typeName}</Badge></TableCell>
-                  <TableCell className="text-muted-foreground text-sm">{p.unit}</TableCell>
-                  <TableCell className="font-semibold text-primary">{fmt(p.price)}</TableCell>
-                  <TableCell>
-                    <Badge className={p.active ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-muted text-muted-foreground"}>
-                      {p.active ? "Ativo" : "Inativo"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" onClick={() => openEdit(p)}><Pencil className="w-3.5 h-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-destructive" onClick={() => setDeleteId(p.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+              filtered.map(p => {
+                const type = types.find(t => t.id === p.productTypeId);
+                const catName = type?.categoryName || p.categoryName || "Sem categoria";
+                return (
+                  <TableRow key={p.id} className="border-border hover:bg-muted/20">
+                    <TableCell className="font-medium">{p.name}</TableCell>
+                    <TableCell><Badge variant="outline" className="text-xs">{catName}</Badge></TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{p.unit}</TableCell>
+                    <TableCell className="font-semibold text-primary">{fmt(p.price)}</TableCell>
+                    <TableCell>
+                      <Badge className={p.active ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-muted text-muted-foreground"}>
+                        {p.active ? "Ativo" : "Inativo"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" onClick={() => openEdit(p)}><Pencil className="w-3.5 h-3.5" /></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-destructive" onClick={() => setDeleteId(p.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -154,16 +184,16 @@ export default function Products() {
               <Label>Nome *</Label>
               <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required className="bg-input" />
             </div>
+            <div className="space-y-2">
+              <Label>Categoria *</Label>
+              <Select value={form.categoryId} onValueChange={v => setForm(f => ({ ...f, categoryId: v }))}>
+                <SelectTrigger className="bg-input"><SelectValue placeholder="Selecione a categoria" /></SelectTrigger>
+                <SelectContent>
+                  {categories.filter(c => c.active).map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Tipo *</Label>
-                <Select value={form.productTypeId} onValueChange={v => setForm(f => ({ ...f, productTypeId: v }))}>
-                  <SelectTrigger className="bg-input"><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent>
-                    {types.filter(t => t.active).map(t => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
               <div className="space-y-2">
                 <Label>Unidade *</Label>
                 <Select value={form.unit} onValueChange={v => setForm(f => ({ ...f, unit: v }))}>
@@ -173,10 +203,10 @@ export default function Products() {
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Preço Unitário *</Label>
-              <Input type="number" step="0.01" min="0" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} required className="bg-input" placeholder="0,00" />
+              <div className="space-y-2">
+                <Label>Preço Unitário *</Label>
+                <Input type="number" step="0.01" min="0" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} required className="bg-input" placeholder="0,00" />
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Descrição</Label>
