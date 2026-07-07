@@ -11,12 +11,30 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { Plus, MapPin, Truck, ExternalLink, ChevronDown, ChevronUp, Loader2, GripVertical } from "lucide-react";
+import { Plus, MapPin, Truck, ExternalLink, ChevronDown, ChevronUp, Loader2, GripVertical, Calendar } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
+
+const monthNames = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
+
+function getMonthOptions() {
+  const now = new Date();
+  const options = [{ value: "all", label: "Todos os meses" }];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+    options.push({ value, label });
+  }
+  return options;
+}
 
 export default function DeliveryRoutes() {
   const { user } = useLocalAuth();
   const utils = trpc.useUtils();
+  const [month, setMonth] = useState("all");
 
   const { data: routes = [], isLoading } = trpc.delivery.routes.list.useQuery();
   const { data: availableOrders = [] } = trpc.delivery.routes.availableOrders.useQuery({});
@@ -35,7 +53,17 @@ export default function DeliveryRoutes() {
   const [routeForm, setRouteForm] = useState({ name: "", deliveryDate: "", deliveryUserId: "" });
   const [selectedOrders, setSelectedOrders] = useState<number[]>([]);
 
-  const deliveryUsers = deliverers.filter(u => u.role === "delivery");
+  const deliveryUsers = deliverers.filter(u => u.role === "delivery" || (u as any).roles?.includes('"delivery"'));
+
+  const monthOptions = getMonthOptions();
+
+  // Filter routes by month
+  const filteredRoutes = month === "all" ? routes : routes.filter(r => {
+    if (!r.deliveryDate) return false;
+    const d = new Date(r.deliveryDate);
+    const routeMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return routeMonth === month;
+  });
 
   function toggleOrder(id: number) {
     setSelectedOrders(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -69,18 +97,29 @@ export default function DeliveryRoutes() {
         }
       />
 
+      {/* Month filter */}
+      <div className="flex flex-wrap gap-3 mb-4">
+        <Select value={month} onValueChange={v => setMonth(v)}>
+          <SelectTrigger className="w-48 bg-input"><Calendar className="w-3.5 h-3.5 mr-1 text-muted-foreground" /><SelectValue /></SelectTrigger>
+          <SelectContent>{monthOptions.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+        </Select>
+        {month !== "all" && (
+          <p className="text-sm text-muted-foreground self-center">{filteredRoutes.length} rota{filteredRoutes.length !== 1 ? "s" : ""} encontrada{filteredRoutes.length !== 1 ? "s" : ""}</p>
+        )}
+      </div>
+
       {isLoading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
         </div>
-      ) : routes.length === 0 ? (
+      ) : filteredRoutes.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
           <MapPin className="w-10 h-10 mx-auto mb-3 opacity-30" />
-          <p>Nenhuma rota criada ainda.</p>
+          <p>Nenhuma rota encontrada{month !== "all" ? " neste mês" : ""}.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {routes.map(route => (
+          {filteredRoutes.map(route => (
             <Card key={route.id} className="bg-card border-border">
               <CardContent className="pt-4 pb-3">
                 <div className="flex items-center justify-between">

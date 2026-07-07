@@ -36,6 +36,7 @@ import Jellies from "./pages/admin/Jellies";
 import DeliveryMethods from "./pages/admin/DeliveryMethods";
 import Users from "./pages/admin/Users";
 import Exports from "./pages/Exports";
+import Backup from "./pages/admin/Backup";
 import NotFound from "./pages/NotFound";
 
 // ── SELLER AREA ──
@@ -113,6 +114,9 @@ function Router() {
       </Route>
       <Route path="/admin/config/usuarios">
         <AdminGuard><AppLayout><Users /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/config/backup">
+        <AdminGuard><AppLayout><Backup /></AppLayout></AdminGuard>
       </Route>
 
       {/* ── ADMIN PAGES ── */}

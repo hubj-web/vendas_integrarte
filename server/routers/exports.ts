@@ -343,6 +343,75 @@ export const exportsRouter = router({
       });
     }),
 
+  // Full database backup as JSON
+  databaseBackup: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem fazer backup." });
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [allUsers, allCustomers, allOrders, allOrderItems, allProducts, allCategories,
+        allDeliveryMethods, allMinipizzaTypes, allMinipizzaFlavors, allJellyFlavors,
+        allOrderMinipizzas, allOrderMinipizzaFlavors, allOrderJellies, allOrderStatusHistory,
+        allProductFlavors, allOrderItemFlavors, allDeliveryRoutes, allRouteOrders, allDeliveryRecords, allPaymentRecords
+      ] = await Promise.all([
+        db.select().from(users),
+        db.select().from(customers),
+        db.select().from(orders),
+        db.select().from(orderItems),
+        db.select().from(products),
+        db.select().from((await import("../../drizzle/schema")).productCategories),
+        db.select().from(deliveryMethods),
+        db.select().from(minipizzaTypes),
+        db.select().from(minipizzaFlavors),
+        db.select().from(jellyFlavors),
+        db.select().from(orderMinipizzas),
+        db.select().from(orderMinipizzaFlavors),
+        db.select().from(orderJellies),
+        db.select().from((await import("../../drizzle/schema")).orderStatusHistory),
+        db.select().from((await import("../../drizzle/schema")).productFlavors),
+        db.select().from((await import("../../drizzle/schema")).orderItemFlavors),
+        db.select().from((await import("../../drizzle/schema")).deliveryRoutes),
+        db.select().from((await import("../../drizzle/schema")).routeOrders),
+        db.select().from((await import("../../drizzle/schema")).deliveryRecords),
+        db.select().from((await import("../../drizzle/schema")).paymentRecords),
+      ]);
+
+      const backup = {
+        exportedAt: new Date().toISOString(),
+        system: "Integrarte Vendas",
+        tables: {
+          users: allUsers.map(u => ({ ...u, passwordHash: undefined })),
+          customers: allCustomers,
+          orders: allOrders,
+          orderItems: allOrderItems,
+          products: allProducts,
+          productCategories: allCategories,
+          productFlavors: allProductFlavors,
+          deliveryMethods: allDeliveryMethods,
+          minipizzaTypes: allMinipizzaTypes,
+          minipizzaFlavors: allMinipizzaFlavors,
+          jellyFlavors: allJellyFlavors,
+          orderMinipizzas: allOrderMinipizzas,
+          orderMinipizzaFlavors: allOrderMinipizzaFlavors,
+          orderJellies: allOrderJellies,
+          orderItemFlavors: allOrderItemFlavors,
+          orderStatusHistory: allOrderStatusHistory,
+          deliveryRoutes: allDeliveryRoutes,
+          routeOrders: allRouteOrders,
+          deliveryRecords: allDeliveryRecords,
+          paymentRecords: allPaymentRecords,
+        },
+      };
+
+      const jsonStr = JSON.stringify(backup, null, 2);
+      return {
+        base64: Buffer.from(jsonStr).toString("base64"),
+        filename: `backup_integrarte_${new Date().toISOString().slice(0, 10)}.json`,
+        mimeType: "application/json",
+      };
+    }),
+
   // Export customers list as Excel
   customersExcel: protectedProcedure
     .mutation(async () => {

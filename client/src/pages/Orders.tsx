@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Search, Eye, Filter } from "lucide-react";
+import { Plus, Search, Eye, Filter, Calendar } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 
 const statusOptions = [
@@ -27,18 +27,52 @@ const paymentOptions = [
   { value: "partial", label: "Parcial" },
 ];
 
+const monthNames = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
+
+function getMonthOptions() {
+  const now = new Date();
+  const options = [{ value: "all", label: "Todos os meses" }];
+  // Show last 12 months
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+    options.push({ value, label });
+  }
+  return options;
+}
+
 export default function Orders() {
   const { user } = useLocalAuth();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [paymentStatus, setPaymentStatus] = useState("all");
+  const [month, setMonth] = useState("all");
   const [page, setPage] = useState(1);
+
+  const monthOptions = getMonthOptions();
+
+  // Calculate dateFrom/dateTo from month filter
+  let dateFrom: string | undefined;
+  let dateTo: string | undefined;
+  if (month !== "all") {
+    const [year, m] = month.split("-").map(Number);
+    const start = new Date(year, m - 1, 1);
+    const end = new Date(year, m, 0); // last day of month
+    dateFrom = start.toISOString().slice(0, 10);
+    dateTo = end.toISOString().slice(0, 10);
+  }
 
   const { data, isLoading } = trpc.orders.list.useQuery({
     page, pageSize: 25,
     search: search || undefined,
     status: status !== "all" ? status : undefined,
     paymentStatus: paymentStatus !== "all" ? paymentStatus : undefined,
+    dateFrom,
+    dateTo,
   });
 
   const orders = data?.data ?? [];
@@ -67,6 +101,10 @@ export default function Orders() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Buscar cliente..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="pl-9 bg-input" />
         </div>
+        <Select value={month} onValueChange={v => { setMonth(v); setPage(1); }}>
+          <SelectTrigger className="w-48 bg-input"><Calendar className="w-3.5 h-3.5 mr-1 text-muted-foreground" /><SelectValue /></SelectTrigger>
+          <SelectContent>{monthOptions.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+        </Select>
         <Select value={status} onValueChange={v => { setStatus(v); setPage(1); }}>
           <SelectTrigger className="w-44 bg-input"><SelectValue /></SelectTrigger>
           <SelectContent>{statusOptions.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
