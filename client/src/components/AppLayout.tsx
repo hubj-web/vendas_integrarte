@@ -32,7 +32,6 @@ const navItems: NavItem[] = [
 const adminNavItems: NavItem[] = [
   { label: "Categorias", href: "/admin/config/categorias", icon: Tag },
   { label: "Produtos", href: "/admin/config/produtos", icon: Package },
-  { label: "Tipos de Produto", href: "/admin/config/tipos", icon: Package },
   { label: "Formas de Entrega", href: "/admin/config/formas-entrega", icon: Truck },
   { label: "Usuários", href: "/admin/config/usuarios", icon: Users },
 ];
