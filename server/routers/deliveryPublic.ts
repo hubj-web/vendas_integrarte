@@ -4,7 +4,7 @@
  * Operações de escrita exigem que o userId seja de um usuário com role=delivery.
  */
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   customers, deliveryRecords, routeOrders, deliveryRoutes,
@@ -34,7 +34,8 @@ export const deliveryPublicRouter = router({
     if (!db) return [];
     return db.select({ id: users.id, name: users.name })
       .from(users)
-      .where(and(eq(users.role, "delivery"), eq(users.active, true)));
+      .where(and(eq(users.role, "delivery"), eq(users.active, true)))
+      .orderBy(asc(users.name));
   }),
 
   /** Rotas atribuídas ao entregador */

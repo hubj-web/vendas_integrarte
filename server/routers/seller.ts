@@ -4,7 +4,7 @@
  * Operações de escrita exigem que o userId seja de um usuário com role=launcher.
  */
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   customers, deliveryMethods, jellyFlavors, minipizzaFlavors,
@@ -37,7 +37,8 @@ export const sellerRouter = router({
     if (!db) return [];
     return db.select({ id: users.id, name: users.name })
       .from(users)
-      .where(and(eq(users.role, "launcher"), eq(users.active, true)));
+      .where(and(eq(users.role, "launcher"), eq(users.active, true)))
+      .orderBy(asc(users.name));
   }),
 
   /** Catálogo público: categorias, produtos, sabores, formas de entrega */
