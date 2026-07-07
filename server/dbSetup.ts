@@ -414,6 +414,11 @@ export function registerDbSetupRoute(app: Express) {
       (5, 'Portuguesa', 0.00, 1)
     `);
 
+    // ── MIGRATIONS (add columns to existing tables) ───────────────────────
+    await run("Migration: add categoryId to product_types", `
+      ALTER TABLE \`product_types\` ADD COLUMN \`categoryId\` int NULL
+    `);
+
     const allOk = errors.length === 0;
     return res.status(allOk ? 200 : 207).json({
       success: allOk,
