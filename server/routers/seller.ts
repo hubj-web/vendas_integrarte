@@ -4,7 +4,7 @@
  * Operações de escrita exigem que o userId seja de um usuário com role=launcher.
  */
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, or } from "drizzle-orm";
 import { z } from "zod";
 import {
   customers, deliveryMethods, jellyFlavors, minipizzaFlavors,
@@ -15,7 +15,7 @@ import {
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
 
-// Helper: validate that userId belongs to a launcher
+// Helper: validate that userId belongs to a launcher/seller
 // id=-1 is the special "Outro" (guest) seller — allowed without DB lookup
 async function requireLauncher(userId: number) {
   if (userId === -1) return null; // guest seller: sem vínculo a usuário cadastrado
@@ -26,7 +26,11 @@ async function requireLauncher(userId: number) {
     .limit(1);
   const user = result[0];
   if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Vendedor não encontrado." });
-  if (user.role !== "launcher") throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a vendedores." });
+  // Check legacy role OR new roles array
+  const hasLauncherRole = user.role === "launcher" || (user.roles && user.roles.includes('"launcher"'));
+  if (!hasLauncherRole && user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a vendedores." });
+  }
   return user;
 }
 
@@ -35,10 +39,14 @@ export const sellerRouter = router({
   listSellers: publicProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];
-    return db.select({ id: users.id, name: users.name })
+    // Users with launcher in legacy role OR in roles JSON array
+    const allActive = await db.select({ id: users.id, name: users.name, role: users.role, roles: users.roles })
       .from(users)
-      .where(and(eq(users.role, "launcher"), eq(users.active, true)))
+      .where(eq(users.active, true))
       .orderBy(asc(users.name));
+    return allActive
+      .filter(u => u.role === "launcher" || (u.roles && u.roles.includes('"launcher"')))
+      .map(u => ({ id: u.id, name: u.name }));
   }),
 
   /** Catálogo público: categorias, produtos, sabores, formas de entrega */

@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -13,12 +13,29 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, KeyRound, Search } from "lucide-react";
 
-const roleLabels: Record<string, string> = { admin: "Administrador", launcher: "Lançador", delivery: "Entregador" };
+const roleLabels: Record<string, string> = { admin: "Administrador", launcher: "Vendedor", delivery: "Entregador" };
 const roleColors: Record<string, string> = {
   admin: "bg-primary/15 text-primary border-primary/20",
   launcher: "bg-blue-500/15 text-blue-400 border-blue-500/20",
   delivery: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
 };
+
+function parseRoles(rolesStr: string | null | undefined): string[] {
+  if (!rolesStr) return [];
+  try {
+    const parsed = JSON.parse(rolesStr);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function getUserRoles(user: { role: string; roles?: string | null }): string[] {
+  const fromJson = parseRoles(user.roles);
+  if (fromJson.length > 0) return fromJson;
+  // Fallback to legacy single role
+  return [user.role];
+}
 
 export default function Users() {
   const utils = trpc.useUtils();
@@ -39,27 +56,41 @@ export default function Users() {
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [resetId, setResetId] = useState<number | null>(null);
   const [editing, setEditing] = useState<any>(null);
-  const [form, setForm] = useState({ name: "", email: "", role: "launcher" as "admin" | "launcher" | "delivery", password: "" });
+  const [form, setForm] = useState({ name: "", email: "", roles: ["launcher"] as string[], password: "" });
 
   function openCreate() {
     setEditing(null);
-    setForm({ name: "", email: "", role: "launcher", password: "" });
+    setForm({ name: "", email: "", roles: ["launcher"], password: "" });
     setOpen(true);
   }
 
   function openEdit(u: any) {
     setEditing(u);
-    setForm({ name: u.name, email: u.email, role: u.role, password: "" });
+    setForm({ name: u.name, email: u.email, roles: getUserRoles(u), password: "" });
     setOpen(true);
+  }
+
+  function toggleRole(role: string) {
+    setForm(f => {
+      const current = f.roles;
+      if (current.includes(role)) {
+        // Don't allow removing all roles
+        if (current.length <= 1) return f;
+        return { ...f, roles: current.filter(r => r !== role) };
+      } else {
+        return { ...f, roles: [...current, role] };
+      }
+    });
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (form.roles.length === 0) return toast.error("Selecione pelo menos um perfil.");
     if (editing) {
-      updateMutation.mutate({ id: editing.id, name: form.name, email: form.email, role: form.role });
+      updateMutation.mutate({ id: editing.id, name: form.name, email: form.email, roles: form.roles as any });
     } else {
       if (!form.password) return toast.error("Senha obrigatória para novo usuário.");
-      createMutation.mutate({ name: form.name, email: form.email, role: form.role, password: form.password });
+      createMutation.mutate({ name: form.name, email: form.email, roles: form.roles as any, password: form.password });
     }
   }
 
@@ -82,7 +113,7 @@ export default function Users() {
             <TableRow className="border-border hover:bg-transparent">
               <TableHead className="text-muted-foreground">Usuário</TableHead>
               <TableHead className="text-muted-foreground">E-mail</TableHead>
-              <TableHead className="text-muted-foreground">Perfil</TableHead>
+              <TableHead className="text-muted-foreground">Perfis</TableHead>
               <TableHead className="text-muted-foreground">Status</TableHead>
               <TableHead className="text-muted-foreground">Último acesso</TableHead>
               <TableHead className="text-right text-muted-foreground">Ações</TableHead>
@@ -91,6 +122,7 @@ export default function Users() {
           <TableBody>
             {users.map(u => {
               const initials = u.name?.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2) ?? "?";
+              const userRoles = getUserRoles(u);
               return (
                 <TableRow key={u.id} className="border-border hover:bg-muted/20">
                   <TableCell>
@@ -102,7 +134,13 @@ export default function Users() {
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">{u.email}</TableCell>
-                  <TableCell><Badge className={`text-xs ${roleColors[u.role] ?? ""}`}>{roleLabels[u.role] ?? u.role}</Badge></TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {userRoles.map(r => (
+                        <Badge key={r} className={`text-xs ${roleColors[r] ?? ""}`}>{roleLabels[r] ?? r}</Badge>
+                      ))}
+                    </div>
+                  </TableCell>
                   <TableCell><Badge className={u.active ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-xs" : "bg-muted text-muted-foreground text-xs"}>{u.active ? "Ativo" : "Inativo"}</Badge></TableCell>
                   <TableCell className="text-muted-foreground text-sm">{u.lastSignedIn ? new Date(u.lastSignedIn).toLocaleDateString("pt-BR") : "—"}</TableCell>
                   <TableCell className="text-right">
@@ -126,15 +164,21 @@ export default function Users() {
             <div className="space-y-2"><Label>Nome *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required className="bg-input" /></div>
             <div className="space-y-2"><Label>E-mail *</Label><Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required className="bg-input" /></div>
             <div className="space-y-2">
-              <Label>Perfil *</Label>
-              <Select value={form.role} onValueChange={v => setForm(f => ({ ...f, role: v as any }))}>
-                <SelectTrigger className="bg-input"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="admin">Administrador</SelectItem>
-                  <SelectItem value="launcher">Lançador</SelectItem>
-                  <SelectItem value="delivery">Entregador</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>Perfis * <span className="text-xs text-muted-foreground font-normal">(selecione um ou mais)</span></Label>
+              <div className="space-y-2 p-3 rounded-lg bg-muted/20 border border-border">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox checked={form.roles.includes("admin")} onCheckedChange={() => toggleRole("admin")} />
+                  <span className="text-sm">Administrador</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox checked={form.roles.includes("launcher")} onCheckedChange={() => toggleRole("launcher")} />
+                  <span className="text-sm">Vendedor</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox checked={form.roles.includes("delivery")} onCheckedChange={() => toggleRole("delivery")} />
+                  <span className="text-sm">Entregador</span>
+                </label>
+              </div>
             </div>
             {!editing && (
               <div className="space-y-2"><Label>Senha *</Label><Input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required className="bg-input" placeholder="Mínimo 6 caracteres" /></div>

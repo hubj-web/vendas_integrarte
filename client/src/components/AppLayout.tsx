@@ -79,7 +79,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     window.location.href = "/admin";
   }
 
-  const roleLabel = role === "admin" ? "Administrador" : role === "launcher" ? "Lançador" : "Entregador";
+  const roleLabel = role === "admin" ? "Administrador" : role === "launcher" ? "Vendedor" : "Entregador";
   const initials = user?.name?.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) ?? "?";
 
   const sidebarContent = (

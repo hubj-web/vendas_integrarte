@@ -38,7 +38,7 @@ export default function Dashboard() {
   const { data, isLoading } = trpc.reports.dashboard.useQuery();
 
   const role = user?.role;
-  const greeting = role === "admin" ? "Administrador" : role === "launcher" ? "Lançador" : "Entregador";
+  const greeting = role === "admin" ? "Administrador" : role === "launcher" ? "Vendedor" : "Entregador";
 
   const fmt = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 

@@ -18,6 +18,7 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }).notNull().unique(),
   passwordHash: varchar("passwordHash", { length: 255 }),
   role: mysqlEnum("role", ["admin", "launcher", "delivery"]).default("launcher").notNull(),
+  roles: varchar("roles", { length: 255 }).default("[\"launcher\"]").notNull(),
   loginMethod: varchar("loginMethod", { length: 64 }).default("local"),
   active: boolean("active").default(true).notNull(),
   mustChangePassword: boolean("mustChangePassword").default(false).notNull(),

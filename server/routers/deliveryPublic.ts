@@ -23,7 +23,11 @@ async function requireDelivery(userId: number) {
     .limit(1);
   const user = result[0];
   if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Entregador não encontrado." });
-  if (user.role !== "delivery") throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a entregadores." });
+  // Check legacy role OR new roles array
+  const hasDeliveryRole = user.role === "delivery" || (user.roles && user.roles.includes('"delivery"'));
+  if (!hasDeliveryRole && user.role !== "admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a entregadores." });
+  }
   return user;
 }
 
@@ -32,10 +36,14 @@ export const deliveryPublicRouter = router({
   listDeliverers: publicProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];
-    return db.select({ id: users.id, name: users.name })
+    // Users with delivery in legacy role OR in roles JSON array
+    const allActive = await db.select({ id: users.id, name: users.name, role: users.role, roles: users.roles })
       .from(users)
-      .where(and(eq(users.role, "delivery"), eq(users.active, true)))
+      .where(eq(users.active, true))
       .orderBy(asc(users.name));
+    return allActive
+      .filter(u => u.role === "delivery" || (u.roles && u.roles.includes('"delivery"')))
+      .map(u => ({ id: u.id, name: u.name }));
   }),
 
   /** Rotas atribuídas ao entregador */

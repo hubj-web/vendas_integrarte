@@ -129,7 +129,7 @@ export default function OrderDetail() {
           <CardContent className="space-y-2 text-sm">
             <p className="font-medium">{order.paymentMethod === "pix" ? "PIX" : "Dinheiro"}</p>
             <p className="text-2xl font-bold text-primary">{fmt(order.totalAmount)}</p>
-            {order.launcherName && <p className="text-muted-foreground">Lançado por: {order.launcherName}</p>}
+            {order.launcherName && <p className="text-muted-foreground">Vendedor: {order.launcherName}</p>}
           </CardContent>
         </Card>
       </div>

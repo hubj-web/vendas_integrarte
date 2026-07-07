@@ -485,6 +485,15 @@ export function registerDbSetupRoute(app: Express) {
       ALTER TABLE \`products\` ADD COLUMN \`maxFlavors\` int DEFAULT 0
     `);
 
+    await run("Migration: add roles to users", `
+      ALTER TABLE \`users\` ADD COLUMN \`roles\` varchar(255) NOT NULL DEFAULT '["launcher"]'
+    `);
+
+    // Sync roles field from legacy role field for existing users
+    await run("Migration: sync roles from role for existing users", `
+      UPDATE \`users\` SET \`roles\` = CONCAT('["', \`role\`, '"]') WHERE \`roles\` = '["launcher"]' AND \`role\` != 'launcher'
+    `);
+
     const allOk = errors.length === 0;
     return res.status(allOk ? 200 : 207).json({
       success: allOk,

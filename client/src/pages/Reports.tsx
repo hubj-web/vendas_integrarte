@@ -106,12 +106,12 @@ export default function Reports() {
                 <StatCard title="Total Vendido" value={fmt(salesReport.totalRevenue)} icon={DollarSign} color="bg-primary/10 text-primary" />
                 <StatCard title="Pedidos" value={String(salesReport.totalOrders)} icon={Package} color="bg-blue-500/10 text-blue-400" />
                 <StatCard title="Ticket Médio" value={fmt(salesReport.avgTicket)} icon={TrendingUp} color="bg-emerald-500/10 text-emerald-400" />
-                <StatCard title="Lançadores" value={String(salesReport.byLauncher.length)} icon={Users} color="bg-orange-500/10 text-orange-400" />
+                <StatCard title="Vendedores" value={String(salesReport.byLauncher.length)} icon={Users} color="bg-orange-500/10 text-orange-400" />
               </div>
 
               {salesReport.byLauncher.length > 0 && (
                 <Card className="bg-card border-border">
-                  <CardHeader className="pb-2"><CardTitle className="text-sm">Vendas por Lançador</CardTitle></CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Vendas por Vendedor</CardTitle></CardHeader>
                   <CardContent>
                     <ResponsiveContainer width="100%" height={220}>
                       <BarChart data={salesReport.byLauncher}>
@@ -241,10 +241,10 @@ export default function Reports() {
             <div className="space-y-4">
               {salesReport.byLauncher.length > 0 && (
                 <Card className="bg-card border-border">
-                  <CardHeader className="pb-2"><CardTitle className="text-sm">Pedidos por Lançador</CardTitle></CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Pedidos por Vendedor</CardTitle></CardHeader>
                   <CardContent>
                     <Table>
-                      <TableHeader><TableRow className="border-border hover:bg-transparent"><TableHead className="text-muted-foreground text-xs">Lançador</TableHead><TableHead className="text-muted-foreground text-xs">Pedidos</TableHead><TableHead className="text-muted-foreground text-xs">Total</TableHead></TableRow></TableHeader>
+                      <TableHeader><TableRow className="border-border hover:bg-transparent"><TableHead className="text-muted-foreground text-xs">Vendedor</TableHead><TableHead className="text-muted-foreground text-xs">Pedidos</TableHead><TableHead className="text-muted-foreground text-xs">Total</TableHead></TableRow></TableHeader>
                       <TableBody>
                         {salesReport.byLauncher.map((l: any, i: number) => (
                           <TableRow key={i} className="border-border hover:bg-muted/20">
