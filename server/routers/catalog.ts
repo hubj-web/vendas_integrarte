@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { z } from "zod";
 import {
-  productCategories, productTypes, products, productChangeHistory,
+  productCategories, productTypes, products, productChangeHistory, productFlavors,
   minipizzaTypes, minipizzaFlavors, minipizzaTypeFlavorMatrix,
   jellyFlavors, deliveryMethods,
   orderItems, orderMinipizzas, orderJellies,
@@ -44,14 +44,14 @@ const categoriesRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const linked = await db.select().from(productTypes).where(eq(productTypes.categoryId, input.id)).limit(1);
-      if (linked.length > 0) throw new TRPCError({ code: "CONFLICT", message: "Categoria possui tipos de produto associados. Remova os vínculos antes de excluir." });
+      const linked = await db.select().from(products).where(eq(products.categoryId, input.id)).limit(1);
+      if (linked.length > 0) throw new TRPCError({ code: "CONFLICT", message: "Categoria possui produtos associados. Remova os vínculos antes de excluir." });
       await db.delete(productCategories).where(eq(productCategories.id, input.id));
       return { success: true };
     }),
 });
 
-// ─── PRODUCT TYPES ────────────────────────────────────────────────────────────
+// ─── PRODUCT TYPES (legacy, kept for backward compat) ────────────────────────
 const productTypesRouter = router({
   list: protectedProcedure.query(async () => {
     const db = await getDb();
@@ -88,8 +88,6 @@ const productTypesRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const linked = await db.select().from(products).where(eq(products.productTypeId, input.id)).limit(1);
-      if (linked.length > 0) throw new TRPCError({ code: "CONFLICT", message: "Tipo possui produtos associados. Desative-o em vez de excluir." });
       await db.delete(productTypes).where(eq(productTypes.id, input.id));
       return { success: true };
     }),
@@ -98,7 +96,7 @@ const productTypesRouter = router({
 // ─── PRODUCTS ─────────────────────────────────────────────────────────────────
 const productsRouter = router({
   list: protectedProcedure
-    .input(z.object({ typeId: z.number().optional(), activeOnly: z.boolean().optional() }).optional())
+    .input(z.object({ categoryId: z.number().optional(), activeOnly: z.boolean().optional() }).optional())
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
@@ -107,17 +105,16 @@ const productsRouter = router({
         price: products.price, description: products.description,
         active: products.active, createdAt: products.createdAt,
         productTypeId: products.productTypeId,
-        typeName: productTypes.name,
-        categoryId: productTypes.categoryId,
+        categoryId: products.categoryId,
         categoryName: productCategories.name,
+        maxFlavors: products.maxFlavors,
       })
         .from(products)
-        .leftJoin(productTypes, eq(products.productTypeId, productTypes.id))
-        .leftJoin(productCategories, eq(productTypes.categoryId, productCategories.id))
-        .orderBy(asc(productCategories.sortOrder), asc(productTypes.name), asc(products.name));
+        .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+        .orderBy(asc(productCategories.sortOrder), asc(products.name));
 
       return rows.filter(p => {
-        if (input?.typeId && p.productTypeId !== input.typeId) return false;
+        if (input?.categoryId && p.categoryId !== input.categoryId) return false;
         if (input?.activeOnly && !p.active) return false;
         return true;
       });
@@ -125,23 +122,34 @@ const productsRouter = router({
 
   create: adminProcedure
     .input(z.object({
-      name: z.string().min(2), productTypeId: z.number(),
+      name: z.string().min(2), categoryId: z.number(),
       unit: z.string().min(1), price: z.string(),
       description: z.string().optional(), active: z.boolean().default(true),
+      maxFlavors: z.number().default(0),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.insert(products).values(input);
+      // Use productTypeId=1 as default (legacy field)
+      await db.insert(products).values({
+        name: input.name,
+        categoryId: input.categoryId,
+        productTypeId: 1, // legacy field, kept for backward compat
+        unit: input.unit,
+        price: input.price,
+        description: input.description,
+        active: input.active,
+        maxFlavors: input.maxFlavors,
+      });
       return { success: true };
     }),
 
   update: adminProcedure
     .input(z.object({
       id: z.number(), name: z.string().min(2).optional(),
-      productTypeId: z.number().optional(), unit: z.string().optional(),
+      categoryId: z.number().optional(), unit: z.string().optional(),
       price: z.string().optional(), description: z.string().optional(),
-      active: z.boolean().optional(),
+      active: z.boolean().optional(), maxFlavors: z.number().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -171,6 +179,8 @@ const productsRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const linked = await db.select().from(orderItems).where(eq(orderItems.productId, input.id)).limit(1);
       if (linked.length > 0) throw new TRPCError({ code: "CONFLICT", message: "Produto possui pedidos associados. Desative-o em vez de excluir." });
+      // Also delete flavors
+      await db.delete(productFlavors).where(eq(productFlavors.productId, input.id));
       await db.delete(products).where(eq(products.id, input.id));
       return { success: true };
     }),
@@ -186,56 +196,30 @@ const productsRouter = router({
     }),
 });
 
-// ─── MINIPIZZA TYPES ──────────────────────────────────────────────────────────
-const minipizzaTypesRouter = router({
-  list: protectedProcedure.query(async () => {
+// ─── PRODUCT FLAVORS ─────────────────────────────────────────────────────────
+const productFlavorsRouter = router({
+  list: protectedProcedure
+    .input(z.object({ productId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      return db.select().from(productFlavors)
+        .where(eq(productFlavors.productId, input.productId))
+        .orderBy(asc(productFlavors.name));
+    }),
+  listAll: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];
-    return db.select().from(minipizzaTypes).orderBy(asc(minipizzaTypes.name));
+    return db.select().from(productFlavors)
+      .where(eq(productFlavors.active, true))
+      .orderBy(asc(productFlavors.name));
   }),
   create: adminProcedure
-    .input(z.object({ name: z.string().min(2), units: z.number().int().positive(), price: z.string() }))
+    .input(z.object({ productId: z.number(), name: z.string().min(2), description: z.string().optional(), additionalPrice: z.string().default("0.00") }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.insert(minipizzaTypes).values(input);
-      return { success: true };
-    }),
-  update: adminProcedure
-    .input(z.object({ id: z.number(), name: z.string().optional(), units: z.number().optional(), price: z.string().optional(), active: z.boolean().optional() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const { id, ...data } = input;
-      await db.update(minipizzaTypes).set(data).where(eq(minipizzaTypes.id, id));
-      return { success: true };
-    }),
-  delete: adminProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const linked = await db.select().from(orderMinipizzas).where(eq(orderMinipizzas.minipizzaTypeId, input.id)).limit(1);
-      if (linked.length > 0) throw new TRPCError({ code: "CONFLICT", message: "Tipo possui pedidos associados." });
-      await db.delete(minipizzaTypeFlavorMatrix).where(eq(minipizzaTypeFlavorMatrix.minipizzaTypeId, input.id));
-      await db.delete(minipizzaTypes).where(eq(minipizzaTypes.id, input.id));
-      return { success: true };
-    }),
-});
-
-// ─── MINIPIZZA FLAVORS ────────────────────────────────────────────────────────
-const minipizzaFlavorsRouter = router({
-  list: protectedProcedure.query(async () => {
-    const db = await getDb();
-    if (!db) return [];
-    return db.select().from(minipizzaFlavors).orderBy(asc(minipizzaFlavors.name));
-  }),
-  create: adminProcedure
-    .input(z.object({ name: z.string().min(2), description: z.string().optional(), additionalPrice: z.string().default("0.00") }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.insert(minipizzaFlavors).values(input);
+      await db.insert(productFlavors).values(input);
       return { success: true };
     }),
   update: adminProcedure
@@ -244,7 +228,7 @@ const minipizzaFlavorsRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { id, ...data } = input;
-      await db.update(minipizzaFlavors).set(data).where(eq(minipizzaFlavors.id, id));
+      await db.update(productFlavors).set(data).where(eq(productFlavors.id, id));
       return { success: true };
     }),
   delete: adminProcedure
@@ -252,67 +236,41 @@ const minipizzaFlavorsRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.delete(minipizzaTypeFlavorMatrix).where(eq(minipizzaTypeFlavorMatrix.minipizzaFlavorId, input.id));
-      await db.delete(minipizzaFlavors).where(eq(minipizzaFlavors.id, input.id));
+      await db.delete(productFlavors).where(eq(productFlavors.id, input.id));
       return { success: true };
     }),
+});
+
+// ─── MINIPIZZA TYPES (legacy) ────────────────────────────────────────────────
+const minipizzaTypesRouter = router({
+  list: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select().from(minipizzaTypes).orderBy(asc(minipizzaTypes.name));
+  }),
+});
+
+// ─── MINIPIZZA FLAVORS (legacy) ──────────────────────────────────────────────
+const minipizzaFlavorsRouter = router({
+  list: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select().from(minipizzaFlavors).orderBy(asc(minipizzaFlavors.name));
+  }),
   getMatrix: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];
     return db.select().from(minipizzaTypeFlavorMatrix);
   }),
-  setCompatibility: adminProcedure
-    .input(z.object({ typeId: z.number(), flavorId: z.number(), active: z.boolean() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const existing = await db.select().from(minipizzaTypeFlavorMatrix)
-        .where(and(eq(minipizzaTypeFlavorMatrix.minipizzaTypeId, input.typeId), eq(minipizzaTypeFlavorMatrix.minipizzaFlavorId, input.flavorId)))
-        .limit(1);
-      if (existing.length > 0) {
-        await db.update(minipizzaTypeFlavorMatrix).set({ active: input.active })
-          .where(and(eq(minipizzaTypeFlavorMatrix.minipizzaTypeId, input.typeId), eq(minipizzaTypeFlavorMatrix.minipizzaFlavorId, input.flavorId)));
-      } else {
-        await db.insert(minipizzaTypeFlavorMatrix).values({ minipizzaTypeId: input.typeId, minipizzaFlavorId: input.flavorId, active: input.active });
-      }
-      return { success: true };
-    }),
 });
 
-// ─── JELLY FLAVORS ────────────────────────────────────────────────────────────
+// ─── JELLY FLAVORS (legacy) ──────────────────────────────────────────────────
 const jellyFlavorsRouter = router({
   list: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];
     return db.select().from(jellyFlavors).orderBy(asc(jellyFlavors.name));
   }),
-  create: adminProcedure
-    .input(z.object({ name: z.string().min(2), description: z.string().optional(), price: z.string() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.insert(jellyFlavors).values(input);
-      return { success: true };
-    }),
-  update: adminProcedure
-    .input(z.object({ id: z.number(), name: z.string().optional(), description: z.string().optional(), price: z.string().optional(), active: z.boolean().optional() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const { id, ...data } = input;
-      await db.update(jellyFlavors).set(data).where(eq(jellyFlavors.id, id));
-      return { success: true };
-    }),
-  delete: adminProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const linked = await db.select().from(orderJellies).where(eq(orderJellies.jellyFlavorId, input.id)).limit(1);
-      if (linked.length > 0) throw new TRPCError({ code: "CONFLICT", message: "Sabor possui pedidos associados." });
-      await db.delete(jellyFlavors).where(eq(jellyFlavors.id, input.id));
-      return { success: true };
-    }),
 });
 
 // ─── DELIVERY METHODS ─────────────────────────────────────────────────────────
@@ -353,6 +311,7 @@ export const catalogRouter = router({
   categories: categoriesRouter,
   productTypes: productTypesRouter,
   products: productsRouter,
+  productFlavors: productFlavorsRouter,
   minipizzaTypes: minipizzaTypesRouter,
   minipizzaFlavors: minipizzaFlavorsRouter,
   jellyFlavors: jellyFlavorsRouter,

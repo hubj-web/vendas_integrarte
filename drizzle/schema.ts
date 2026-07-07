@@ -31,7 +31,6 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// ─── PRODUCT TYPES (customizable categories) ──────────────────────────────────
 // ─── PRODUCT CATEGORIES ─────────────────────────────────────────────────────────────────
 export const productCategories = mysqlTable("product_categories", {
   id: int("id").autoincrement().primaryKey(),
@@ -45,7 +44,7 @@ export const productCategories = mysqlTable("product_categories", {
 
 export type ProductCategory = typeof productCategories.$inferSelect;
 
-// ─── PRODUCT TYPES ─────────────────────────────────────────────────────────────────────────────
+// ─── PRODUCT TYPES (legacy intermediary, kept for backward compat) ───────────
 export const productTypes = mysqlTable("product_types", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 100 }).notNull().unique(),
@@ -62,16 +61,32 @@ export type ProductType = typeof productTypes.$inferSelect;
 export const products = mysqlTable("products", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 150 }).notNull(),
+  categoryId: int("categoryId"),
   productTypeId: int("productTypeId").notNull(),
-  unit: varchar("unit", { length: 50 }).notNull(), // bandeja, caixa, pote, unidade, etc.
+  unit: varchar("unit", { length: 50 }).notNull(),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   description: text("description"),
+  maxFlavors: int("maxFlavors").default(0), // 0 = sem sabores, >0 = quantidade máxima de sabores
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 export type Product = typeof products.$inferSelect;
+
+// ─── PRODUCT FLAVORS (sabores disponíveis por produto) ────────────────────────
+export const productFlavors = mysqlTable("product_flavors", {
+  id: int("id").autoincrement().primaryKey(),
+  productId: int("productId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  additionalPrice: decimal("additionalPrice", { precision: 10, scale: 2 }).default("0.00"),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ProductFlavor = typeof productFlavors.$inferSelect;
 
 export const productChangeHistory = mysqlTable("product_change_history", {
   id: int("id").autoincrement().primaryKey(),
@@ -83,11 +98,11 @@ export const productChangeHistory = mysqlTable("product_change_history", {
   changedAt: timestamp("changedAt").defaultNow().notNull(),
 });
 
-// ─── MINIPIZZA TYPES ──────────────────────────────────────────────────────────
+// ─── MINIPIZZA TYPES (legacy - kept for old orders) ──────────────────────────
 export const minipizzaTypes = mysqlTable("minipizza_types", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 150 }).notNull(),
-  units: int("units").notNull(), // quantidade de unidades por embalagem
+  units: int("units").notNull(),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -96,7 +111,7 @@ export const minipizzaTypes = mysqlTable("minipizza_types", {
 
 export type MinipizzaType = typeof minipizzaTypes.$inferSelect;
 
-// ─── MINIPIZZA FLAVORS ────────────────────────────────────────────────────────
+// ─── MINIPIZZA FLAVORS (legacy) ──────────────────────────────────────────────
 export const minipizzaFlavors = mysqlTable("minipizza_flavors", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
@@ -109,7 +124,7 @@ export const minipizzaFlavors = mysqlTable("minipizza_flavors", {
 
 export type MinipizzaFlavor = typeof minipizzaFlavors.$inferSelect;
 
-// ─── MINIPIZZA TYPE × FLAVOR COMPATIBILITY ────────────────────────────────────
+// ─── MINIPIZZA TYPE × FLAVOR COMPATIBILITY (legacy) ──────────────────────────
 export const minipizzaTypeFlavorMatrix = mysqlTable("minipizza_type_flavor_matrix", {
   id: int("id").autoincrement().primaryKey(),
   minipizzaTypeId: int("minipizzaTypeId").notNull(),
@@ -117,7 +132,7 @@ export const minipizzaTypeFlavorMatrix = mysqlTable("minipizza_type_flavor_matri
   active: boolean("active").default(true).notNull(),
 });
 
-// ─── JELLY FLAVORS ────────────────────────────────────────────────────────────
+// ─── JELLY FLAVORS (legacy) ──────────────────────────────────────────────────
 export const jellyFlavors = mysqlTable("jelly_flavors", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
@@ -164,10 +179,10 @@ export type Customer = typeof customers.$inferSelect;
 export const orders = mysqlTable("orders", {
   id: int("id").autoincrement().primaryKey(),
   customerId: int("customerId").notNull(),
-  launcherId: int("launcherId").notNull(), // usuário que lançou
+  launcherId: int("launcherId").notNull(),
   deliveryMethodId: int("deliveryMethodId").notNull(),
   deliveryDate: timestamp("deliveryDate"),
-  deliveryAddress: text("deliveryAddress"), // endereço de entrega (se necessário)
+  deliveryAddress: text("deliveryAddress"),
   paymentMethod: mysqlEnum("paymentMethod", ["cash", "pix"]).notNull(),
   status: mysqlEnum("status", ["production", "in_route", "delivered", "paid", "cancelled"]).default("production").notNull(),
   paymentStatus: mysqlEnum("paymentStatus", ["pending", "paid", "partial", "cancelled"]).default("pending").notNull(),
@@ -182,7 +197,7 @@ export const orders = mysqlTable("orders", {
 
 export type Order = typeof orders.$inferSelect;
 
-// ─── ORDER ITEMS (produtos comuns) ────────────────────────────────────────────
+// ─── ORDER ITEMS ─────────────────────────────────────────────────────────────
 export const orderItems = mysqlTable("order_items", {
   id: int("id").autoincrement().primaryKey(),
   orderId: int("orderId").notNull(),
@@ -192,24 +207,32 @@ export const orderItems = mysqlTable("order_items", {
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
 });
 
-// ─── ORDER MINIPIZZAS ─────────────────────────────────────────────────────────
+// ─── ORDER ITEM FLAVORS (sabores escolhidos por item do pedido) ──────────────
+export const orderItemFlavors = mysqlTable("order_item_flavors", {
+  id: int("id").autoincrement().primaryKey(),
+  orderItemId: int("orderItemId").notNull(),
+  productFlavorId: int("productFlavorId").notNull(),
+  flavorName: varchar("flavorName", { length: 100 }).notNull(), // denormalized for history
+});
+
+// ─── ORDER MINIPIZZAS (legacy - kept for old orders) ─────────────────────────
 export const orderMinipizzas = mysqlTable("order_minipizzas", {
   id: int("id").autoincrement().primaryKey(),
   orderId: int("orderId").notNull(),
   minipizzaTypeId: int("minipizzaTypeId").notNull(),
   quantity: int("quantity").notNull(),
-  unitPrice: decimal("unitPrice", { precision: 10, scale: 2 }).notNull(), // preço final (tipo + sabores)
+  unitPrice: decimal("unitPrice", { precision: 10, scale: 2 }).notNull(),
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
 });
 
-// ─── ORDER MINIPIZZA FLAVORS ──────────────────────────────────────────────────
+// ─── ORDER MINIPIZZA FLAVORS (legacy) ────────────────────────────────────────
 export const orderMinipizzaFlavors = mysqlTable("order_minipizza_flavors", {
   id: int("id").autoincrement().primaryKey(),
   orderMinipizzaId: int("orderMinipizzaId").notNull(),
   minipizzaFlavorId: int("minipizzaFlavorId").notNull(),
 });
 
-// ─── ORDER JELLIES ────────────────────────────────────────────────────────────
+// ─── ORDER JELLIES (legacy) ──────────────────────────────────────────────────
 export const orderJellies = mysqlTable("order_jellies", {
   id: int("id").autoincrement().primaryKey(),
   orderId: int("orderId").notNull(),
@@ -251,7 +274,7 @@ export const routeOrders = mysqlTable("route_orders", {
   id: int("id").autoincrement().primaryKey(),
   routeId: int("routeId").notNull(),
   orderId: int("orderId").notNull(),
-  position: int("position").notNull(), // ordem na rota
+  position: int("position").notNull(),
 });
 
 // ─── DELIVERY RECORDS ─────────────────────────────────────────────────────────

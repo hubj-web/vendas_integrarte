@@ -12,13 +12,20 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Search, Package } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Package, Cherry } from "lucide-react";
 
 type Product = {
   id: number; name: string; unit: string; price: string;
   description: string | null; active: boolean;
-  productTypeId: number; typeName: string | null;
-  categoryId?: number | null; categoryName?: string | null;
+  productTypeId: number;
+  categoryId: number | null; categoryName: string | null;
+  maxFlavors: number | null;
+};
+
+type Flavor = {
+  id: number; productId: number; name: string;
+  description: string | null; additionalPrice: string | null;
+  active: boolean;
 };
 
 const units = ["bandeja", "caixa", "pote", "unidade", "pacote", "kg", "g", "litro", "ml"];
@@ -26,11 +33,34 @@ const units = ["bandeja", "caixa", "pote", "unidade", "pacote", "kg", "g", "litr
 export default function Products() {
   const utils = trpc.useUtils();
   const { data: categories = [] } = trpc.catalog.categories.list.useQuery();
-  const { data: types = [] } = trpc.catalog.productTypes.list.useQuery();
   const { data: products = [], isLoading } = trpc.catalog.products.list.useQuery();
-  const createMutation = trpc.catalog.products.create.useMutation({ onSuccess: () => { utils.catalog.products.list.invalidate(); toast.success("Produto criado!"); setOpen(false); } });
-  const updateMutation = trpc.catalog.products.update.useMutation({ onSuccess: () => { utils.catalog.products.list.invalidate(); toast.success("Produto atualizado!"); setOpen(false); } });
-  const deleteMutation = trpc.catalog.products.delete.useMutation({ onSuccess: () => { utils.catalog.products.list.invalidate(); toast.success("Produto excluído!"); setDeleteId(null); } });
+  const createMutation = trpc.catalog.products.create.useMutation({
+    onSuccess: () => { utils.catalog.products.list.invalidate(); toast.success("Produto criado!"); setOpen(false); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateMutation = trpc.catalog.products.update.useMutation({
+    onSuccess: () => { utils.catalog.products.list.invalidate(); toast.success("Produto atualizado!"); setOpen(false); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteMutation = trpc.catalog.products.delete.useMutation({
+    onSuccess: () => { utils.catalog.products.list.invalidate(); toast.success("Produto excluído!"); setDeleteId(null); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // Flavors
+  const [flavorProductId, setFlavorProductId] = useState<number | null>(null);
+  const { data: flavors = [] } = trpc.catalog.productFlavors.list.useQuery(
+    { productId: flavorProductId! },
+    { enabled: flavorProductId !== null }
+  );
+  const createFlavorMutation = trpc.catalog.productFlavors.create.useMutation({
+    onSuccess: () => { utils.catalog.productFlavors.list.invalidate(); toast.success("Sabor adicionado!"); setNewFlavor({ name: "", additionalPrice: "0.00" }); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteFlavorMutation = trpc.catalog.productFlavors.delete.useMutation({
+    onSuccess: () => { utils.catalog.productFlavors.list.invalidate(); toast.success("Sabor removido!"); },
+    onError: (e) => toast.error(e.message),
+  });
 
   const [open, setOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
@@ -38,57 +68,81 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
 
-  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", description: "", active: true });
+  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", description: "", active: true, maxFlavors: "0" });
 
-  // Obter tipos filtrados pela categoria selecionada
-  const typesForCategory = form.categoryId
-    ? types.filter(t => String(t.categoryId) === form.categoryId)
-    : types;
+  // Flavor management dialog
+  const [showFlavors, setShowFlavors] = useState(false);
+  const [newFlavor, setNewFlavor] = useState({ name: "", additionalPrice: "0.00" });
 
   function openCreate() {
     setEditing(null);
-    setForm({ name: "", categoryId: "", unit: "unidade", price: "", description: "", active: true });
+    setForm({ name: "", categoryId: "", unit: "unidade", price: "", description: "", active: true, maxFlavors: "0" });
     setOpen(true);
   }
 
   function openEdit(p: Product) {
     setEditing(p);
-    // Encontrar a categoria do tipo de produto
-    const type = types.find(t => t.id === p.productTypeId);
-    const catId = type?.categoryId ? String(type.categoryId) : (p.categoryId ? String(p.categoryId) : "");
-    setForm({ name: p.name, categoryId: catId, unit: p.unit, price: p.price, description: p.description ?? "", active: p.active });
+    setForm({
+      name: p.name,
+      categoryId: p.categoryId ? String(p.categoryId) : "",
+      unit: p.unit,
+      price: p.price,
+      description: p.description ?? "",
+      active: p.active,
+      maxFlavors: String(p.maxFlavors ?? 0),
+    });
     setOpen(true);
+  }
+
+  function openFlavors(p: Product) {
+    setFlavorProductId(p.id);
+    setShowFlavors(true);
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.categoryId) return toast.error("Selecione uma categoria.");
 
-    // Encontrar ou usar o primeiro tipo da categoria selecionada
-    const categoryTypes = types.filter(t => String(t.categoryId) === form.categoryId);
-    let productTypeId: number;
-
-    if (categoryTypes.length > 0) {
-      productTypeId = categoryTypes[0].id;
-    } else {
-      // Se não tem tipo para essa categoria, usar tipo genérico (id 5 - Outros)
-      const genericType = types.find(t => t.name === "Outros");
-      productTypeId = genericType?.id ?? 1;
-    }
+    const categoryId = parseInt(form.categoryId);
+    const maxFlavors = parseInt(form.maxFlavors) || 0;
 
     if (editing) {
-      updateMutation.mutate({ id: editing.id, name: form.name, productTypeId, unit: form.unit, price: form.price, description: form.description, active: form.active });
+      updateMutation.mutate({
+        id: editing.id,
+        name: form.name,
+        categoryId,
+        unit: form.unit,
+        price: form.price,
+        description: form.description,
+        active: form.active,
+        maxFlavors,
+      });
     } else {
-      createMutation.mutate({ name: form.name, productTypeId, unit: form.unit, price: form.price, description: form.description || undefined, active: form.active });
+      createMutation.mutate({
+        name: form.name,
+        categoryId,
+        unit: form.unit,
+        price: form.price,
+        description: form.description || undefined,
+        active: form.active,
+        maxFlavors,
+      });
     }
+  }
+
+  function handleAddFlavor(e: React.FormEvent) {
+    e.preventDefault();
+    if (!flavorProductId || !newFlavor.name.trim()) return;
+    createFlavorMutation.mutate({
+      productId: flavorProductId,
+      name: newFlavor.name.trim(),
+      additionalPrice: newFlavor.additionalPrice || "0.00",
+    });
   }
 
   const filtered = products.filter(p => {
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
-    if (filterCategory !== "all") {
-      const type = types.find(t => t.id === p.productTypeId);
-      if (!type || String(type.categoryId) !== filterCategory) return false;
-    }
+    if (filterCategory !== "all" && String(p.categoryId) !== filterCategory) return false;
     return true;
   });
 
@@ -126,6 +180,7 @@ export default function Products() {
               <TableHead className="text-muted-foreground">Categoria</TableHead>
               <TableHead className="text-muted-foreground">Unidade</TableHead>
               <TableHead className="text-muted-foreground">Preço</TableHead>
+              <TableHead className="text-muted-foreground">Sabores</TableHead>
               <TableHead className="text-muted-foreground">Status</TableHead>
               <TableHead className="text-muted-foreground text-right">Ações</TableHead>
             </TableRow>
@@ -134,40 +189,54 @@ export default function Products() {
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i} className="border-border">
-                  {Array.from({ length: 6 }).map((_, j) => <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>)}
+                  {Array.from({ length: 7 }).map((_, j) => <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>)}
                 </TableRow>
               ))
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                   <Package className="w-8 h-8 mx-auto mb-2 opacity-30" />
                   Nenhum produto encontrado
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map(p => {
-                const type = types.find(t => t.id === p.productTypeId);
-                const catName = type?.categoryName || p.categoryName || "Sem categoria";
-                return (
-                  <TableRow key={p.id} className="border-border hover:bg-muted/20">
-                    <TableCell className="font-medium">{p.name}</TableCell>
-                    <TableCell><Badge variant="outline" className="text-xs">{catName}</Badge></TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{p.unit}</TableCell>
-                    <TableCell className="font-semibold text-primary">{fmt(p.price)}</TableCell>
-                    <TableCell>
-                      <Badge className={p.active ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-muted text-muted-foreground"}>
-                        {p.active ? "Ativo" : "Inativo"}
+              filtered.map(p => (
+                <TableRow key={p.id} className="border-border hover:bg-muted/20">
+                  <TableCell className="font-medium">{p.name}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="text-xs">
+                      {p.categoryName || "Sem categoria"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">{p.unit}</TableCell>
+                  <TableCell className="font-semibold text-primary">{fmt(p.price)}</TableCell>
+                  <TableCell>
+                    {(p.maxFlavors ?? 0) > 0 ? (
+                      <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-xs">
+                        Máx. {p.maxFlavors}
                       </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" onClick={() => openEdit(p)}><Pencil className="w-3.5 h-3.5" /></Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-destructive" onClick={() => setDeleteId(p.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge className={p.active ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-muted text-muted-foreground"}>
+                      {p.active ? "Ativo" : "Inativo"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      {(p.maxFlavors ?? 0) > 0 && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-purple-400" onClick={() => openFlavors(p)} title="Gerenciar sabores">
+                          <Cherry className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" onClick={() => openEdit(p)}><Pencil className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-destructive" onClick={() => setDeleteId(p.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
             )}
           </TableBody>
         </Table>
@@ -209,6 +278,19 @@ export default function Products() {
               </div>
             </div>
             <div className="space-y-2">
+              <Label>Máximo de Sabores</Label>
+              <Input
+                type="number" min="0" step="1"
+                value={form.maxFlavors}
+                onChange={e => setForm(f => ({ ...f, maxFlavors: e.target.value }))}
+                className="bg-input"
+                placeholder="0 = sem sabores"
+              />
+              <p className="text-xs text-muted-foreground">
+                Defina quantos sabores o cliente pode escolher. 0 = produto sem sabores.
+              </p>
+            </div>
+            <div className="space-y-2">
               <Label>Descrição</Label>
               <Input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="bg-input" />
             </div>
@@ -223,6 +305,67 @@ export default function Products() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Flavors Management Dialog */}
+      <Dialog open={showFlavors} onOpenChange={(v) => { setShowFlavors(v); if (!v) setFlavorProductId(null); }}>
+        <DialogContent className="bg-card border-border max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Sabores - {products.find(p => p.id === flavorProductId)?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Existing flavors */}
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {flavors.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">Nenhum sabor cadastrado ainda.</p>
+              ) : (
+                flavors.map(f => (
+                  <div key={f.id} className="flex items-center justify-between p-2 rounded-lg border border-border">
+                    <div>
+                      <span className="font-medium text-sm">{f.name}</span>
+                      {f.additionalPrice && parseFloat(f.additionalPrice) > 0 && (
+                        <span className="ml-2 text-xs text-muted-foreground">+{fmt(f.additionalPrice)}</span>
+                      )}
+                    </div>
+                    <Button
+                      variant="ghost" size="icon" className="h-7 w-7 hover:text-destructive"
+                      onClick={() => deleteFlavorMutation.mutate({ id: f.id })}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Add new flavor */}
+            <form onSubmit={handleAddFlavor} className="flex gap-2 items-end">
+              <div className="flex-1 space-y-1">
+                <Label className="text-xs">Nome do sabor</Label>
+                <Input
+                  value={newFlavor.name}
+                  onChange={e => setNewFlavor(f => ({ ...f, name: e.target.value }))}
+                  placeholder="Ex: Margherita"
+                  className="bg-input h-9"
+                />
+              </div>
+              <div className="w-24 space-y-1">
+                <Label className="text-xs">Preço extra</Label>
+                <Input
+                  type="number" step="0.01" min="0"
+                  value={newFlavor.additionalPrice}
+                  onChange={e => setNewFlavor(f => ({ ...f, additionalPrice: e.target.value }))}
+                  className="bg-input h-9"
+                />
+              </div>
+              <Button type="submit" size="sm" className="h-9 bg-primary text-primary-foreground" disabled={createFlavorMutation.isPending}>
+                <Plus className="w-4 h-4" />
+              </Button>
+            </form>
+          </div>
         </DialogContent>
       </Dialog>
 

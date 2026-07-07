@@ -8,9 +8,9 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   customers, deliveryMethods, jellyFlavors, minipizzaFlavors,
-  minipizzaTypes,   minipizzaTypeFlavorMatrix, orderItems, orderJellies,
+  minipizzaTypes, minipizzaTypeFlavorMatrix, orderItems, orderItemFlavors, orderJellies,
   orderMinipizzaFlavors, orderMinipizzas, orders, orderStatusHistory,
-  productCategories, productTypes, products, users,
+  productCategories, productFlavors, productTypes, products, users,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
@@ -40,12 +40,12 @@ export const sellerRouter = router({
       .where(and(eq(users.role, "launcher"), eq(users.active, true)));
   }),
 
-  /** Catálogo público: categorias, tipos de produto, produtos, minipizzas, geleias, formas de entrega */
+  /** Catálogo público: categorias, produtos, sabores, formas de entrega */
   catalog: publicProcedure.query(async () => {
     const db = await getDb();
-    if (!db) return { categories: [], productTypes: [], products: [], minipizzaTypes: [], minipizzaFlavors: [], compatibility: [], jellyFlavors: [], deliveryMethods: [] };
+    if (!db) return { categories: [], productTypes: [], products: [], productFlavors: [], minipizzaTypes: [], minipizzaFlavors: [], compatibility: [], jellyFlavors: [], deliveryMethods: [] };
     const { asc } = await import("drizzle-orm");
-    const [cats, ptypes, prods, mptypes, mpflavors, compat, jflavors, dmethods] = await Promise.all([
+    const [cats, ptypes, prods, pflav, mptypes, mpflavors, compat, jflavors, dmethods] = await Promise.all([
       db.select().from(productCategories)
         .where(eq(productCategories.active, true))
         .orderBy(asc(productCategories.sortOrder), asc(productCategories.name)),
@@ -57,13 +57,14 @@ export const sellerRouter = router({
         .from(productTypes)
         .where(eq(productTypes.active, true)),
       db.select().from(products).where(eq(products.active, true)),
+      db.select().from(productFlavors).where(eq(productFlavors.active, true)),
       db.select().from(minipizzaTypes).where(eq(minipizzaTypes.active, true)),
       db.select().from(minipizzaFlavors).where(eq(minipizzaFlavors.active, true)),
       db.select().from(minipizzaTypeFlavorMatrix),
       db.select().from(jellyFlavors).where(eq(jellyFlavors.active, true)),
       db.select().from(deliveryMethods).where(eq(deliveryMethods.active, true)),
     ]);
-    return { categories: cats, productTypes: ptypes, products: prods, minipizzaTypes: mptypes, minipizzaFlavors: mpflavors, compatibility: compat, jellyFlavors: jflavors, deliveryMethods: dmethods };
+    return { categories: cats, productTypes: ptypes, products: prods, productFlavors: pflav, minipizzaTypes: mptypes, minipizzaFlavors: mpflavors, compatibility: compat, jellyFlavors: jflavors, deliveryMethods: dmethods };
   }),
 
   /** Busca clientes por nome ou telefone */
@@ -125,7 +126,9 @@ export const sellerRouter = router({
         quantity: z.number(),
         unitPrice: z.string(),
         subtotal: z.string(),
+        flavorIds: z.array(z.number()).optional(),
       })),
+      // Legacy arrays kept for backward compat
       minipizzas: z.array(z.object({
         minipizzaTypeId: z.number(),
         quantity: z.number(),
@@ -157,9 +160,34 @@ export const sellerRouter = router({
         paymentStatus: "pending",
       });
       const orderId = Number((result as any).insertId || (result as any)[0]?.insertId);
-      if (input.items.length > 0) {
-        await db.insert(orderItems).values(input.items.map(i => ({ ...i, orderId })));
+      
+      // Save order items (new unified system)
+      for (const item of input.items) {
+        const itemResult = await db.insert(orderItems).values({
+          orderId,
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          subtotal: item.subtotal,
+        });
+        const orderItemId = Number((itemResult as any).insertId || (itemResult as any)[0]?.insertId);
+        
+        // Save flavor selections if any
+        if (item.flavorIds && item.flavorIds.length > 0) {
+          const flavorRows = await db.select().from(productFlavors)
+            .where(inArray(productFlavors.id, item.flavorIds));
+          const flavorValues = flavorRows.map(f => ({
+            orderItemId,
+            productFlavorId: f.id,
+            flavorName: f.name,
+          }));
+          if (flavorValues.length > 0) {
+            await db.insert(orderItemFlavors).values(flavorValues);
+          }
+        }
       }
+      
+      // Legacy: save minipizzas (for old orders)
       for (const mp of input.minipizzas) {
         const mpResult = await db.insert(orderMinipizzas).values({
           orderId, minipizzaTypeId: mp.minipizzaTypeId,
@@ -172,9 +200,11 @@ export const sellerRouter = router({
           );
         }
       }
+      // Legacy: save jellies
       if (input.jellies.length > 0) {
         await db.insert(orderJellies).values(input.jellies.map(j => ({ ...j, orderId })));
       }
+      
       await db.insert(orderStatusHistory).values({
         orderId, userId: input.sellerId, fromStatus: null, toStatus: "production",
         notes: "Pedido criado pelo vendedor",
@@ -246,7 +276,15 @@ export const sellerRouter = router({
           .where(eq(orderJellies.orderId, input.orderId)),
         db.select().from(customers).where(eq(customers.id, order.customerId)).limit(1),
       ]);
-      return { ...order, customer: customerData[0], items, minipizzas: minipizzasData, jellies: jelliesData };
+      
+      // Fetch flavor info for each order item
+      const itemsWithFlavors = await Promise.all(items.map(async (item) => {
+        const flavorsData = await db.select().from(orderItemFlavors)
+          .where(eq(orderItemFlavors.orderItemId, item.id));
+        return { ...item, flavors: flavorsData };
+      }));
+      
+      return { ...order, customer: customerData[0], items: itemsWithFlavors, minipizzas: minipizzasData, jellies: jelliesData };
     }),
 
   /** Cancela um pedido próprio (apenas se ainda em produção) */

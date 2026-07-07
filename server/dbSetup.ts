@@ -117,14 +117,30 @@ export function registerDbSetupRoute(app: Express) {
       CREATE TABLE IF NOT EXISTS \`products\` (
         \`id\` int AUTO_INCREMENT NOT NULL,
         \`name\` varchar(150) NOT NULL,
-        \`productTypeId\` int NOT NULL,
+        \`categoryId\` int NULL,
+        \`productTypeId\` int NOT NULL DEFAULT 1,
         \`unit\` varchar(50) NOT NULL,
         \`price\` decimal(10,2) NOT NULL,
         \`description\` text,
+        \`maxFlavors\` int DEFAULT 0,
         \`active\` boolean NOT NULL DEFAULT true,
         \`createdAt\` timestamp NOT NULL DEFAULT (now()),
         \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
         CONSTRAINT \`products_id\` PRIMARY KEY(\`id\`)
+      )
+    `);
+
+    await run("Table: product_flavors", `
+      CREATE TABLE IF NOT EXISTS \`product_flavors\` (
+        \`id\` int AUTO_INCREMENT NOT NULL,
+        \`productId\` int NOT NULL,
+        \`name\` varchar(100) NOT NULL,
+        \`description\` text,
+        \`additionalPrice\` decimal(10,2) DEFAULT 0.00,
+        \`active\` boolean NOT NULL DEFAULT true,
+        \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+        \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+        CONSTRAINT \`product_flavors_id\` PRIMARY KEY(\`id\`)
       )
     `);
 
@@ -221,6 +237,16 @@ export function registerDbSetupRoute(app: Express) {
         \`unitPrice\` decimal(10,2) NOT NULL,
         \`subtotal\` decimal(10,2) NOT NULL,
         CONSTRAINT \`order_items_id\` PRIMARY KEY(\`id\`)
+      )
+    `);
+
+    await run("Table: order_item_flavors", `
+      CREATE TABLE IF NOT EXISTS \`order_item_flavors\` (
+        \`id\` int AUTO_INCREMENT NOT NULL,
+        \`orderItemId\` int NOT NULL,
+        \`productFlavorId\` int NOT NULL,
+        \`flavorName\` varchar(100) NOT NULL,
+        CONSTRAINT \`order_item_flavors_id\` PRIMARY KEY(\`id\`)
       )
     `);
 
@@ -366,46 +392,69 @@ export function registerDbSetupRoute(app: Express) {
       (3, 'Entrega em ponto de coleta', 'Entrega em ponto combinado', 0, 1)
     `);
 
-    // Product types
+    // Product types (legacy, kept for backward compat)
     await run("Seed: product types", `
       INSERT IGNORE INTO \`product_types\` (id, name, category, active) VALUES
-      (1, 'Pão de Queijo', 'paes', 1),
-      (2, 'Biscoito', 'biscoitos', 1),
-      (3, 'Broa', 'paes', 1),
-      (4, 'Congelados', 'congelados', 1),
-      (5, 'Outros', 'outros', 1)
+      (1, 'Geral', 'geral', 1)
     `);
 
-    // Products
+    // Seed categories
+    await run("Seed: product categories", `
+      INSERT IGNORE INTO \`product_categories\` (id, name, description, sortOrder, active) VALUES
+      (1, 'Pães de Queijo', 'Pães de queijo artesanais', 1, 1),
+      (2, 'Biscoitos', 'Biscoitos artesanais', 2, 1),
+      (3, 'Broas', 'Broas artesanais', 3, 1),
+      (4, 'MiniPizzas', 'Minipizzas com sabores', 4, 1),
+      (5, 'Geleias', 'Geleias artesanais', 5, 1)
+    `);
+
+    // Products (with categoryId)
     await run("Seed: products", `
-      INSERT IGNORE INTO \`products\` (id, name, productTypeId, unit, price, active) VALUES
-      (1, 'Pão de Queijo Tradicional', 1, 'pacote', 27.00, 1),
-      (2, 'Biscoito Ferradura', 2, 'pacote', 27.00, 1),
-      (3, 'Biscoito de Provolone', 2, 'pacote', 27.00, 1),
-      (4, 'Broa Temperada', 3, 'unidade', 27.00, 1),
-      (5, 'Broa Doce s/ erva', 3, 'unidade', 27.00, 1)
+      INSERT IGNORE INTO \`products\` (id, name, categoryId, productTypeId, unit, price, maxFlavors, active) VALUES
+      (1, 'Pão de Queijo Tradicional', 1, 1, 'pacote', 27.00, 0, 1),
+      (2, 'Biscoito Ferradura', 2, 1, 'pacote', 27.00, 0, 1),
+      (3, 'Biscoito de Provolone', 2, 1, 'pacote', 27.00, 0, 1),
+      (4, 'Broa Temperada', 3, 1, 'unidade', 27.00, 0, 1),
+      (5, 'Broa Doce s/ erva', 3, 1, 'unidade', 27.00, 0, 1),
+      (6, 'Mini (4 unidades)', 4, 1, 'unidade', 20.00, 2, 1),
+      (7, 'Média (8 unidades)', 4, 1, 'unidade', 38.00, 3, 1),
+      (8, 'Grande (12 unidades)', 4, 1, 'unidade', 55.00, 4, 1),
+      (9, 'Geleia Morango', 5, 1, 'unidade', 15.00, 0, 1),
+      (10, 'Geleia Uva', 5, 1, 'unidade', 15.00, 0, 1),
+      (11, 'Geleia Goiaba', 5, 1, 'unidade', 15.00, 0, 1),
+      (12, 'Geleia Maracujá', 5, 1, 'unidade', 15.00, 0, 1),
+      (13, 'Geleia Pimenta', 5, 1, 'unidade', 18.00, 0, 1)
     `);
 
-    // Jelly flavors
-    await run("Seed: jelly flavors", `
-      INSERT IGNORE INTO \`jelly_flavors\` (id, name, price, active) VALUES
-      (1, 'Morango', 15.00, 1),
-      (2, 'Uva', 15.00, 1),
-      (3, 'Goiaba', 15.00, 1),
-      (4, 'Maracujá', 15.00, 1),
-      (5, 'Pimenta', 18.00, 1)
+    // Product flavors for MiniPizzas (products 6, 7, 8)
+    await run("Seed: product flavors for minipizzas", `
+      INSERT IGNORE INTO \`product_flavors\` (id, productId, name, additionalPrice, active) VALUES
+      (1, 6, 'Margherita', 0.00, 1),
+      (2, 6, 'Frango com Catupiry', 0.00, 1),
+      (3, 6, 'Calabresa', 0.00, 1),
+      (4, 6, 'Quatro Queijos', 2.00, 1),
+      (5, 6, 'Portuguesa', 0.00, 1),
+      (6, 7, 'Margherita', 0.00, 1),
+      (7, 7, 'Frango com Catupiry', 0.00, 1),
+      (8, 7, 'Calabresa', 0.00, 1),
+      (9, 7, 'Quatro Queijos', 2.00, 1),
+      (10, 7, 'Portuguesa', 0.00, 1),
+      (11, 8, 'Margherita', 0.00, 1),
+      (12, 8, 'Frango com Catupiry', 0.00, 1),
+      (13, 8, 'Calabresa', 0.00, 1),
+      (14, 8, 'Quatro Queijos', 2.00, 1),
+      (15, 8, 'Portuguesa', 0.00, 1)
     `);
 
-    // Minipizza types
-    await run("Seed: minipizza types", `
+    // Legacy minipizza/jelly seeds (kept for old order references)
+    await run("Seed: minipizza types (legacy)", `
       INSERT IGNORE INTO \`minipizza_types\` (id, name, units, price, active) VALUES
       (1, 'Mini (4 unidades)', 4, 20.00, 1),
       (2, 'Média (8 unidades)', 8, 38.00, 1),
       (3, 'Grande (12 unidades)', 12, 55.00, 1)
     `);
 
-    // Minipizza flavors
-    await run("Seed: minipizza flavors", `
+    await run("Seed: minipizza flavors (legacy)", `
       INSERT IGNORE INTO \`minipizza_flavors\` (id, name, additionalPrice, active) VALUES
       (1, 'Margherita', 0.00, 1),
       (2, 'Frango com Catupiry', 0.00, 1),
@@ -414,9 +463,26 @@ export function registerDbSetupRoute(app: Express) {
       (5, 'Portuguesa', 0.00, 1)
     `);
 
+    await run("Seed: jelly flavors (legacy)", `
+      INSERT IGNORE INTO \`jelly_flavors\` (id, name, price, active) VALUES
+      (1, 'Morango', 15.00, 1),
+      (2, 'Uva', 15.00, 1),
+      (3, 'Goiaba', 15.00, 1),
+      (4, 'Maracujá', 15.00, 1),
+      (5, 'Pimenta', 18.00, 1)
+    `);
+
     // ── MIGRATIONS (add columns to existing tables) ───────────────────────
     await run("Migration: add categoryId to product_types", `
       ALTER TABLE \`product_types\` ADD COLUMN \`categoryId\` int NULL
+    `);
+
+    await run("Migration: add categoryId to products", `
+      ALTER TABLE \`products\` ADD COLUMN \`categoryId\` int NULL
+    `);
+
+    await run("Migration: add maxFlavors to products", `
+      ALTER TABLE \`products\` ADD COLUMN \`maxFlavors\` int DEFAULT 0
     `);
 
     const allOk = errors.length === 0;

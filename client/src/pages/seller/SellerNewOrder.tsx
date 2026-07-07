@@ -20,16 +20,15 @@ const fmt = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
 interface CartItem {
-  type: "product" | "minipizza" | "jelly";
+  type: "product";
   id: string;
   label: string;
   quantity: number;
   unitPrice: number;
   subtotal: number;
-  minipizzaTypeId?: number;
+  productId: number;
   flavorIds?: number[];
-  jellyFlavorId?: number;
-  productId?: number;
+  flavorNames?: string[];
 }
 
 export default function SellerNewOrder() {
@@ -87,21 +86,12 @@ export default function SellerNewOrder() {
   const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
   const [productQtys, setProductQtys] = useState<Record<number, number>>({});
 
-  // Minipizza wizard (kept for categories that have minipizza-type products)
-  const [mpWizard, setMpWizard] = useState<{
-    step: "type" | "flavors" | "quantity";
-    typeId: number | null;
-    typeName: string;
-    typePrice: number;
-    flavorIds: number[];
-    quantity: number;
+  // Flavor selection dialog (for products with maxFlavors > 0)
+  const [flavorProduct, setFlavorProduct] = useState<{
+    id: number; name: string; price: number; maxFlavors: number;
   } | null>(null);
-  const [showMpDialog, setShowMpDialog] = useState(false);
-
-  // Jelly dialog (kept for categories that have jelly-type products)
-  const [jellyFlavorId, setJellyFlavorId] = useState<number | null>(null);
-  const [jellyQty, setJellyQty] = useState(1);
-  const [showJellyDialog, setShowJellyDialog] = useState(false);
+  const [selectedFlavorIds, setSelectedFlavorIds] = useState<number[]>([]);
+  const [flavorQty, setFlavorQty] = useState(1);
 
   const totalAmount = useMemo(() => cart.reduce((s, i) => s + i.subtotal, 0), [cart]);
 
@@ -111,23 +101,10 @@ export default function SellerNewOrder() {
     return catalog.categories || [];
   }, [catalog]);
 
-  // Get products for a specific category (via productTypes)
+  // Get products for a specific category (directly via categoryId)
   const getProductsForCategory = (categoryId: number) => {
     if (!catalog) return [];
-    const typeIds = catalog.productTypes
-      .filter(t => t.categoryId === categoryId)
-      .map(t => t.id);
-    return catalog.products.filter(p => typeIds.includes(p.productTypeId));
-  };
-
-  // Check if a category is "MiniPizzas" type (has minipizza data)
-  const isMiniPizzaCategory = (catName: string) => {
-    return catName.toLowerCase().includes("minipizza") || catName.toLowerCase().includes("mini pizza");
-  };
-
-  // Check if a category is "Geleias" type (has jelly data)
-  const isJellyCategory = (catName: string) => {
-    return catName.toLowerCase().includes("geleia") || catName.toLowerCase().includes("geleias");
+    return catalog.products.filter(p => p.categoryId === categoryId);
   };
 
   // Products in the active category dialog
@@ -137,24 +114,17 @@ export default function SellerNewOrder() {
   }, [activeCategoryId, catalog]);
 
   // Open category dialog
-  const openCategoryDialog = (categoryId: number, categoryName: string) => {
-    // If it's a MiniPizza category, open the minipizza wizard
-    if (isMiniPizzaCategory(categoryName) && catalog?.minipizzaTypes && catalog.minipizzaTypes.length > 0) {
-      startMpWizard();
-      return;
-    }
-    // If it's a Jelly category, open the jelly dialog
-    if (isJellyCategory(categoryName) && catalog?.jellyFlavors && catalog.jellyFlavors.length > 0) {
-      setShowJellyDialog(true);
-      return;
-    }
-    // Otherwise, open the generic product dialog
+  const openCategoryDialog = (categoryId: number) => {
     setActiveCategoryId(categoryId);
-    // Pre-populate qtys from cart
+    // Pre-populate qtys from cart (only for products without flavors)
     const qtys: Record<number, number> = {};
     for (const item of cart) {
-      if (item.type === "product" && item.productId !== undefined) {
-        qtys[item.productId] = item.quantity;
+      if (item.productId !== undefined) {
+        // Only count items without flavors in the qty counter
+        const prod = catalog?.products.find(p => p.id === item.productId);
+        if (prod && (prod.maxFlavors ?? 0) === 0) {
+          qtys[item.productId] = (qtys[item.productId] || 0) + item.quantity;
+        }
       }
     }
     setProductQtys(qtys);
@@ -169,13 +139,67 @@ export default function SellerNewOrder() {
     setProductQtys(prev => ({ ...prev, [productId]: Math.max(0, qty) }));
   };
 
+  // For products with flavors, open the flavor selection dialog
+  const openFlavorDialog = (product: { id: number; name: string; price: string; maxFlavors: number }) => {
+    setFlavorProduct({ id: product.id, name: product.name, price: Number(product.price), maxFlavors: product.maxFlavors });
+    setSelectedFlavorIds([]);
+    setFlavorQty(1);
+  };
+
+  const toggleFlavor = (flavorId: number) => {
+    if (!flavorProduct) return;
+    const has = selectedFlavorIds.includes(flavorId);
+    if (!has && selectedFlavorIds.length >= flavorProduct.maxFlavors) {
+      toast.error(`Máximo de ${flavorProduct.maxFlavors} sabor(es) por unidade.`);
+      return;
+    }
+    setSelectedFlavorIds(prev => has ? prev.filter(id => id !== flavorId) : [...prev, flavorId]);
+  };
+
+  const confirmFlavorProduct = () => {
+    if (!flavorProduct) return;
+    if (selectedFlavorIds.length === 0) {
+      toast.error("Selecione pelo menos 1 sabor.");
+      return;
+    }
+    const flavorNames = selectedFlavorIds
+      .map(fId => catalog?.productFlavors?.find(f => f.id === fId)?.name ?? "")
+      .filter(Boolean);
+    const label = `${flavorProduct.name} (${flavorNames.join(", ")})`;
+    const unitPrice = flavorProduct.price;
+    setCart(prev => [...prev, {
+      type: "product",
+      id: `p-${flavorProduct.id}-${Date.now()}`,
+      label,
+      quantity: flavorQty,
+      unitPrice,
+      subtotal: flavorQty * unitPrice,
+      productId: flavorProduct.id,
+      flavorIds: selectedFlavorIds,
+      flavorNames,
+    }]);
+    setFlavorProduct(null);
+    setSelectedFlavorIds([]);
+    setFlavorQty(1);
+    toast.success("Produto adicionado ao pedido!");
+  };
+
   const confirmCategoryProducts = () => {
     if (activeCategoryId === null) return;
-    // Remove all products from this category from cart, then re-add with new qtys
-    const categoryProductIds = new Set(activeCategoryProducts.map(p => p.id));
-    const newCart = cart.filter(c => !(c.type === "product" && c.productId !== undefined && categoryProductIds.has(c.productId)));
+    // Separate products with and without flavors
+    const noFlavorProducts = activeCategoryProducts.filter(p => (p.maxFlavors ?? 0) === 0);
+    const categoryProductIds = new Set(noFlavorProducts.map(p => p.id));
+    
+    // Remove all non-flavor products from this category from cart, then re-add with new qtys
+    const newCart = cart.filter(c => {
+      if (c.productId !== undefined && categoryProductIds.has(c.productId) && (!c.flavorIds || c.flavorIds.length === 0)) {
+        return false;
+      }
+      return true;
+    });
+    
     const additions: CartItem[] = [];
-    for (const p of activeCategoryProducts) {
+    for (const p of noFlavorProducts) {
       const qty = productQtys[p.id] ?? 0;
       if (qty > 0) {
         additions.push({
@@ -194,79 +218,6 @@ export default function SellerNewOrder() {
     if (additions.length > 0) {
       toast.success(`${additions.length} produto(s) adicionado(s) ao pedido.`);
     }
-  };
-
-  // Minipizza wizard
-  const startMpWizard = () => {
-    setMpWizard({ step: "type", typeId: null, typeName: "", typePrice: 0, flavorIds: [], quantity: 1 });
-    setShowMpDialog(true);
-  };
-
-  const selectMpType = (t: { id: number; name: string; price: string }) => {
-    setMpWizard(w => w ? { ...w, step: "flavors", typeId: t.id, typeName: t.name, typePrice: Number(t.price) } : w);
-  };
-
-  const toggleMpFlavor = (fId: number) => {
-    if (!mpWizard) return;
-    const maxFlavors = 2;
-    const has = mpWizard.flavorIds.includes(fId);
-    if (!has && mpWizard.flavorIds.length >= maxFlavors) {
-      toast.error(`Máximo de ${maxFlavors} sabores por minipizza.`);
-      return;
-    }
-    setMpWizard(w => w ? {
-      ...w,
-      flavorIds: has ? w.flavorIds.filter(id => id !== fId) : [...w.flavorIds, fId],
-    } : w);
-  };
-
-  const confirmMpFlavors = () => {
-    if (!mpWizard || mpWizard.flavorIds.length === 0) {
-      toast.error("Selecione pelo menos 1 sabor.");
-      return;
-    }
-    setMpWizard(w => w ? { ...w, step: "quantity" } : w);
-  };
-
-  const confirmMpWizard = () => {
-    if (!mpWizard || !mpWizard.typeId) return;
-    const flavorNames = mpWizard.flavorIds
-      .map(fId => catalog?.minipizzaFlavors.find(f => f.id === fId)?.name ?? "")
-      .join(", ");
-    const label = `Minipizza ${mpWizard.typeName} (${flavorNames})`;
-    const unitPrice = mpWizard.typePrice;
-    setCart(prev => [...prev, {
-      type: "minipizza",
-      id: `mp-${Date.now()}`,
-      label,
-      quantity: mpWizard.quantity,
-      unitPrice,
-      subtotal: mpWizard.quantity * unitPrice,
-      minipizzaTypeId: mpWizard.typeId!,
-      flavorIds: mpWizard.flavorIds,
-    }]);
-    setShowMpDialog(false);
-    setMpWizard(null);
-  };
-
-  // Jelly
-  const addJelly = () => {
-    if (!jellyFlavorId) return;
-    const flavor = catalog?.jellyFlavors.find(f => f.id === jellyFlavorId);
-    if (!flavor) return;
-    const unitPrice = Number(flavor.price);
-    setCart(prev => [...prev, {
-      type: "jelly",
-      id: `j-${Date.now()}`,
-      label: `Geleia ${flavor.name}`,
-      quantity: jellyQty,
-      unitPrice,
-      subtotal: jellyQty * unitPrice,
-      jellyFlavorId,
-    }]);
-    setShowJellyDialog(false);
-    setJellyFlavorId(null);
-    setJellyQty(1);
   };
 
   const removeFromCart = (id: string) => setCart(cart.filter(c => c.id !== id));
@@ -306,36 +257,18 @@ export default function SellerNewOrder() {
       paymentMethod,
       notes: notes || undefined,
       totalAmount: totalAmount.toFixed(2),
-      items: cart.filter(c => c.type === "product").map(c => ({
-        productId: c.productId!,
+      items: cart.map(c => ({
+        productId: c.productId,
         quantity: c.quantity,
         unitPrice: c.unitPrice.toFixed(2),
         subtotal: c.subtotal.toFixed(2),
+        flavorIds: c.flavorIds || [],
       })),
-      minipizzas: cart.filter(c => c.type === "minipizza").map(c => ({
-        minipizzaTypeId: c.minipizzaTypeId!,
-        quantity: c.quantity,
-        unitPrice: c.unitPrice.toFixed(2),
-        subtotal: c.subtotal.toFixed(2),
-        flavorIds: c.flavorIds!,
-      })),
-      jellies: cart.filter(c => c.type === "jelly").map(c => ({
-        jellyFlavorId: c.jellyFlavorId!,
-        quantity: c.quantity,
-        unitPrice: c.unitPrice.toFixed(2),
-        subtotal: c.subtotal.toFixed(2),
-      })),
+      // Keep legacy arrays empty for backward compat
+      minipizzas: [],
+      jellies: [],
     });
   };
-
-  // Compatible flavors for selected minipizza type
-  const compatibleFlavorIds = useMemo(() => {
-    if (!mpWizard?.typeId || !catalog) return new Set<number>();
-    const compat = catalog.compatibility
-      .filter(c => c.minipizzaTypeId === mpWizard.typeId)
-      .map(c => c.minipizzaFlavorId);
-    return new Set(compat);
-  }, [mpWizard?.typeId, catalog]);
 
   // Count items in cart per category (for badge)
   const categoryCartCount = useMemo(() => {
@@ -343,7 +276,7 @@ export default function SellerNewOrder() {
     for (const cat of categoryList) {
       const catProducts = getProductsForCategory(cat.id);
       const catIds = new Set(catProducts.map(p => p.id));
-      const count = cart.filter(c => c.type === "product" && c.productId !== undefined && catIds.has(c.productId))
+      const count = cart.filter(c => c.productId !== undefined && catIds.has(c.productId))
         .reduce((s, c) => s + c.quantity, 0);
       if (count > 0) counts[cat.id] = count;
     }
@@ -356,6 +289,12 @@ export default function SellerNewOrder() {
     const cat = categoryList.find(c => c.id === activeCategoryId);
     return cat?.name || "";
   }, [activeCategoryId, categoryList]);
+
+  // Get flavors for the current flavor product
+  const availableFlavors = useMemo(() => {
+    if (!flavorProduct || !catalog?.productFlavors) return [];
+    return catalog.productFlavors.filter(f => f.productId === flavorProduct.id && f.active);
+  }, [flavorProduct, catalog]);
 
   return (
     <div className="space-y-5 pb-10">
@@ -429,21 +368,13 @@ export default function SellerNewOrder() {
           {/* Category Buttons - Generated dynamically from database */}
           <div className="grid grid-cols-1 gap-2">
             {categoryList.map((cat) => {
-              const mpCount = isMiniPizzaCategory(cat.name)
-                ? cart.filter(c => c.type === "minipizza").reduce((s, c) => s + c.quantity, 0)
-                : 0;
-              const jellyCount = isJellyCategory(cat.name)
-                ? cart.filter(c => c.type === "jelly").reduce((s, c) => s + c.quantity, 0)
-                : 0;
-              const productCount = categoryCartCount[cat.id] || 0;
-              const totalCount = mpCount + jellyCount + productCount;
-
+              const totalCount = categoryCartCount[cat.id] || 0;
               return (
                 <Button
                   key={cat.id}
                   variant="outline"
                   className="justify-between h-12 border-border hover:border-primary/50 hover:bg-primary/5"
-                  onClick={() => openCategoryDialog(cat.id, cat.name)}
+                  onClick={() => openCategoryDialog(cat.id)}
                 >
                   <div className="flex items-center gap-2">
                     <Tag className="w-4 h-4 text-primary/70" />
@@ -606,7 +537,7 @@ export default function SellerNewOrder() {
 
       {/* ── DIALOGS ── */}
       {/* Generic Category Products Dialog */}
-      <Dialog open={activeCategoryId !== null} onOpenChange={(open) => !open && closeCategoryDialog()}>
+      <Dialog open={activeCategoryId !== null && flavorProduct === null} onOpenChange={(open) => !open && closeCategoryDialog()}>
         <DialogContent className="max-w-sm max-h-[80vh] flex flex-col p-0 overflow-hidden">
           <DialogHeader className="p-4 border-b border-border">
             <DialogTitle>Adicionar {activeCategoryName}</DialogTitle>
@@ -615,23 +546,39 @@ export default function SellerNewOrder() {
             {activeCategoryProducts.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">Nenhum produto cadastrado nesta categoria.</p>
             ) : (
-              activeCategoryProducts.map(p => (
-                <div key={p.id} className="flex items-center justify-between gap-4 bg-accent/20 p-3 rounded-xl border border-border/40">
-                  <div className="flex-1">
-                    <p className="font-semibold text-foreground text-sm">{p.name}</p>
-                    <p className="text-xs text-primary font-bold">{fmt(Number(p.price))}</p>
+              activeCategoryProducts.map(p => {
+                const hasFlavors = (p.maxFlavors ?? 0) > 0;
+                return (
+                  <div key={p.id} className="flex items-center justify-between gap-4 bg-accent/20 p-3 rounded-xl border border-border/40">
+                    <div className="flex-1">
+                      <p className="font-semibold text-foreground text-sm">{p.name}</p>
+                      <p className="text-xs text-primary font-bold">{fmt(Number(p.price))}</p>
+                      {hasFlavors && (
+                        <p className="text-[10px] text-purple-400 mt-0.5">Até {p.maxFlavors} sabor(es)</p>
+                      )}
+                    </div>
+                    {hasFlavors ? (
+                      <Button
+                        size="sm"
+                        className="bg-purple-600 hover:bg-purple-700 text-white text-xs"
+                        onClick={() => openFlavorDialog(p as any)}
+                      >
+                        Escolher Sabores
+                      </Button>
+                    ) : (
+                      <div className="flex items-center gap-2 bg-background rounded-lg p-1 border border-border/50">
+                        <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => setProductQty(p.id, (productQtys[p.id] || 0) - 1)}>
+                          <Minus className="w-3 h-3" />
+                        </Button>
+                        <span className="text-sm font-bold min-w-[1.5rem] text-center">{productQtys[p.id] || 0}</span>
+                        <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => setProductQty(p.id, (productQtys[p.id] || 0) + 1)}>
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 bg-background rounded-lg p-1 border border-border/50">
-                    <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => setProductQty(p.id, (productQtys[p.id] || 0) - 1)}>
-                      <Minus className="w-3 h-3" />
-                    </Button>
-                    <span className="text-sm font-bold min-w-[1.5rem] text-center">{productQtys[p.id] || 0}</span>
-                    <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => setProductQty(p.id, (productQtys[p.id] || 0) + 1)}>
-                      <Plus className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
           <DialogFooter className="p-4 border-t border-border bg-accent/10">
@@ -642,122 +589,59 @@ export default function SellerNewOrder() {
         </DialogContent>
       </Dialog>
 
-      {/* Minipizza Wizard Dialog */}
-      <Dialog open={showMpDialog} onOpenChange={setShowMpDialog}>
+      {/* Flavor Selection Dialog */}
+      <Dialog open={flavorProduct !== null} onOpenChange={(open) => { if (!open) { setFlavorProduct(null); setSelectedFlavorIds([]); } }}>
         <DialogContent className="max-w-sm max-h-[80vh] flex flex-col p-0 overflow-hidden">
           <DialogHeader className="p-4 border-b border-border">
-            <DialogTitle>Montar Minipizza</DialogTitle>
+            <DialogTitle>{flavorProduct?.name} - Sabores</DialogTitle>
           </DialogHeader>
-          
-          <div className="flex-1 overflow-y-auto p-4">
-            {mpWizard?.step === "type" && (
-              <div className="space-y-3">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Escolha o tamanho:</p>
-                {catalog?.minipizzaTypes.map(t => (
-                  <Button key={t.id} variant="outline" className="w-full h-14 justify-between border-border" onClick={() => selectMpType(t)}>
-                    <div className="text-left">
-                      <p className="font-bold">{t.name}</p>
-                      <p className="text-xs text-muted-foreground">{t.units} unidades</p>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Escolha até {flavorProduct?.maxFlavors} sabor(es):
+              </p>
+              <span className="text-[10px] bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded">
+                {selectedFlavorIds.length}/{flavorProduct?.maxFlavors}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              {availableFlavors.map(f => {
+                const selected = selectedFlavorIds.includes(f.id);
+                return (
+                  <Button
+                    key={f.id}
+                    variant={selected ? "default" : "outline"}
+                    className={`h-12 justify-between border-border ${selected ? "bg-primary shadow-md shadow-primary/20" : ""}`}
+                    onClick={() => toggleFlavor(f.id)}
+                  >
+                    <span>{f.name}</span>
+                    <div className="flex items-center gap-2">
+                      {f.additionalPrice && parseFloat(f.additionalPrice) > 0 && (
+                        <span className="text-xs opacity-70">+{fmt(parseFloat(f.additionalPrice))}</span>
+                      )}
+                      {selected && <Check className="w-4 h-4" />}
                     </div>
-                    <ChevronRight className="w-4 h-4 text-primary" />
                   </Button>
-                ))}
-              </div>
-            )}
-
-            {mpWizard?.step === "flavors" && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Escolha até 2 sabores:</p>
-                  <span className="text-[10px] bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded">{mpWizard.flavorIds.length}/2</span>
-                </div>
-                <div className="grid grid-cols-1 gap-2">
-                  {catalog?.minipizzaFlavors
-                    .filter(f => compatibleFlavorIds.size === 0 || compatibleFlavorIds.has(f.id))
-                    .map(f => {
-                      const selected = mpWizard.flavorIds.includes(f.id);
-                      return (
-                        <Button
-                          key={f.id}
-                          variant={selected ? "default" : "outline"}
-                          className={`h-12 justify-between border-border ${selected ? "bg-primary shadow-md shadow-primary/20" : ""}`}
-                          onClick={() => toggleMpFlavor(f.id)}
-                        >
-                          <span>{f.name}</span>
-                          {selected && <Check className="w-4 h-4" />}
-                        </Button>
-                      );
-                    })}
-                </div>
-                <Button className="w-full mt-4 font-bold" onClick={confirmMpFlavors}>Continuar</Button>
-              </div>
-            )}
-
-            {mpWizard?.step === "quantity" && (
-              <div className="space-y-6 py-4 flex flex-col items-center">
-                <div className="text-center space-y-1">
-                  <p className="text-sm font-medium text-muted-foreground">Quantos pacotes de</p>
-                  <p className="font-bold text-lg">{mpWizard.typeName}?</p>
-                </div>
-                
-                <div className="flex items-center gap-6 bg-accent/30 p-4 rounded-2xl border border-border/50">
-                  <Button variant="outline" size="icon" className="w-12 h-12 rounded-xl" onClick={() => setMpWizard(w => w ? { ...w, quantity: Math.max(1, w.quantity - 1) } : w)}>
-                    <Minus className="w-5 h-5" />
-                  </Button>
-                  <span className="text-3xl font-black min-w-[3rem] text-center">{mpWizard.quantity}</span>
-                  <Button variant="outline" size="icon" className="w-12 h-12 rounded-xl" onClick={() => setMpWizard(w => w ? { ...w, quantity: w.quantity + 1 } : w)}>
-                    <Plus className="w-5 h-5" />
-                  </Button>
-                </div>
-                
-                <Button className="w-full font-bold h-12" onClick={confirmMpWizard}>Confirmar e Adicionar</Button>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Jelly Dialog */}
-      <Dialog open={showJellyDialog} onOpenChange={setShowJellyDialog}>
-        <DialogContent className="max-w-sm p-0 overflow-hidden">
-          <DialogHeader className="p-4 border-b border-border">
-            <DialogTitle>Adicionar Geleia</DialogTitle>
-          </DialogHeader>
-          <div className="p-4 space-y-5">
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Sabor da Geleia</Label>
-              <div className="grid grid-cols-1 gap-2">
-                {catalog?.jellyFlavors.map(f => {
-                  const selected = jellyFlavorId === f.id;
-                  return (
-                    <Button
-                      key={f.id}
-                      variant={selected ? "default" : "outline"}
-                      className={`h-12 justify-between border-border ${selected ? "bg-primary" : ""}`}
-                      onClick={() => setJellyFlavorId(f.id)}
-                    >
-                      <span>{f.name}</span>
-                      <span className="text-xs font-bold">{fmt(Number(f.price))}</span>
-                    </Button>
-                  );
-                })}
-              </div>
+                );
+              })}
             </div>
 
-            {jellyFlavorId && (
+            {selectedFlavorIds.length > 0 && (
               <div className="space-y-4 pt-2 flex flex-col items-center">
                 <Separator className="bg-border/50" />
                 <Label className="text-xs text-muted-foreground">Quantidade</Label>
-                <div className="flex items-center gap-4">
-                  <Button variant="outline" size="icon" className="w-10 h-10" onClick={() => setJellyQty(Math.max(1, jellyQty - 1))}>
-                    <Minus className="w-4 h-4" />
+                <div className="flex items-center gap-6 bg-accent/30 p-4 rounded-2xl border border-border/50">
+                  <Button variant="outline" size="icon" className="w-12 h-12 rounded-xl" onClick={() => setFlavorQty(Math.max(1, flavorQty - 1))}>
+                    <Minus className="w-5 h-5" />
                   </Button>
-                  <span className="text-xl font-bold min-w-[2rem] text-center">{jellyQty}</span>
-                  <Button variant="outline" size="icon" className="w-10 h-10" onClick={() => setJellyQty(jellyQty + 1)}>
-                    <Plus className="w-4 h-4" />
+                  <span className="text-3xl font-black min-w-[3rem] text-center">{flavorQty}</span>
+                  <Button variant="outline" size="icon" className="w-12 h-12 rounded-xl" onClick={() => setFlavorQty(flavorQty + 1)}>
+                    <Plus className="w-5 h-5" />
                   </Button>
                 </div>
-                <Button className="w-full font-bold h-12" onClick={addJelly}>Adicionar ao Pedido</Button>
+                <Button className="w-full font-bold h-12" onClick={confirmFlavorProduct}>
+                  Confirmar e Adicionar
+                </Button>
               </div>
             )}
           </div>
