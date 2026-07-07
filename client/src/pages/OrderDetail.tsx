@@ -39,10 +39,10 @@ export default function OrderDetail() {
   const orderId = Number(params?.id);
   const utils = trpc.useUtils();
 
-  const { data: order, isLoading } = trpc.orders.orders.getById.useQuery({ id: orderId }, { enabled: !!orderId });
+  const { data: order, isLoading } = trpc.orders.getById.useQuery({ id: orderId }, { enabled: !!orderId });
 
-  const updateStatusMutation = trpc.orders.orders.updateStatus.useMutation({
-    onSuccess: () => { utils.orders.orders.getById.invalidate({ id: orderId }); toast.success("Status atualizado!"); setCancelOpen(false); setStatusOpen(false); },
+  const updateStatusMutation = trpc.orders.updateStatus.useMutation({
+    onSuccess: () => { utils.orders.getById.invalidate({ id: orderId }); toast.success("Status atualizado!"); setCancelOpen(false); setStatusOpen(false); },
     onError: e => toast.error(e.message),
   });
 

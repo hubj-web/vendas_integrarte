@@ -34,7 +34,7 @@ export default function NewOrder() {
   const { data: jellyFlavors = [] } = trpc.catalog.jellyFlavors.list.useQuery();
   const { data: deliveryMethods = [] } = trpc.catalog.deliveryMethods.list.useQuery();
 
-  const createOrderMutation = trpc.orders.orders.create.useMutation({
+  const createOrderMutation = trpc.orders.create.useMutation({
     onSuccess: (data) => { toast.success("Pedido criado com sucesso!"); navigate(`/pedidos/${data.orderId}`); },
     onError: (e) => toast.error(e.message),
   });

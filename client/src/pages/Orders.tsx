@@ -34,7 +34,7 @@ export default function Orders() {
   const [paymentStatus, setPaymentStatus] = useState("all");
   const [page, setPage] = useState(1);
 
-  const { data, isLoading } = trpc.orders.orders.list.useQuery({
+  const { data, isLoading } = trpc.orders.list.useQuery({
     page, pageSize: 25,
     search: search || undefined,
     status: status !== "all" ? status : undefined,

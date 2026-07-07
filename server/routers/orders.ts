@@ -84,6 +84,7 @@ const orderJellySchema = z.object({
 });
 
 export const ordersRouter = router({
+  customers: customersRouter,
   list: protectedProcedure
     .input(z.object({
       page: z.number().default(1),

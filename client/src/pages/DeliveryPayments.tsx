@@ -22,16 +22,16 @@ export default function DeliveryPayments() {
   const utils = trpc.useUtils();
 
   // Orders in_route = pending delivery; delivered + payment pending = pending payment
-  const { data: allOrders = [], isLoading: loadingDel } = trpc.orders.orders.list.useQuery({ status: "in_route" });
+  const { data: allOrders = [], isLoading: loadingDel } = trpc.orders.list.useQuery({ status: "in_route" });
   const pendingDeliveries = (allOrders as any).data ?? allOrders;
-  const { data: pendingPayments = [], isLoading: loadingPay } = trpc.orders.orders.pendingPayments.useQuery();
+  const { data: pendingPayments = [], isLoading: loadingPay } = trpc.orders.pendingPayments.useQuery();
 
   const registerDeliveryMutation = trpc.delivery.deliveryRecords.register.useMutation({
-    onSuccess: () => { utils.orders.orders.list.invalidate({}); utils.orders.orders.pendingPayments.invalidate(); toast.success("Entrega registrada!"); setDeliveryOpen(false); },
+    onSuccess: () => { utils.orders.list.invalidate({}); utils.orders.pendingPayments.invalidate(); toast.success("Entrega registrada!"); setDeliveryOpen(false); },
     onError: (e: any) => toast.error(e.message),
   });
   const registerPaymentMutation = trpc.delivery.paymentRecords.register.useMutation({
-    onSuccess: () => { utils.orders.orders.pendingPayments.invalidate(); utils.orders.orders.list.invalidate({}); toast.success("Pagamento registrado!"); setPaymentOpen(false); },
+    onSuccess: () => { utils.orders.pendingPayments.invalidate(); utils.orders.list.invalidate({}); toast.success("Pagamento registrado!"); setPaymentOpen(false); },
     onError: (e: any) => toast.error(e.message),
   });
 
