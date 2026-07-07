@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import bcrypt from "bcryptjs";
-import { eq, like, or, desc } from "drizzle-orm";
+import { eq, like, or, desc, asc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { users } from "../../drizzle/schema";
@@ -28,7 +28,7 @@ export const usersRouter = router({
         active: users.active,
         createdAt: users.createdAt,
         lastSignedIn: users.lastSignedIn,
-      }).from(users).orderBy(desc(users.createdAt));
+      }).from(users).orderBy(asc(users.name));
 
       if (input?.search) {
         const s = input.search.toLowerCase();
