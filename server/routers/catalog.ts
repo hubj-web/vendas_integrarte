@@ -27,7 +27,7 @@ const categoriesRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.insert(productCategories).values({ name: input.name, description: input.description, sortOrder: input.sortOrder ?? 0 });
+      await db.insert(productCategories).values({ name: input.name, description: input.description || "", sortOrder: input.sortOrder ?? 0 });
       return { success: true };
     }),
   update: adminProcedure

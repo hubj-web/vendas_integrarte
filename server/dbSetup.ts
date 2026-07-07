@@ -84,12 +84,27 @@ export function registerDbSetupRoute(app: Express) {
       )
     `);
 
+    await run("Table: product_categories", `
+      CREATE TABLE IF NOT EXISTS \`product_categories\` (
+        \`id\` int AUTO_INCREMENT NOT NULL,
+        \`name\` varchar(100) NOT NULL,
+        \`description\` text NULL,
+        \`sortOrder\` int NOT NULL DEFAULT 0,
+        \`active\` boolean NOT NULL DEFAULT true,
+        \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+        \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+        CONSTRAINT \`product_categories_id\` PRIMARY KEY(\`id\`),
+        CONSTRAINT \`product_categories_name_unique\` UNIQUE(\`name\`)
+      )
+    `);
+
     await run("Table: product_types", `
       CREATE TABLE IF NOT EXISTS \`product_types\` (
         \`id\` int AUTO_INCREMENT NOT NULL,
         \`name\` varchar(100) NOT NULL,
         \`description\` text,
         \`category\` varchar(100),
+        \`categoryId\` int NULL,
         \`active\` boolean NOT NULL DEFAULT true,
         \`createdAt\` timestamp NOT NULL DEFAULT (now()),
         \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
