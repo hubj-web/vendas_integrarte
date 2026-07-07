@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { useLocation } from "wouter";
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, User, UserPlus,
-  ChevronRight, Check, Pizza, Grape, Package, Tag, MapPin
+  ChevronRight, Check, Tag, MapPin
 } from "lucide-react";
 
 const fmt = (v: number) =>
@@ -84,10 +84,10 @@ export default function SellerNewOrder() {
   const [notes, setNotes] = useState("");
 
   // Category product dialog
-  const [activeCategoryKey, setActiveCategoryKey] = useState<string | null>(null);
+  const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
   const [productQtys, setProductQtys] = useState<Record<number, number>>({});
 
-  // Minipizza wizard
+  // Minipizza wizard (kept for categories that have minipizza-type products)
   const [mpWizard, setMpWizard] = useState<{
     step: "type" | "flavors" | "quantity";
     typeId: number | null;
@@ -98,58 +98,58 @@ export default function SellerNewOrder() {
   } | null>(null);
   const [showMpDialog, setShowMpDialog] = useState(false);
 
-  // Jelly dialog
+  // Jelly dialog (kept for categories that have jelly-type products)
   const [jellyFlavorId, setJellyFlavorId] = useState<number | null>(null);
   const [jellyQty, setJellyQty] = useState(1);
   const [showJellyDialog, setShowJellyDialog] = useState(false);
 
   const totalAmount = useMemo(() => cart.reduce((s, i) => s + i.subtotal, 0), [cart]);
 
-  // Group products by category
-  const groupedProducts = useMemo(() => {
+  // Build category list dynamically from the catalog
+  const categoryList = useMemo(() => {
     if (!catalog) return [];
-    type PType = { id: number; name: string; categoryName?: string | null };
-    const typeMap = Object.fromEntries((catalog.productTypes as PType[]).map(t => [t.id, t]));
-    const grouped: Record<string, typeof catalog.products> = {};
-    
-    for (const p of catalog.products) {
-      const t = typeMap[p.productTypeId];
-      const typeName = (t?.name || "").toLowerCase();
-      const catName = (t?.categoryName || (t as any)?.category || "").toLowerCase();
-      
-      let cat = "Outros";
-      if (catName.includes("congelado") || ["pão de queijo", "biscoito", "broa"].some(sub => typeName.includes(sub))) {
-        cat = "congelados";
-      } else if (catName.includes("minipizza") || typeName.includes("minipizza")) {
-        cat = "MiniPizzas";
-      } else if (catName.includes("geleia") || typeName.includes("geleia")) {
-        cat = "geleias";
-      } else {
-        cat = t?.categoryName || (t as any)?.category || t?.name || "Outros";
-      }
-      
-      if (!grouped[cat]) grouped[cat] = [];
-      grouped[cat].push(p);
-    }
-    
-    return Object.entries(grouped).sort((a, b) => {
-      const order = { "congelados": 1, "MiniPizzas": 2, "geleias": 3 };
-      const valA = (order as any)[a[0]] || 99;
-      const valB = (order as any)[b[0]] || 99;
-      return valA - valB;
-    });
+    return catalog.categories || [];
   }, [catalog]);
+
+  // Get products for a specific category (via productTypes)
+  const getProductsForCategory = (categoryId: number) => {
+    if (!catalog) return [];
+    const typeIds = catalog.productTypes
+      .filter(t => t.categoryId === categoryId)
+      .map(t => t.id);
+    return catalog.products.filter(p => typeIds.includes(p.productTypeId));
+  };
+
+  // Check if a category is "MiniPizzas" type (has minipizza data)
+  const isMiniPizzaCategory = (catName: string) => {
+    return catName.toLowerCase().includes("minipizza") || catName.toLowerCase().includes("mini pizza");
+  };
+
+  // Check if a category is "Geleias" type (has jelly data)
+  const isJellyCategory = (catName: string) => {
+    return catName.toLowerCase().includes("geleia") || catName.toLowerCase().includes("geleias");
+  };
 
   // Products in the active category dialog
   const activeCategoryProducts = useMemo(() => {
-    if (!activeCategoryKey) return [];
-    const entry = groupedProducts.find(([cat]) => cat === activeCategoryKey);
-    return entry ? entry[1] : [];
-  }, [activeCategoryKey, groupedProducts]);
+    if (activeCategoryId === null) return [];
+    return getProductsForCategory(activeCategoryId);
+  }, [activeCategoryId, catalog]);
 
   // Open category dialog
-  const openCategoryDialog = (cat: string) => {
-    setActiveCategoryKey(cat);
+  const openCategoryDialog = (categoryId: number, categoryName: string) => {
+    // If it's a MiniPizza category, open the minipizza wizard
+    if (isMiniPizzaCategory(categoryName) && catalog?.minipizzaTypes && catalog.minipizzaTypes.length > 0) {
+      startMpWizard();
+      return;
+    }
+    // If it's a Jelly category, open the jelly dialog
+    if (isJellyCategory(categoryName) && catalog?.jellyFlavors && catalog.jellyFlavors.length > 0) {
+      setShowJellyDialog(true);
+      return;
+    }
+    // Otherwise, open the generic product dialog
+    setActiveCategoryId(categoryId);
     // Pre-populate qtys from cart
     const qtys: Record<number, number> = {};
     for (const item of cart) {
@@ -161,7 +161,7 @@ export default function SellerNewOrder() {
   };
 
   const closeCategoryDialog = () => {
-    setActiveCategoryKey(null);
+    setActiveCategoryId(null);
     setProductQtys({});
   };
 
@@ -170,7 +170,7 @@ export default function SellerNewOrder() {
   };
 
   const confirmCategoryProducts = () => {
-    if (!activeCategoryKey) return;
+    if (activeCategoryId === null) return;
     // Remove all products from this category from cart, then re-add with new qtys
     const categoryProductIds = new Set(activeCategoryProducts.map(p => p.id));
     const newCart = cart.filter(c => !(c.type === "product" && c.productId !== undefined && categoryProductIds.has(c.productId)));
@@ -339,15 +339,23 @@ export default function SellerNewOrder() {
 
   // Count items in cart per category (for badge)
   const categoryCartCount = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const [cat, prods] of groupedProducts) {
-      const catIds = new Set(prods.map(p => p.id));
+    const counts: Record<number, number> = {};
+    for (const cat of categoryList) {
+      const catProducts = getProductsForCategory(cat.id);
+      const catIds = new Set(catProducts.map(p => p.id));
       const count = cart.filter(c => c.type === "product" && c.productId !== undefined && catIds.has(c.productId))
         .reduce((s, c) => s + c.quantity, 0);
-      if (count > 0) counts[cat] = count;
+      if (count > 0) counts[cat.id] = count;
     }
     return counts;
-  }, [cart, groupedProducts]);
+  }, [cart, categoryList, catalog]);
+
+  // Get the active category name for dialog title
+  const activeCategoryName = useMemo(() => {
+    if (activeCategoryId === null) return "";
+    const cat = categoryList.find(c => c.id === activeCategoryId);
+    return cat?.name || "";
+  }, [activeCategoryId, categoryList]);
 
   return (
     <div className="space-y-5 pb-10">
@@ -391,30 +399,19 @@ export default function SellerNewOrder() {
               {searchResults && searchResults.length > 0 && (
                 <div className="border border-border rounded-lg bg-card overflow-hidden divide-y divide-border">
                   {searchResults.map(c => (
-                    <button
-                      key={c.id}
-                      className="w-full text-left p-3 hover:bg-accent transition-colors flex items-center justify-between"
-                      onClick={() => {
-                        setSelectedCustomer(c);
-                        setCustomerSearch("");
-                      }}
-                    >
+                    <button key={c.id} className="w-full text-left px-3 py-2 hover:bg-accent/50 flex items-center gap-3" onClick={() => { setSelectedCustomer(c); setCustomerSearch(""); }}>
+                      <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-xs font-bold">{c.name.charAt(0)}</div>
                       <div>
-                        <p className="font-medium text-foreground">{c.name}</p>
+                        <p className="text-sm font-medium">{c.name}</p>
                         <p className="text-xs text-muted-foreground">{c.phone}</p>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
                     </button>
                   ))}
                 </div>
               )}
-              
-              <Button
-                variant="outline"
-                className="w-full gap-2 border-dashed border-primary/40 text-primary hover:bg-primary/5"
-                onClick={() => setShowNewCustomer(true)}
-              >
-                <UserPlus className="w-4 h-4" /> Cadastrar novo cliente
+
+              <Button variant="outline" size="sm" className="w-full border-dashed border-primary/30 text-primary hover:bg-primary/5" onClick={() => setShowNewCustomer(true)}>
+                <UserPlus className="w-4 h-4 mr-2" /> Cadastrar novo cliente
               </Button>
             </div>
           )}
@@ -425,71 +422,44 @@ export default function SellerNewOrder() {
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-            <Package className="w-4 h-4" /> Produtos
+            <ShoppingCart className="w-4 h-4" /> Produtos
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0 space-y-3">
-          {/* Category Buttons */}
+          {/* Category Buttons - Generated dynamically from database */}
           <div className="grid grid-cols-1 gap-2">
-            {groupedProducts.map(([cat]) => (
-              <Button
-                key={cat}
-                variant="outline"
-                className="justify-between h-12 border-border hover:border-primary/50 hover:bg-primary/5"
-                onClick={() => openCategoryDialog(cat)}
-              >
-                <div className="flex items-center gap-2">
-                  <Tag className="w-4 h-4 text-primary/70" />
-                  <span className="capitalize">Adicionar {cat}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {categoryCartCount[cat] > 0 && (
-                    <span className="bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                      {categoryCartCount[cat]}
-                    </span>
-                  )}
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                </div>
-              </Button>
-            ))}
+            {categoryList.map((cat) => {
+              const mpCount = isMiniPizzaCategory(cat.name)
+                ? cart.filter(c => c.type === "minipizza").reduce((s, c) => s + c.quantity, 0)
+                : 0;
+              const jellyCount = isJellyCategory(cat.name)
+                ? cart.filter(c => c.type === "jelly").reduce((s, c) => s + c.quantity, 0)
+                : 0;
+              const productCount = categoryCartCount[cat.id] || 0;
+              const totalCount = mpCount + jellyCount + productCount;
 
-            <Button
-              variant="outline"
-              className="justify-between h-12 border-border hover:border-primary/50 hover:bg-primary/5"
-              onClick={startMpWizard}
-            >
-              <div className="flex items-center gap-2">
-                <Pizza className="w-4 h-4 text-primary/70" />
-                <span>Adicionar MiniPizzas</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {cart.filter(c => c.type === "minipizza").length > 0 && (
-                  <span className="bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                    {cart.filter(c => c.type === "minipizza").reduce((s, c) => s + c.quantity, 0)}
-                  </span>
-                )}
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
-              </div>
-            </Button>
-
-            <Button
-              variant="outline"
-              className="justify-between h-12 border-border hover:border-primary/50 hover:bg-primary/5"
-              onClick={() => setShowJellyDialog(true)}
-            >
-              <div className="flex items-center gap-2">
-                <Grape className="w-4 h-4 text-primary/70" />
-                <span>Adicionar geleias</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {cart.filter(c => c.type === "jelly").length > 0 && (
-                  <span className="bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                    {cart.filter(c => c.type === "jelly").reduce((s, c) => s + c.quantity, 0)}
-                  </span>
-                )}
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
-              </div>
-            </Button>
+              return (
+                <Button
+                  key={cat.id}
+                  variant="outline"
+                  className="justify-between h-12 border-border hover:border-primary/50 hover:bg-primary/5"
+                  onClick={() => openCategoryDialog(cat.id, cat.name)}
+                >
+                  <div className="flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-primary/70" />
+                    <span>Adicionar {cat.name}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {totalCount > 0 && (
+                      <span className="bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                        {totalCount}
+                      </span>
+                    )}
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                </Button>
+              );
+            })}
           </div>
 
           {/* Cart Items */}
@@ -635,30 +605,34 @@ export default function SellerNewOrder() {
       </div>
 
       {/* ── DIALOGS ── */}
-      {/* Category Products Dialog */}
-      <Dialog open={activeCategoryKey !== null} onOpenChange={(open) => !open && closeCategoryDialog()}>
+      {/* Generic Category Products Dialog */}
+      <Dialog open={activeCategoryId !== null} onOpenChange={(open) => !open && closeCategoryDialog()}>
         <DialogContent className="max-w-sm max-h-[80vh] flex flex-col p-0 overflow-hidden">
           <DialogHeader className="p-4 border-b border-border">
-            <DialogTitle className="capitalize">Adicionar {activeCategoryKey}</DialogTitle>
+            <DialogTitle>Adicionar {activeCategoryName}</DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {activeCategoryProducts.map(p => (
-              <div key={p.id} className="flex items-center justify-between gap-4 bg-accent/20 p-3 rounded-xl border border-border/40">
-                <div className="flex-1">
-                  <p className="font-semibold text-foreground text-sm">{p.name}</p>
-                  <p className="text-xs text-primary font-bold">{fmt(Number(p.price))}</p>
+            {activeCategoryProducts.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">Nenhum produto cadastrado nesta categoria.</p>
+            ) : (
+              activeCategoryProducts.map(p => (
+                <div key={p.id} className="flex items-center justify-between gap-4 bg-accent/20 p-3 rounded-xl border border-border/40">
+                  <div className="flex-1">
+                    <p className="font-semibold text-foreground text-sm">{p.name}</p>
+                    <p className="text-xs text-primary font-bold">{fmt(Number(p.price))}</p>
+                  </div>
+                  <div className="flex items-center gap-2 bg-background rounded-lg p-1 border border-border/50">
+                    <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => setProductQty(p.id, (productQtys[p.id] || 0) - 1)}>
+                      <Minus className="w-3 h-3" />
+                    </Button>
+                    <span className="text-sm font-bold min-w-[1.5rem] text-center">{productQtys[p.id] || 0}</span>
+                    <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => setProductQty(p.id, (productQtys[p.id] || 0) + 1)}>
+                      <Plus className="w-3 h-3" />
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 bg-background rounded-lg p-1 border border-border/50">
-                  <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => setProductQty(p.id, (productQtys[p.id] || 0) - 1)}>
-                    <Minus className="w-3 h-3" />
-                  </Button>
-                  <span className="text-sm font-bold min-w-[1.5rem] text-center">{productQtys[p.id] || 0}</span>
-                  <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => setProductQty(p.id, (productQtys[p.id] || 0) + 1)}>
-                    <Plus className="w-3 h-3" />
-                  </Button>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
           <DialogFooter className="p-4 border-t border-border bg-accent/10">
             <Button className="w-full font-bold" onClick={confirmCategoryProducts}>
@@ -695,11 +669,11 @@ export default function SellerNewOrder() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Escolha até 2 sabores:</p>
-                  <Badge variant="secondary" className="text-[10px]">{mpWizard.flavorIds.length}/2</Badge>
+                  <span className="text-[10px] bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded">{mpWizard.flavorIds.length}/2</span>
                 </div>
                 <div className="grid grid-cols-1 gap-2">
                   {catalog?.minipizzaFlavors
-                    .filter(f => compatibleFlavorIds.has(f.id))
+                    .filter(f => compatibleFlavorIds.size === 0 || compatibleFlavorIds.has(f.id))
                     .map(f => {
                       const selected = mpWizard.flavorIds.includes(f.id);
                       return (
@@ -798,39 +772,33 @@ export default function SellerNewOrder() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="name">Nome Completo</Label>
-              <Input id="name" value={newCustomer.name} onChange={e => setNewCustomer({ ...newCustomer, name: e.target.value })} className="bg-input border-border" />
+              <Label className="text-xs text-muted-foreground">Nome *</Label>
+              <Input value={newCustomer.name} onChange={(e) => setNewCustomer({ ...newCustomer, name: e.target.value })} className="bg-input border-border" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="phone">Telefone / WhatsApp</Label>
-              <Input id="phone" value={newCustomer.phone} onChange={e => setNewCustomer({ ...newCustomer, phone: e.target.value })} className="bg-input border-border" />
+              <Label className="text-xs text-muted-foreground">Telefone *</Label>
+              <Input value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} className="bg-input border-border" />
             </div>
-            <Separator className="bg-border/50" />
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-tighter">Endereço (opcional)</p>
             <div className="space-y-2">
-              <Label htmlFor="street">Rua e Número</Label>
-              <Input id="street" value={newCustomer.street} onChange={e => setNewCustomer({ ...newCustomer, street: e.target.value })} className="bg-input border-border" />
+              <Label className="text-xs text-muted-foreground">Rua</Label>
+              <Input value={newCustomer.street} onChange={(e) => setNewCustomer({ ...newCustomer, street: e.target.value })} className="bg-input border-border" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="neighborhood">Bairro</Label>
-                <Input id="neighborhood" value={newCustomer.neighborhood} onChange={e => setNewCustomer({ ...newCustomer, neighborhood: e.target.value })} className="bg-input border-border" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="city">Cidade</Label>
-                <Input id="city" value={newCustomer.city} onChange={e => setNewCustomer({ ...newCustomer, city: e.target.value })} className="bg-input border-border" />
-              </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Bairro</Label>
+              <Input value={newCustomer.neighborhood} onChange={(e) => setNewCustomer({ ...newCustomer, neighborhood: e.target.value })} className="bg-input border-border" />
             </div>
-          </div>
-          <DialogFooter className="pt-2">
-            <Button variant="outline" onClick={() => setShowNewCustomer(false)}>Cancelar</Button>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Cidade</Label>
+              <Input value={newCustomer.city} onChange={(e) => setNewCustomer({ ...newCustomer, city: e.target.value })} className="bg-input border-border" />
+            </div>
             <Button
+              className="w-full font-bold"
               disabled={!newCustomer.name || !newCustomer.phone || createCustomerMutation.isPending}
               onClick={() => createCustomerMutation.mutate(newCustomer)}
             >
-              {createCustomerMutation.isPending ? "Salvando..." : "Salvar Cliente"}
+              {createCustomerMutation.isPending ? "Salvando..." : "Cadastrar Cliente"}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

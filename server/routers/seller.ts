@@ -10,7 +10,7 @@ import {
   customers, deliveryMethods, jellyFlavors, minipizzaFlavors,
   minipizzaTypes,   minipizzaTypeFlavorMatrix, orderItems, orderJellies,
   orderMinipizzaFlavors, orderMinipizzas, orders, orderStatusHistory,
-  productTypes, products, users,
+  productCategories, productTypes, products, users,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
@@ -40,15 +40,19 @@ export const sellerRouter = router({
       .where(and(eq(users.role, "launcher"), eq(users.active, true)));
   }),
 
-  /** Catálogo público: tipos de produto, produtos, minipizzas, geleias, formas de entrega */
+  /** Catálogo público: categorias, tipos de produto, produtos, minipizzas, geleias, formas de entrega */
   catalog: publicProcedure.query(async () => {
     const db = await getDb();
-    if (!db) return { productTypes: [], products: [], minipizzaTypes: [], minipizzaFlavors: [], compatibility: [], jellyFlavors: [], deliveryMethods: [] };
-    const [ptypes, prods, mptypes, mpflavors, compat, jflavors, dmethods] = await Promise.all([
+    if (!db) return { categories: [], productTypes: [], products: [], minipizzaTypes: [], minipizzaFlavors: [], compatibility: [], jellyFlavors: [], deliveryMethods: [] };
+    const { asc } = await import("drizzle-orm");
+    const [cats, ptypes, prods, mptypes, mpflavors, compat, jflavors, dmethods] = await Promise.all([
+      db.select().from(productCategories)
+        .where(eq(productCategories.active, true))
+        .orderBy(asc(productCategories.sortOrder), asc(productCategories.name)),
       db.select({
         id: productTypes.id,
         name: productTypes.name,
-        categoryName: (productTypes as any).category,
+        categoryId: productTypes.categoryId,
       })
         .from(productTypes)
         .where(eq(productTypes.active, true)),
@@ -59,7 +63,7 @@ export const sellerRouter = router({
       db.select().from(jellyFlavors).where(eq(jellyFlavors.active, true)),
       db.select().from(deliveryMethods).where(eq(deliveryMethods.active, true)),
     ]);
-    return { productTypes: ptypes, products: prods, minipizzaTypes: mptypes, minipizzaFlavors: mpflavors, compatibility: compat, jellyFlavors: jflavors, deliveryMethods: dmethods };
+    return { categories: cats, productTypes: ptypes, products: prods, minipizzaTypes: mptypes, minipizzaFlavors: mpflavors, compatibility: compat, jellyFlavors: jflavors, deliveryMethods: dmethods };
   }),
 
   /** Busca clientes por nome ou telefone */
