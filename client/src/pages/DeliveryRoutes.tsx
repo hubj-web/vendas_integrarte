@@ -3,18 +3,15 @@ import { trpc } from "@/lib/trpc";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import {
-  Plus, MapPin, Truck, ExternalLink, ChevronDown, ChevronUp,
-  Loader2, Calendar, Zap, Trash2, CheckSquare, Square, X,
+  MapPin, Truck, ExternalLink, ChevronDown, ChevronUp,
+  Loader2, Calendar, Zap, Trash2, CheckSquare, Square, X, UserPlus,
 } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Link } from "wouter";
@@ -42,29 +39,22 @@ export default function DeliveryRoutes() {
   const [month, setMonth] = useState("all");
 
   const { data: routes = [], isLoading } = trpc.delivery.routes.list.useQuery();
-  const { data: availableOrders = [] } = trpc.delivery.routes.availableOrders.useQuery({});
   const { data: deliverers = [] } = trpc.users.list.useQuery({ search: undefined });
-
-  const createMutation = trpc.delivery.routes.create.useMutation({
-    onSuccess: () => {
-      utils.delivery.routes.list.invalidate();
-      utils.delivery.routes.availableOrders.invalidate({});
-      toast.success("Rota criada!");
-      setCreateOpen(false);
-      setSelectedOrders([]);
-    },
-    onError: (e) => toast.error(e.message),
-  });
 
   const updateStatusMutation = trpc.delivery.routes.updateStatus.useMutation({
     onSuccess: () => { utils.delivery.routes.list.invalidate(); toast.success("Status atualizado!"); },
+  });
+
+  const assignDelivererMutation = trpc.routeOptimization.assignDeliverer.useMutation({
+    onSuccess: () => { utils.delivery.routes.list.invalidate(); toast.success("Entregador atribuído!"); },
+    onError: (e) => toast.error(e.message),
   });
 
   const deleteRoutesMutation = trpc.routeOptimization.deleteRoutes.useMutation({
     onSuccess: (data) => {
       utils.delivery.routes.list.invalidate();
       utils.delivery.routes.availableOrders.invalidate({});
-      toast.success(`${data.deletedCount} rota${data.deletedCount !== 1 ? "s" : ""} excluída${data.deletedCount !== 1 ? "s" : ""}!`);
+      toast.success(`${data.deletedCount} rota(s) excluída(s)!`);
       setSelectedRouteIds([]);
       setSelectionMode(false);
       setDeleteDialogOpen(false);
@@ -72,17 +62,7 @@ export default function DeliveryRoutes() {
     onError: (e) => toast.error(e.message),
   });
 
-  const [createOpen, setCreateOpen] = useState(false);
   const [expandedRoute, setExpandedRoute] = useState<number | null>(null);
-  const [routeForm, setRouteForm] = useState({
-    name: "",
-    deliveryDate: "",
-    deliveryUserId: "",
-    startingAddress: "Rua Eloi da Costa, 145, Luizote de Freitas, Uberlândia, MG",
-  });
-  const [selectedOrders, setSelectedOrders] = useState<number[]>([]);
-
-  // Seleção e exclusão de rotas
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedRouteIds, setSelectedRouteIds] = useState<number[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -92,7 +72,6 @@ export default function DeliveryRoutes() {
   );
   const monthOptions = getMonthOptions();
 
-  // Filtra rotas por mês
   const filteredRoutes = month === "all"
     ? routes
     : routes.filter((r) => {
@@ -102,109 +81,48 @@ export default function DeliveryRoutes() {
         return routeMonth === month;
       });
 
-  function toggleOrder(id: number) {
-    setSelectedOrders((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
-  }
-
   function toggleRouteSelection(id: number) {
     setSelectedRouteIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }
-
-  function toggleSelectAllRoutes() {
-    if (selectedRouteIds.length === filteredRoutes.length) {
-      setSelectedRouteIds([]);
-    } else {
-      setSelectedRouteIds(filteredRoutes.map((r) => r.id));
-    }
-  }
-
-  function openGoogleMaps(orders: any[]) {
-    const addresses = orders
-      .map((o) =>
-        o.deliveryAddress ||
-        [o.customerStreet, o.customerNumber, o.customerNeighborhood, o.customerCity]
-          .filter(Boolean)
-          .join(", ")
-      )
-      .filter(Boolean);
-    if (addresses.length === 0) return toast.error("Nenhum endereço disponível para abrir no mapa.");
-    const origin = addresses[0];
-    const destination = addresses[addresses.length - 1];
-    const waypoints = addresses.slice(1, -1).join("|");
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}${waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : ""}`;
-    window.open(url, "_blank");
-  }
-
-  const fmt = (v: string) =>
-    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(parseFloat(v));
 
   const isAdmin = user?.role !== "delivery";
 
   return (
     <div>
       <PageHeader
-        title="Rotas de Entrega"
-        description="Organize e acompanhe as rotas de entrega"
+        title="Gerenciamento de Rotas"
+        description="Acompanhe as rotas geradas e atribua os entregadores."
         actions={
           isAdmin ? (
             <div className="flex items-center gap-2">
               {selectionMode ? (
                 <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={toggleSelectAllRoutes}
-                  >
-                    {selectedRouteIds.length === filteredRoutes.length ? (
-                      <CheckSquare className="w-4 h-4" />
-                    ) : (
-                      <Square className="w-4 h-4" />
-                    )}
-                    {selectedRouteIds.length === filteredRoutes.length ? "Desmarcar todos" : "Selecionar todos"}
+                  <Button variant="outline" size="sm" onClick={() => {
+                    if (selectedRouteIds.length === filteredRoutes.length) setSelectedRouteIds([]);
+                    else setSelectedRouteIds(filteredRoutes.map(r => r.id));
+                  }}>
+                    {selectedRouteIds.length === filteredRoutes.length ? <CheckSquare className="w-4 h-4 mr-2" /> : <Square className="w-4 h-4 mr-2" />}
+                    Todos
                   </Button>
                   {selectedRouteIds.length > 0 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5 border-red-500/30 text-red-500 hover:bg-red-500/10"
-                      onClick={() => setDeleteDialogOpen(true)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Excluir ({selectedRouteIds.length})
+                    <Button variant="destructive" size="sm" onClick={() => setDeleteDialogOpen(true)}>
+                      <Trash2 className="w-4 h-4 mr-2" /> Excluir ({selectedRouteIds.length})
                     </Button>
                   )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => { setSelectionMode(false); setSelectedRouteIds([]); }}
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => { setSelectionMode(false); setSelectedRouteIds([]); }}>
                     <X className="w-4 h-4" />
                   </Button>
                 </>
               ) : (
                 <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => setSelectionMode(true)}
-                    disabled={filteredRoutes.length === 0}
-                  >
-                    <CheckSquare className="w-4 h-4" />
-                    Selecionar
+                  <Button variant="outline" size="sm" onClick={() => setSelectionMode(true)} disabled={filteredRoutes.length === 0}>
+                    <CheckSquare className="w-4 h-4 mr-2" /> Selecionar
                   </Button>
                   <Link href="/admin/rotas/otimizar">
-                    <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
-                      <Zap className="w-4 h-4" />Gerar Rotas Otimizadas
+                    <Button className="bg-primary text-primary-foreground gap-2">
+                      <Zap className="w-4 h-4" /> CRIAR ROTAS
                     </Button>
                   </Link>
-                  <Button
-                    onClick={() => setCreateOpen(true)}
-                    className="bg-primary text-primary-foreground gap-2"
-                  >
-                    <Plus className="w-4 h-4" />Nova Rota
-                  </Button>
                 </>
               )}
             </div>
@@ -212,7 +130,6 @@ export default function DeliveryRoutes() {
         }
       />
 
-      {/* Filtro por mês */}
       <div className="flex flex-wrap gap-3 mb-4">
         <Select value={month} onValueChange={(v) => setMonth(v)}>
           <SelectTrigger className="w-48 bg-input">
@@ -225,16 +142,6 @@ export default function DeliveryRoutes() {
             ))}
           </SelectContent>
         </Select>
-        {month !== "all" && (
-          <p className="text-sm text-muted-foreground self-center">
-            {filteredRoutes.length} rota{filteredRoutes.length !== 1 ? "s" : ""} encontrada{filteredRoutes.length !== 1 ? "s" : ""}
-          </p>
-        )}
-        {selectionMode && selectedRouteIds.length > 0 && (
-          <p className="text-sm text-primary self-center font-medium">
-            {selectedRouteIds.length} selecionada{selectedRouteIds.length !== 1 ? "s" : ""}
-          </p>
-        )}
       </div>
 
       {isLoading ? (
@@ -244,111 +151,74 @@ export default function DeliveryRoutes() {
           ))}
         </div>
       ) : filteredRoutes.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground">
+        <div className="text-center py-16 text-muted-foreground border-2 border-dashed border-border rounded-2xl">
           <MapPin className="w-10 h-10 mx-auto mb-3 opacity-30" />
-          <p>Nenhuma rota encontrada{month !== "all" ? " neste mês" : ""}.</p>
+          <p>Nenhuma rota encontrada.</p>
         </div>
       ) : (
         <div className="space-y-3">
           {filteredRoutes.map((route) => {
             const isSelected = selectedRouteIds.includes(route.id);
             return (
-              <Card
-                key={route.id}
-                className={`border-border transition-all ${
-                  selectionMode && isSelected
-                    ? "bg-primary/5 border-primary/30"
-                    : "bg-card"
-                }`}
-              >
+              <Card key={route.id} className={`border-border transition-all ${selectionMode && isSelected ? "bg-primary/5 border-primary/30" : "bg-card"}`}>
                 <CardContent className="pt-4 pb-3">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {/* Checkbox de seleção */}
+                    <div className="flex items-center gap-3 flex-1">
                       {selectionMode && (
-                        <button
-                          onClick={() => toggleRouteSelection(route.id)}
-                          className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                            isSelected
-                              ? "bg-primary border-primary"
-                              : "border-muted-foreground hover:border-primary"
-                          }`}
-                        >
-                          {isSelected && (
-                            <span className="text-primary-foreground text-xs leading-none">✓</span>
-                          )}
+                        <button onClick={() => toggleRouteSelection(route.id)} className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${isSelected ? "bg-primary border-primary" : "border-muted-foreground hover:border-primary"}`}>
+                          {isSelected && <span className="text-primary-foreground text-xs">✓</span>}
                         </button>
                       )}
                       <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
                         <Truck className="w-4 h-4 text-primary" />
                       </div>
-                      <div>
-                        <p className="font-semibold text-sm">{route.name}</p>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm truncate">{route.name}</p>
                         <div className="flex items-center gap-2 mt-0.5">
                           <StatusBadge status={route.status} />
-                          <span className="text-xs text-muted-foreground">
-                            {route.deliveryUserName ?? "Sem entregador"}
-                          </span>
-                          {route.deliveryDate && (
-                            <span className="text-xs text-muted-foreground">
-                              · {new Date(route.deliveryDate).toLocaleDateString("pt-BR")}
-                            </span>
-                          )}
+                          {route.deliveryDate && <span className="text-xs text-muted-foreground">{new Date(route.deliveryDate).toLocaleDateString("pt-BR")}</span>}
+                          {route.totalDistance && <span className="text-xs font-medium text-primary">· {parseFloat(route.totalDistance).toFixed(1)} km</span>}
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {!selectionMode && isAdmin && route.status === "planned" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs"
-                          onClick={() => updateStatusMutation.mutate({ id: route.id, status: "in_progress" })}
-                        >
-                          Iniciar
-                        </Button>
+                    
+                    <div className="flex items-center gap-3">
+                      {/* Seletor de Entregador */}
+                      {isAdmin && (
+                        <div className="hidden md:block w-48">
+                          <Select
+                            value={String(route.deliveryUserId)}
+                            onValueChange={(v) => assignDelivererMutation.mutate({ routeId: route.id, deliveryUserId: Number(v) })}
+                          >
+                            <SelectTrigger className="h-8 text-xs bg-muted/30">
+                              <UserPlus className="w-3 h-3 mr-1.5" />
+                              <SelectValue placeholder="Atribuir..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="0">Nenhum</SelectItem>
+                              {deliveryUsers.map(u => (
+                                <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       )}
-                      {!selectionMode && route.status === "in_progress" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs"
-                          onClick={() => updateStatusMutation.mutate({ id: route.id, status: "completed" })}
-                        >
-                          Concluir
-                        </Button>
-                      )}
-                      {!selectionMode && isAdmin && (
-                        <button
-                          onClick={() => {
-                            setSelectedRouteIds([route.id]);
-                            setDeleteDialogOpen(true);
-                          }}
-                          className="text-muted-foreground hover:text-red-500 transition-colors p-1"
-                          title="Excluir rota"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                      {!selectionMode && (
-                        <button
-                          onClick={() =>
-                            setExpandedRoute(expandedRoute === route.id ? null : route.id)
-                          }
-                          className="text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                          {expandedRoute === route.id ? (
-                            <ChevronUp className="w-4 h-4" />
-                          ) : (
-                            <ChevronDown className="w-4 h-4" />
-                          )}
-                        </button>
-                      )}
+
+                      <div className="flex items-center gap-1">
+                        {!selectionMode && isAdmin && route.status === "planned" && (
+                          <Button size="sm" variant="outline" className="h-8 text-xs px-2" onClick={() => updateStatusMutation.mutate({ id: route.id, status: "in_progress" })}>Iniciar</Button>
+                        )}
+                        {!selectionMode && (
+                          <button onClick={() => setExpandedRoute(expandedRoute === route.id ? null : route.id)} className="text-muted-foreground hover:text-foreground p-1">
+                            {expandedRoute === route.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {!selectionMode && expandedRoute === route.id && (
-                    <RouteDetail routeId={route.id} onOpenMaps={openGoogleMaps} />
+                  {expandedRoute === route.id && (
+                    <RouteDetail routeId={route.id} startingAddress={route.startingAddress || ""} />
                   )}
                 </CardContent>
               </Card>
@@ -357,232 +227,66 @@ export default function DeliveryRoutes() {
         </div>
       )}
 
-      {/* Diálogo de confirmação de exclusão */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-card border-border">
+        <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir {selectedRouteIds.length > 1 ? "Rotas" : "Rota"}</AlertDialogTitle>
-            <AlertDialogDescription>
-              Você está prestes a excluir{" "}
-              <strong>{selectedRouteIds.length}</strong>{" "}
-              rota{selectedRouteIds.length !== 1 ? "s" : ""}. Os pedidos associados serão revertidos para o status <strong>"Em Produção"</strong> e poderão ser roteirizados novamente.
-              <br /><br />
-              Esta ação não pode ser desfeita.
-            </AlertDialogDescription>
+            <AlertDialogTitle>Excluir Rotas</AlertDialogTitle>
+            <AlertDialogDescription>Deseja excluir {selectedRouteIds.length} rota(s)? Os pedidos voltarão para "Em Produção".</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => {
-              setDeleteDialogOpen(false);
-              if (!selectionMode) setSelectedRouteIds([]);
-            }}>
-              Cancelar
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-500 hover:bg-red-600 text-white"
-              onClick={() => deleteRoutesMutation.mutate({ routeIds: selectedRouteIds })}
-              disabled={deleteRoutesMutation.isPending}
-            >
-              {deleteRoutesMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-1" />
-              ) : (
-                <Trash2 className="w-4 h-4 mr-1" />
-              )}
-              Excluir
-            </AlertDialogAction>
+            <AlertDialogCancel onClick={() => { setDeleteDialogOpen(false); if (!selectionMode) setSelectedRouteIds([]); }}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-500 hover:bg-red-600" onClick={() => deleteRoutesMutation.mutate({ routeIds: selectedRouteIds })}>Excluir</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Diálogo de criação de rota manual */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="bg-card border-border max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Nova Rota de Entrega</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2 space-y-2">
-                <Label>Nome da Rota *</Label>
-                <Input
-                  value={routeForm.name}
-                  onChange={(e) => setRouteForm((f) => ({ ...f, name: e.target.value }))}
-                  className="bg-input"
-                  placeholder="Ex: Rota Centro - Manhã"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Data de Entrega *</Label>
-                <Input
-                  type="date"
-                  value={routeForm.deliveryDate}
-                  onChange={(e) => setRouteForm((f) => ({ ...f, deliveryDate: e.target.value }))}
-                  className="bg-input"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Entregador *</Label>
-                <Select
-                  value={routeForm.deliveryUserId}
-                  onValueChange={(v) => setRouteForm((f) => ({ ...f, deliveryUserId: v }))}
-                >
-                  <SelectTrigger className="bg-input">
-                    <SelectValue placeholder="Selecione..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {deliveryUsers.map((u) => (
-                      <SelectItem key={u.id} value={String(u.id)}>
-                        {u.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-2 space-y-2">
-                <Label>Endereço de Saída</Label>
-                <Input
-                  value={routeForm.startingAddress}
-                  onChange={(e) => setRouteForm((f) => ({ ...f, startingAddress: e.target.value }))}
-                  className="bg-input"
-                  placeholder="Endereço de saída para a rota"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Selecionar Pedidos ({selectedOrders.length} selecionados)</Label>
-              {availableOrders.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">
-                  Nenhum pedido disponível para rota.
-                </p>
-              ) : (
-                <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                  {availableOrders.map((o) => {
-                    const selected = selectedOrders.includes(o.id);
-                    const addr =
-                      o.deliveryAddress ||
-                      [o.customerStreet, o.customerNumber, o.customerNeighborhood]
-                        .filter(Boolean)
-                        .join(", ");
-                    return (
-                      <button
-                        key={o.id}
-                        onClick={() => toggleOrder(o.id)}
-                        className={`w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all border ${
-                          selected
-                            ? "bg-primary/10 border-primary/30"
-                            : "bg-muted/20 border-transparent hover:border-primary/20"
-                        }`}
-                      >
-                        <div
-                          className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 ${
-                            selected ? "bg-primary border-primary" : "border-muted-foreground"
-                          }`}
-                        >
-                          {selected && (
-                            <span className="text-primary-foreground text-xs">✓</span>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium">{o.customerName}</p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {addr || "Sem endereço"}
-                          </p>
-                        </div>
-                        <span className="text-sm font-semibold text-primary flex-shrink-0">
-                          {fmt(o.totalAmount)}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={() => {
-                if (!routeForm.name) return toast.error("Informe o nome da rota.");
-                if (!routeForm.deliveryDate) return toast.error("Informe a data.");
-                if (!routeForm.deliveryUserId) return toast.error("Selecione um entregador.");
-                if (selectedOrders.length === 0) return toast.error("Selecione ao menos um pedido.");
-                createMutation.mutate({
-                  name: routeForm.name,
-                  deliveryDate: routeForm.deliveryDate,
-                  deliveryUserId: Number(routeForm.deliveryUserId),
-                  orderIds: selectedOrders,
-                  startingAddress: routeForm.startingAddress,
-                });
-              }}
-              className="bg-primary text-primary-foreground"
-              disabled={createMutation.isPending}
-            >
-              {createMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-1" />
-              ) : null}
-              Criar Rota
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
 
-function RouteDetail({
-  routeId,
-  onOpenMaps,
-}: {
-  routeId: number;
-  onOpenMaps: (orders: any[]) => void;
-}) {
+function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAddress: string }) {
   const { data: route, isLoading } = trpc.delivery.routes.getById.useQuery({ id: routeId });
 
-  if (isLoading)
-    return (
-      <div className="mt-3 py-4 text-center">
-        <Loader2 className="w-4 h-4 animate-spin mx-auto text-muted-foreground" />
-      </div>
-    );
+  if (isLoading) return <div className="mt-3 py-4 text-center"><Loader2 className="w-4 h-4 animate-spin mx-auto text-muted-foreground" /></div>;
   if (!route) return null;
 
+  // Lógica de quebra de links do Maps (max 10 paradas por link)
+  const chunkSize = 10;
+  const mapLinks: string[] = [];
+  
+  const buildAddr = (o: any) => o.deliveryAddress || [o.customerStreet, o.customerNumber, o.customerNeighborhood, o.customerCity, "MG"].filter(Boolean).join(", ");
+
+  for (let i = 0; i < route.orders.length; i += chunkSize) {
+    const chunk = route.orders.slice(i, i + chunkSize);
+    const origin = i === 0 ? encodeURIComponent(startingAddress) : encodeURIComponent(buildAddr(route.orders[i-1]));
+    const dest = encodeURIComponent(buildAddr(chunk[chunk.length - 1]));
+    const waypoints = chunk.slice(0, -1).map(o => encodeURIComponent(buildAddr(o))).join("|");
+    let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}`;
+    if (waypoints) url += `&waypoints=${waypoints}`;
+    mapLinks.push(url);
+  }
+
   return (
-    <div className="mt-3 pt-3 border-t border-border space-y-2">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          {route.orders.length} parada{route.orders.length !== 1 ? "s" : ""}
-        </p>
-        <Button
-          size="sm"
-          variant="outline"
-          className="text-xs gap-1.5 h-7"
-          onClick={() => onOpenMaps(route.orders)}
-        >
-          <ExternalLink className="w-3 h-3" />
-          Abrir no Maps
-        </Button>
+    <div className="mt-3 pt-3 border-t border-border space-y-3">
+      <div className="flex flex-wrap gap-2">
+        {mapLinks.map((link, idx) => (
+          <Button key={idx} size="sm" variant="outline" className="text-[10px] h-7 gap-1.5" onClick={() => window.open(link, "_blank")}>
+            <ExternalLink className="w-3 h-3" /> MAPS {mapLinks.length > 1 ? `PARTE ${idx + 1}` : ""}
+          </Button>
+        ))}
       </div>
-      {route.orders.map((o, idx) => {
-        const addr =
-          o.deliveryAddress ||
-          [o.customerStreet, o.customerNumber, o.customerNeighborhood, o.customerCity]
-            .filter(Boolean)
-            .join(", ");
-        return (
-          <div key={o.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/20">
-            <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-bold text-primary">{idx + 1}</span>
-            </div>
+      
+      <div className="space-y-1.5">
+        {route.orders.map((o, idx) => (
+          <div key={o.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/20 text-xs">
+            <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">{idx + 1}</div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">{o.customerName}</p>
-              <p className="text-xs text-muted-foreground truncate">{addr || "Sem endereço"}</p>
+              <p className="font-medium truncate">{o.customerName}</p>
+              <p className="text-[10px] text-muted-foreground truncate">{buildAddr(o)}</p>
             </div>
             <StatusBadge status={o.orderStatus ?? "production"} />
           </div>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 }

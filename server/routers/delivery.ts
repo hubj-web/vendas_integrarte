@@ -29,6 +29,8 @@ const routesRouter = router({
         createdAt: deliveryRoutes.createdAt,
         deliveryUserId: deliveryRoutes.deliveryUserId,
         deliveryUserName: users.name,
+        totalDistance: deliveryRoutes.totalDistance,
+        startingAddress: deliveryRoutes.startingAddress,
       })
         .from(deliveryRoutes)
         .leftJoin(users, eq(deliveryRoutes.deliveryUserId, users.id))
@@ -53,6 +55,8 @@ const routesRouter = router({
         deliveryDate: deliveryRoutes.deliveryDate, status: deliveryRoutes.status,
         startedAt: deliveryRoutes.startedAt, completedAt: deliveryRoutes.completedAt,
         deliveryUserId: deliveryRoutes.deliveryUserId, deliveryUserName: users.name,
+        totalDistance: deliveryRoutes.totalDistance,
+        startingAddress: deliveryRoutes.startingAddress,
       })
         .from(deliveryRoutes)
         .leftJoin(users, eq(deliveryRoutes.deliveryUserId, users.id))
@@ -178,6 +182,14 @@ const routesRouter = router({
 });
 
 // ─── DELIVERY RECORDS ─────────────────────────────────────────────────────────
+const methodsRouter = router({
+  list: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select().from(deliveryMethods).where(eq(deliveryMethods.active, true)).orderBy(asc(deliveryMethods.name));
+  }),
+});
+
 const deliveryRecordsRouter = router({
   register: protectedProcedure
     .input(z.object({
@@ -290,6 +302,7 @@ const paymentRecordsRouter = router({
 
 export const deliveryRouter = router({
   routes: routesRouter,
+  methods: methodsRouter,
   deliveryRecords: deliveryRecordsRouter,
   paymentRecords: paymentRecordsRouter,
 });
