@@ -213,11 +213,15 @@ export const routeOptimizationRouter = router({
       const createdRoutes = [];
 
       for (const optimizedRoute of optimizedRoutes) {
+        const startingAddress = input.startingAddress && input.startingAddress.trim() !== "" 
+          ? input.startingAddress 
+          : "Rua Eloi da Costa, 145, Luizote de Freitas, Uberlândia, MG";
+
         const routeResult = await db.insert(deliveryRoutes).values({
           name: `${input.routeNamePrefix} - ${optimizedRoute.deliveryUserName}`,
           deliveryDate: new Date(input.dateFrom),
           deliveryUserId: optimizedRoute.deliveryUserId,
-          startingAddress: input.startingAddress,
+          startingAddress: startingAddress,
           totalDistance: optimizedRoute.estimatedDistance.toString(),
           createdBy: ctx.user.id,
           status: "planned",

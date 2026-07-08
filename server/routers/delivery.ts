@@ -91,11 +91,15 @@ const routesRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+      const startingAddress = input.startingAddress && input.startingAddress.trim() !== "" 
+        ? input.startingAddress 
+        : "Rua Eloi da Costa, 145, Luizote de Freitas, Uberlândia, MG";
+
       const result = await db.insert(deliveryRoutes).values({
         name: input.name,
         deliveryDate: new Date(input.deliveryDate),
         deliveryUserId: input.deliveryUserId,
-        startingAddress: input.startingAddress || "Rua Eloi da Costa, 145, Luizote de Freitas, Uberlândia, MG",
+        startingAddress: startingAddress,
         createdBy: ctx.user.id,
         status: "planned",
       });

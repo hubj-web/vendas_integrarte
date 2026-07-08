@@ -260,7 +260,7 @@ export const deliveryRoutes = mysqlTable("delivery_routes", {
   name: varchar("name", { length: 200 }).notNull(),
   deliveryDate: timestamp("deliveryDate").notNull(),
   deliveryUserId: int("deliveryUserId").notNull(),
-  startingAddress: text("startingAddress").notNull().default("Rua Eloi da Costa, 145, Luizote de Freitas, Uberlândia, MG"),
+  startingAddress: text("startingAddress").notNull(),
   totalDistance: decimal("totalDistance", { precision: 10, scale: 2 }).default("0.00"),
   status: mysqlEnum("status", ["planned", "in_progress", "completed"]).default("planned").notNull(),
   startedAt: timestamp("startedAt"),
