@@ -100,7 +100,7 @@ export default function Exports() {
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       {/* Page header */}
       <div className="flex flex-col gap-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/admin")} className="w-fit gap-2 -ml-2 text-muted-foreground hover:text-foreground">
+        <Button variant="ghost" size="sm" onClick={() => navigate("/admin/dashboard")} className="w-fit gap-2 -ml-2 text-muted-foreground hover:text-foreground">
           <ArrowLeft className="w-4 h-4" /> Voltar ao Início
         </Button>
         <div>
