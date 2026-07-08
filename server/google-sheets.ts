@@ -262,7 +262,7 @@ async function appendOrder(order: any, sheetTitle: string = "Pedidos") {
     const { title, sheetId } = await ensureSheet(auth, sheetTitle);
     console.log("[GoogleSheets] Sheet confirmed:", title, "(ID:", sheetId, ")");
 
-  const fmtDate = (d: Date | null) => (d ? new Date(d).toLocaleDateString("pt-BR") : "");
+    const fmtDate = (d: Date | null) => (d ? new Date(d).toLocaleDateString("pt-BR") : "");
   const fmtCurrency = (v: string | null) => (v ? `R$ ${parseFloat(v).toFixed(2).replace(".", ",")}` : "R$ 0,00");
 
   const statusLabels: Record<string, string> = {
@@ -354,12 +354,15 @@ async function appendOrder(order: any, sheetTitle: string = "Pedidos") {
         ],
       },
     });
-  } catch (error: any) {
-    console.error("[GoogleSheets] Error in appendOrder:", error.message);
-    if (error.response && error.response.data) {
-      console.error("[GoogleSheets] API Response Error:", JSON.stringify(error.response.data));
+      } catch (resizeError: any) {
+        console.error("[GoogleSheets] Error resizing columns:", resizeError.message);
+      }
+    } catch (error: any) {
+      console.error("[GoogleSheets] Error in appendOrder:", error.message);
+      if (error.response && error.response.data) {
+        console.error("[GoogleSheets] API Response Error:", JSON.stringify(error.response.data));
+      }
     }
-  }
 }
 
 /**
