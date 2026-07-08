@@ -47,7 +47,7 @@ export default function NewOrder() {
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: number; name: string; phone: string } | null>(null);
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", street: "", number: "", neighborhood: "", city: "" });
+  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", street: "", number: "", complement: "", neighborhood: "", city: "" });
 
   const [cart, setCart] = useState<CartEntry[]>([]);
   const [productSearch, setProductSearch] = useState("");
@@ -462,14 +462,15 @@ export default function NewOrder() {
       <Dialog open={customerDialogOpen} onOpenChange={setCustomerDialogOpen}>
         <DialogContent className="bg-card border-border max-w-md">
           <DialogHeader><DialogTitle>Cadastrar Novo Cliente</DialogTitle></DialogHeader>
-          <form onSubmit={e => { e.preventDefault(); createCustomerMutation.mutate({ name: newCustomer.name, phone: newCustomer.phone, street: newCustomer.street || undefined, number: newCustomer.number || undefined, neighborhood: newCustomer.neighborhood || undefined, city: newCustomer.city || undefined }); }} className="space-y-3">
+          <form onSubmit={e => { e.preventDefault(); createCustomerMutation.mutate({ name: newCustomer.name, phone: newCustomer.phone, street: newCustomer.street || undefined, number: newCustomer.number || undefined, complement: newCustomer.complement || undefined, neighborhood: newCustomer.neighborhood || undefined, city: newCustomer.city || undefined }); }} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 space-y-1"><Label>Nome *</Label><Input value={newCustomer.name} onChange={e => setNewCustomer(f => ({ ...f, name: e.target.value }))} required className="bg-input" /></div>
               <div className="col-span-2 space-y-1"><Label>Telefone *</Label><Input value={newCustomer.phone} onChange={e => setNewCustomer(f => ({ ...f, phone: e.target.value }))} required className="bg-input" /></div>
-              <div className="space-y-1"><Label>Rua</Label><Input value={newCustomer.street} onChange={e => setNewCustomer(f => ({ ...f, street: e.target.value }))} className="bg-input" /></div>
+              <div className="col-span-2 sm:col-span-1 space-y-1"><Label>Rua</Label><Input value={newCustomer.street} onChange={e => setNewCustomer(f => ({ ...f, street: e.target.value }))} className="bg-input" /></div>
               <div className="space-y-1"><Label>Número</Label><Input value={newCustomer.number} onChange={e => setNewCustomer(f => ({ ...f, number: e.target.value }))} className="bg-input" /></div>
+              <div className="space-y-1"><Label>Complemento (Apto/Bloco)</Label><Input value={newCustomer.complement} onChange={e => setNewCustomer(f => ({ ...f, complement: e.target.value }))} className="bg-input" /></div>
               <div className="space-y-1"><Label>Bairro</Label><Input value={newCustomer.neighborhood} onChange={e => setNewCustomer(f => ({ ...f, neighborhood: e.target.value }))} className="bg-input" /></div>
-              <div className="space-y-1"><Label>Cidade</Label><Input value={newCustomer.city} onChange={e => setNewCustomer(f => ({ ...f, city: e.target.value }))} className="bg-input" /></div>
+              <div className="col-span-2 sm:col-span-1 space-y-1"><Label>Cidade</Label><Input value={newCustomer.city} onChange={e => setNewCustomer(f => ({ ...f, city: e.target.value }))} className="bg-input" /></div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCustomerDialogOpen(false)}>Cancelar</Button>

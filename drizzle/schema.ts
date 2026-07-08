@@ -167,6 +167,7 @@ export const customers = mysqlTable("customers", {
   locationReference: text("locationReference"),
   street: varchar("street", { length: 200 }),
   number: varchar("number", { length: 20 }),
+  complement: varchar("complement", { length: 100 }),
   neighborhood: varchar("neighborhood", { length: 100 }),
   city: varchar("city", { length: 100 }),
   zipCode: varchar("zipCode", { length: 10 }),

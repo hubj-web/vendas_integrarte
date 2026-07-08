@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { FileSpreadsheet, FileText, Download, Filter, Users, ClipboardList, Cloud, Loader2, ExternalLink, FileSpreadsheet as SheetsIcon } from "lucide-react";
+import { useLocation } from "wouter";
+import { FileSpreadsheet, FileText, Download, Filter, Users, ClipboardList, Cloud, Loader2, ExternalLink, ArrowLeft, FileSpreadsheet as SheetsIcon } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,7 @@ const today = new Date().toISOString().slice(0, 10);
 const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
 
 export default function Exports() {
+  const [, navigate] = useLocation();
   const [dateFrom, setDateFrom] = useState(firstDayOfMonth);
   const [dateTo, setDateTo] = useState(today);
   const [status, setStatus] = useState("all");
@@ -97,8 +99,12 @@ export default function Exports() {
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Exportar Dados</h1>
+      <div className="flex flex-col gap-4">
+        <Button variant="ghost" size="sm" onClick={() => navigate("/admin")} className="w-fit gap-2 -ml-2 text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="w-4 h-4" /> Voltar ao Início
+        </Button>
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Exportar Dados</h1>
         <p className="text-muted-foreground mt-1">
           Exporte pedidos e clientes em Excel (.xlsx), PDF ou salve diretamente no Google Sheets.
         </p>
