@@ -56,6 +56,8 @@ CREATE TABLE `delivery_routes` (
 	`name` varchar(200) NOT NULL,
 	`deliveryDate` timestamp NOT NULL,
 	`deliveryUserId` int NOT NULL,
+	`startingAddress` text,
+	`totalDistance` decimal(10, 2) DEFAULT '0.00',
 	`status` enum('planned','in_progress','completed') NOT NULL DEFAULT 'planned',
 	`startedAt` timestamp,
 	`completedAt` timestamp,
@@ -228,6 +230,7 @@ CREATE TABLE `route_orders` (
 	`routeId` int NOT NULL,
 	`orderId` int NOT NULL,
 	`position` int NOT NULL,
+	`distanceFromPrevious` decimal(10, 2) DEFAULT '0.00',
 	CONSTRAINT `route_orders_id` PRIMARY KEY(`id`)
 );
 

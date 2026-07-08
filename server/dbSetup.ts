@@ -494,6 +494,19 @@ export function registerDbSetupRoute(app: Express) {
       UPDATE \`users\` SET \`roles\` = CONCAT('["', \`role\`, '"]') WHERE \`roles\` = '["launcher"]' AND \`role\` != 'launcher'
     `);
 
+    // ── ROUTE OPTIMIZATION MIGRATIONS ──────────────────────────────────────
+    await run("Migration: add startingAddress to delivery_routes", `
+      ALTER TABLE \`delivery_routes\` ADD COLUMN \`startingAddress\` text AFTER \`deliveryUserId\`
+    `);
+
+    await run("Migration: add totalDistance to delivery_routes", `
+      ALTER TABLE \`delivery_routes\` ADD COLUMN \`totalDistance\` decimal(10, 2) DEFAULT '0.00' AFTER \`startingAddress\`
+    `);
+
+    await run("Migration: add distanceFromPrevious to route_orders", `
+      ALTER TABLE \`route_orders\` ADD COLUMN \`distanceFromPrevious\` decimal(10, 2) DEFAULT '0.00' AFTER \`position\`
+    `);
+
     const allOk = errors.length === 0;
     return res.status(allOk ? 200 : 207).json({
       success: allOk,
