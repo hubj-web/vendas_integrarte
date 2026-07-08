@@ -21,7 +21,7 @@ export default function MyOrders() {
   const PAGE_SIZE = 15;
 
   const { data, isLoading } = trpc.seller.myOrders.useQuery(
-    { sellerId: seller!.id, status, page, pageSize: PAGE_SIZE },
+    { sellerId: seller?.id ?? 0, status, page, pageSize: PAGE_SIZE },
     { enabled: !!seller }
   );
 

@@ -249,8 +249,9 @@ export default function SellerNewOrder() {
       if (c.locationReference) finalAddress += ` (${c.locationReference})`;
     }
 
+    if (!seller) return;
     createOrderMutation.mutate({
-      sellerId: seller!.id,
+      sellerId: seller.id,
       customerId: selectedCustomer.id,
       deliveryMethodId: Number(deliveryMethodId),
       deliveryAddress: finalAddress || undefined,

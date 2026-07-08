@@ -39,12 +39,12 @@ export default function DelivererRoutes() {
   const [proofImage, setProofImage] = useState<string | null>(null);
 
   const { data: routes, isLoading, refetch: refetchRoutes } = trpc.deliveryPublic.myRoutes.useQuery(
-    { delivererId: deliverer!.id },
+    { delivererId: deliverer?.id ?? 0 },
     { enabled: !!deliverer }
   );
 
   const { data: routeDetail, isLoading: loadingDetail, refetch: refetchDetail } = trpc.deliveryPublic.routeDetail.useQuery(
-    { routeId: selectedRouteId!, delivererId: deliverer!.id },
+    { routeId: selectedRouteId!, delivererId: deliverer?.id ?? 0 },
     { enabled: !!selectedRouteId && !!deliverer }
   );
 
@@ -160,7 +160,10 @@ export default function DelivererRoutes() {
             {routeDetail.status === "planned" && (
               <Button
                 className="flex-1 gap-2"
-                onClick={() => startRouteMutation.mutate({ routeId: routeDetail.id, delivererId: deliverer!.id })}
+                onClick={() => {
+                  if (!deliverer) return;
+                  startRouteMutation.mutate({ routeId: routeDetail.id, delivererId: deliverer.id });
+                }}
                 disabled={startRouteMutation.isPending}
               >
                 <Play className="w-4 h-4" />
@@ -171,7 +174,10 @@ export default function DelivererRoutes() {
               <Button
                 variant="outline"
                 className="flex-1 gap-2 border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/5"
-                onClick={() => completeRouteMutation.mutate({ routeId: routeDetail.id, delivererId: deliverer!.id })}
+                onClick={() => {
+                  if (!deliverer) return;
+                  completeRouteMutation.mutate({ routeId: routeDetail.id, delivererId: deliverer.id });
+                }}
                 disabled={completeRouteMutation.isPending}
               >
                 <CheckCircle className="w-4 h-4" />
@@ -287,11 +293,11 @@ export default function DelivererRoutes() {
             </Button>
             <Button
               onClick={() => {
-                if (!deliveryDialog) return;
+                if (!deliveryDialog || !deliverer) return;
                 registerDeliveryMutation.mutate({
                   routeId: deliveryDialog.routeId,
                   orderId: deliveryDialog.orderId,
-                  delivererId: deliverer!.id,
+                  delivererId: deliverer.id,
                   notes: deliveryNotes || undefined,
                   proofImageBase64: proofImage || undefined,
                 });

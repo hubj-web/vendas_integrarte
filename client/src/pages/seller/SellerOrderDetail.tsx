@@ -26,7 +26,7 @@ export default function SellerOrderDetail() {
   const [cancelReason, setCancelReason] = useState("");
 
   const { data: order, isLoading, refetch } = trpc.seller.orderDetail.useQuery(
-    { orderId, sellerId: seller!.id },
+    { orderId, sellerId: seller?.id ?? 0 },
     { enabled: !!seller && !!orderId }
   );
 
@@ -161,7 +161,10 @@ export default function SellerOrderDetail() {
             <Button
               variant={order.paymentStatus === "pending" ? "default" : "outline"}
               className="w-full gap-2"
-              onClick={() => updatePaymentMutation.mutate({ orderId: order.id, sellerId: seller!.id, paymentStatus: "pending" })}
+              onClick={() => {
+                if (!seller) return;
+                updatePaymentMutation.mutate({ orderId: order.id, sellerId: seller.id, paymentStatus: "pending" });
+              }}
               disabled={order.paymentStatus === "pending" || updatePaymentMutation.isPending}
             >
               <Clock className="w-4 h-4" />
@@ -170,7 +173,10 @@ export default function SellerOrderDetail() {
             <Button
               variant={order.paymentStatus === "paid" ? "default" : "outline"}
               className="w-full gap-2"
-              onClick={() => updatePaymentMutation.mutate({ orderId: order.id, sellerId: seller!.id, paymentStatus: "paid" })}
+              onClick={() => {
+                if (!seller) return;
+                updatePaymentMutation.mutate({ orderId: order.id, sellerId: seller.id, paymentStatus: "paid" });
+              }}
               disabled={order.paymentStatus === "paid" || updatePaymentMutation.isPending}
             >
               <CheckCircle2 className="w-4 h-4" />
@@ -206,11 +212,12 @@ export default function SellerOrderDetail() {
               <AlertDialogCancel>Voltar</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => {
+                  if (!seller) return;
                   if (!cancelReason.trim()) {
                     toast.error("Informe o motivo do cancelamento.");
                     return;
                   }
-                  cancelMutation.mutate({ orderId: order.id, sellerId: seller!.id, cancelReason });
+                  cancelMutation.mutate({ orderId: order.id, sellerId: seller.id, cancelReason });
                 }}
                 className="bg-destructive hover:bg-destructive/90"
               >
