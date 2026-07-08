@@ -423,16 +423,40 @@ export const ordersRouter = router({
             const productsList: string[] = [];
             
             // Items
-            const items = await db.select({ name: products.name, qty: orderItems.quantity })
+            const items = await db.select({ 
+              id: orderItems.id,
+              name: products.name, 
+              qty: orderItems.quantity 
+            })
               .from(orderItems).leftJoin(products, eq(orderItems.productId, products.id))
               .where(eq(orderItems.orderId, orderId));
-            items.forEach(i => productsList.push(`${i.name} (${i.qty}x)`));
+            
+            for (const i of items) {
+              const itemFlavors = await db.select({ name: productFlavors.name })
+                .from(orderItemFlavors).leftJoin(productFlavors, eq(orderItemFlavors.productFlavorId, productFlavors.id))
+                .where(eq(orderItemFlavors.orderItemId, i.id));
+              
+              const flavorsStr = itemFlavors.length > 0 ? ` [${itemFlavors.map(f => f.name).join(", ")}]` : "";
+              productsList.push(`${i.name}${flavorsStr} (${i.qty}x)`);
+            }
 
             // Minipizzas
-            const mps = await db.select({ type: minipizzaTypes.name, qty: orderMinipizzas.quantity })
+            const mps = await db.select({ 
+              id: orderMinipizzas.id,
+              type: minipizzaTypes.name, 
+              qty: orderMinipizzas.quantity 
+            })
               .from(orderMinipizzas).leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
               .where(eq(orderMinipizzas.orderId, orderId));
-            mps.forEach(m => productsList.push(`Minipizza ${m.type} (${m.qty}x)`));
+            
+            for (const m of mps) {
+              const mpFlavors = await db.select({ name: minipizzaFlavors.name })
+                .from(orderMinipizzaFlavors).leftJoin(minipizzaFlavors, eq(orderMinipizzaFlavors.minipizzaFlavorId, minipizzaFlavors.id))
+                .where(eq(orderMinipizzaFlavors.orderMinipizzaId, m.id));
+              
+              const flavorsStr = mpFlavors.length > 0 ? ` [${mpFlavors.map(f => f.name).join(", ")}]` : "";
+              productsList.push(`Minipizza ${m.type}${flavorsStr} (${m.qty}x)`);
+            }
 
             // Jellies
             const jellies = await db.select({ flavor: jellyFlavors.name, qty: orderJellies.quantity })
