@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Search, Eye, Filter, Calendar } from "lucide-react";
+import { Plus, Search, Eye, Filter, Calendar, Package } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 
 const statusOptions = [
@@ -127,6 +127,7 @@ export default function Orders() {
               <TableHead className="text-muted-foreground">Status</TableHead>
               <TableHead className="text-muted-foreground">Pagamento</TableHead>
               <TableHead className="text-muted-foreground">Total</TableHead>
+              <TableHead className="text-muted-foreground">Produtos</TableHead>
               <TableHead className="text-muted-foreground">Data</TableHead>
               <TableHead className="text-right text-muted-foreground">Ver</TableHead>
             </TableRow>
@@ -135,12 +136,12 @@ export default function Orders() {
             {isLoading ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <TableRow key={i} className="border-border">
-                  {Array.from({ length: 8 }).map((_, j) => <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>)}
+                  {Array.from({ length: 9 }).map((_, j) => <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>)}
                 </TableRow>
               ))
             ) : orders.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
                   <Filter className="w-8 h-8 mx-auto mb-2 opacity-30" />
                   Nenhum pedido encontrado
                 </TableCell>
@@ -160,6 +161,14 @@ export default function Orders() {
                   <TableCell><StatusBadge status={o.paymentStatus} /></TableCell>
                   <TableCell className="font-semibold text-primary">{fmt(o.totalAmount)}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{new Date(o.createdAt).toLocaleDateString("pt-BR")}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground max-w-[220px]">
+                    <div className="flex items-center gap-1">
+                      <Package className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                      <span className="truncate" title={(o as any).productSummary}>
+                        {(o as any).productSummary ?? "—"}
+                      </span>
+                    </div>
+                  </TableCell>
                   <TableCell className="text-right">
                     <Link href={`/pedidos/${o.id}`}>
                       <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary"><Eye className="w-3.5 h-3.5" /></Button>

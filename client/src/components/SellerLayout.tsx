@@ -2,7 +2,7 @@ import { type ReactNode } from "react";
 import { useSeller } from "@/contexts/SellerContext";
 import { Button } from "@/components/ui/button";
 import { LogOut, Plus, List } from "lucide-react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, Redirect } from "wouter";
 
 const LOGO_URL = "/integrarte-logo.png";
 
@@ -13,6 +13,15 @@ interface SellerLayoutProps {
 export default function SellerLayout({ children }: SellerLayoutProps) {
   const { seller, clearSeller } = useSeller();
   const [location] = useLocation();
+
+  // Redirect to seller selection if not logged in
+  if (!seller) {
+    return <Redirect to="/" />;
+  }
+
+  const handleLogout = () => {
+    clearSeller();
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50 flex flex-col">
@@ -31,7 +40,7 @@ export default function SellerLayout({ children }: SellerLayoutProps) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={clearSeller}
+            onClick={handleLogout}
             className="text-muted-foreground hover:text-destructive gap-1.5 text-xs"
           >
             <LogOut className="w-3.5 h-3.5" />

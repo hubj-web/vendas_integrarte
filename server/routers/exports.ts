@@ -1,15 +1,16 @@
 import { TRPCError } from "@trpc/server";
-import { eq, desc, and, gte, lte, like, or } from "drizzle-orm";
+import { eq, desc, and, gte, lte, like, or, inArray } from "drizzle-orm";
 import { z } from "zod";
 import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import {
-  customers, orders, orderItems, orderMinipizzas, orderMinipizzaFlavors,
-  orderJellies, products, minipizzaTypes, minipizzaFlavors,
+  customers, orders, orderItems, orderItemFlavors, orderMinipizzas, orderMinipizzaFlavors,
+  orderJellies, products, productFlavors, minipizzaTypes, minipizzaFlavors,
   jellyFlavors, deliveryMethods, users,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
+import { storagePut, storageGetSignedUrl } from "../storage";
 
 const STATUS_LABELS: Record<string, string> = {
   production: "Em produção",
@@ -38,6 +39,9 @@ const exportInputSchema = z.object({
   search: z.string().optional(),
 });
 
+/**
+ * Fetch orders with basic info for export
+ */
 async function fetchOrdersForExport(input: z.infer<typeof exportInputSchema>) {
   const db = await getDb();
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -69,9 +73,6 @@ async function fetchOrdersForExport(input: z.infer<typeof exportInputSchema>) {
   return allOrders.filter((o) => {
     if (input.status && o.status !== input.status) return false;
     if (input.paymentStatus && o.paymentStatus !== input.paymentStatus) return false;
-    if (input.launcherId && o.launcherName !== undefined) {
-      // filter by launcher name approximation — launcherId filtering done in query ideally
-    }
     if (input.search) {
       const s = input.search.toLowerCase();
       if (!o.customerName?.toLowerCase().includes(s) && !o.customerPhone?.includes(s)) return false;
@@ -89,6 +90,131 @@ async function fetchOrdersForExport(input: z.infer<typeof exportInputSchema>) {
   });
 }
 
+/**
+ * Fetch detailed items (products, minipizzas, jellies) for a set of orders
+ */
+async function fetchItemsForOrders(orderIds: number[]) {
+  const db = await getDb();
+  if (!db) return {};
+
+  const result: Record<number, { name: string; qty: number; price: string; subtotal: string; unit: string; flavors: string[] }[]> = {};
+
+  if (orderIds.length === 0) return result;
+
+  // ── Order Items ───────────────────────────────────────────────────────────
+  const allOrderItems = await db
+    .select({
+      id: orderItems.id,
+      orderId: orderItems.orderId,
+      productName: products.name,
+      quantity: orderItems.quantity,
+      unitPrice: orderItems.unitPrice,
+      subtotal: orderItems.subtotal,
+      unit: products.unit,
+    })
+    .from(orderItems)
+    .leftJoin(products, eq(orderItems.productId, products.id))
+    .where(inArray(orderItems.orderId, orderIds));
+
+  // Fetch flavors for order items
+  const orderItemIds = allOrderItems.map(i => i.id);
+  let itemFlavors: Record<number, string[]> = {};
+  if (orderItemIds.length > 0) {
+    const flavorRows = await db
+      .select({ orderItemId: orderItemFlavors.orderItemId, flavorName: orderItemFlavors.flavorName })
+      .from(orderItemFlavors)
+      .where(inArray(orderItemFlavors.orderItemId, orderItemIds));
+    for (const f of flavorRows) {
+      if (!itemFlavors[f.orderItemId]) itemFlavors[f.orderItemId] = [];
+      itemFlavors[f.orderItemId].push(f.flavorName);
+    }
+  }
+
+  for (const item of allOrderItems) {
+    if (!result[item.orderId]) result[item.orderId] = [];
+    const flavors = itemFlavors[item.id] ?? [];
+    const flavorStr = flavors.length > 0 ? ` (${flavors.join(", ")})` : "";
+    result[item.orderId].push({
+      name: `${item.productName ?? "Produto"}${flavorStr}`,
+      qty: item.quantity,
+      price: `R$ ${parseFloat(item.unitPrice).toFixed(2).replace(".", ",")}`,
+      subtotal: `R$ ${parseFloat(item.subtotal).toFixed(2).replace(".", ",")}`,
+      unit: item.unit ?? "",
+      flavors,
+    });
+  }
+
+  // ── Minipizzas ────────────────────────────────────────────────────────────
+  const mpRows = await db
+    .select({
+      id: orderMinipizzas.id,
+      orderId: orderMinipizzas.orderId,
+      quantity: orderMinipizzas.quantity,
+      unitPrice: orderMinipizzas.unitPrice,
+      subtotal: orderMinipizzas.subtotal,
+      typeName: minipizzaTypes.name,
+      typeUnits: minipizzaTypes.units,
+    })
+    .from(orderMinipizzas)
+    .leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
+    .where(inArray(orderMinipizzas.orderId, orderIds));
+
+  const mpIds = mpRows.map(m => m.id);
+  let mpFlavorMap: Record<number, string[]> = {};
+  if (mpIds.length > 0) {
+    const flavorRows = await db
+      .select({ orderMinipizzaId: orderMinipizzaFlavors.orderMinipizzaId, flavorName: minipizzaFlavors.name })
+      .from(orderMinipizzaFlavors)
+      .leftJoin(minipizzaFlavors, eq(orderMinipizzaFlavors.minipizzaFlavorId, minipizzaFlavors.id))
+      .where(inArray(orderMinipizzaFlavors.orderMinipizzaId, mpIds));
+    for (const f of flavorRows) {
+      if (!mpFlavorMap[f.orderMinipizzaId]) mpFlavorMap[f.orderMinipizzaId] = [];
+      mpFlavorMap[f.orderMinipizzaId].push(f.flavorName ?? "");
+    }
+  }
+
+  for (const mp of mpRows) {
+    if (!result[mp.orderId]) result[mp.orderId] = [];
+    const flavors = mpFlavorMap[mp.id] ?? [];
+      const flavorStr = flavors.length > 0 ? ` (${flavors.join(", ")})` : "";
+    result[mp.orderId].push({
+      name: `Minipizza ${String(mp.typeName ?? "—")}${flavorStr}`,
+      qty: mp.quantity,
+      price: `R$ ${parseFloat(mp.unitPrice).toFixed(2).replace(".", ",")}`,
+      subtotal: `R$ ${parseFloat(mp.subtotal).toFixed(2).replace(".", ",")}`,
+      unit: `${mp.typeUnits ?? 0} un.`,
+      flavors,
+    });
+  }
+
+  // ── Jellies ───────────────────────────────────────────────────────────────
+  const jRows = await db
+    .select({
+      orderId: orderJellies.orderId,
+      flavorName: jellyFlavors.name,
+      quantity: orderJellies.quantity,
+      unitPrice: orderJellies.unitPrice,
+      subtotal: orderJellies.subtotal,
+    })
+    .from(orderJellies)
+    .leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
+    .where(inArray(orderJellies.orderId, orderIds));
+
+  for (const j of jRows) {
+    if (!result[j.orderId]) result[j.orderId] = [];
+    result[j.orderId].push({
+      name: `Geleia ${j.flavorName ?? "—"}`,
+      qty: j.quantity,
+      price: `R$ ${parseFloat(j.unitPrice).toFixed(2).replace(".", ",")}`,
+      subtotal: `R$ ${parseFloat(j.subtotal).toFixed(2).replace(".", ",")}`,
+      unit: "",
+      flavors: [],
+    });
+  }
+
+  return result;
+}
+
 function formatDate(d: Date | null | undefined): string {
   if (!d) return "";
   return new Date(d).toLocaleDateString("pt-BR");
@@ -98,12 +224,32 @@ function formatCurrency(v: string | number | null | undefined): string {
   return `R$ ${parseFloat(String(v)).toFixed(2).replace(".", ",")}`;
 }
 
+/**
+ * Build a product summary string for an order
+ */
+function buildProductSummary(itemsMap: Record<number, any[]>, orderId: number): string {
+  const items = itemsMap[orderId] || [];
+  if (items.length === 0) return "—";
+  return items.map(i => `${i.name} (${i.qty}x)`).join("; ");
+}
+
+/**
+ * Build a detailed product string with prices for Excel
+ */
+function buildProductDetails(itemsMap: Record<number, any[]>, orderId: number): string {
+  const items = itemsMap[orderId] || [];
+  if (items.length === 0) return "—";
+  return items.map(i => `${i.name}: ${i.qty}x ${i.price} = ${i.subtotal}`).join("\n");
+}
+
 export const exportsRouter = router({
-  // Returns base64-encoded Excel file
+  // Returns base64-encoded Excel file WITH PRODUCTS
   ordersExcel: protectedProcedure
     .input(exportInputSchema)
     .mutation(async ({ input }) => {
       const rows = await fetchOrdersForExport(input);
+      const orderIds = rows.map(o => o.id);
+      const itemsMap = await fetchItemsForOrders(orderIds);
 
       const workbook = new ExcelJS.Workbook();
       workbook.creator = "Sistema Integrarte";
@@ -113,7 +259,6 @@ export const exportsRouter = router({
         pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true },
       });
 
-      // Header style
       const headerFill: ExcelJS.Fill = {
         type: "pattern",
         pattern: "solid",
@@ -136,22 +281,19 @@ export const exportsRouter = router({
         { header: "Status Pedido", key: "status", width: 18 },
         { header: "Status Pagamento", key: "paymentStatus", width: 18 },
         { header: "Total", key: "totalAmount", width: 14 },
+        { header: "Produtos", key: "products", width: 55 },
         { header: "Observações", key: "notes", width: 30 },
       ];
 
-      // Style header row
       const headerRow = sheet.getRow(1);
       headerRow.height = 22;
       headerRow.eachCell((cell) => {
         cell.fill = headerFill;
         cell.font = headerFont;
         cell.alignment = headerAlignment;
-        cell.border = {
-          bottom: { style: "thin", color: { argb: "FF1B4332" } },
-        };
+        cell.border = { bottom: { style: "thin", color: { argb: "FF1B4332" } } };
       });
 
-      // Data rows
       rows.forEach((o, idx) => {
         const row = sheet.addRow({
           id: o.id,
@@ -167,39 +309,19 @@ export const exportsRouter = router({
           status: STATUS_LABELS[o.status] ?? o.status,
           paymentStatus: PAYMENT_STATUS_LABELS[o.paymentStatus] ?? o.paymentStatus,
           totalAmount: formatCurrency(o.totalAmount),
+          products: buildProductDetails(itemsMap, o.id),
           notes: o.notes ?? "",
         });
-        // Alternate row color
         if (idx % 2 === 0) {
           row.eachCell((cell) => {
             cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0FFF4" } };
           });
         }
         row.eachCell((cell) => {
-          cell.alignment = { vertical: "middle", wrapText: false };
+          cell.alignment = { vertical: "middle", wrapText: true };
         });
       });
 
-      // Summary row
-      sheet.addRow([]);
-      const summaryRow = sheet.addRow([
-        `Total de pedidos: ${rows.length}`,
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "Total geral:",
-        formatCurrency(rows.reduce((acc, o) => acc + parseFloat(String(o.totalAmount ?? 0)), 0)),
-      ]);
-      summaryRow.font = { bold: true };
-
-      // Freeze header
       sheet.views = [{ state: "frozen", ySplit: 1 }];
 
       const buffer = await workbook.xlsx.writeBuffer();
@@ -210,15 +332,17 @@ export const exportsRouter = router({
       };
     }),
 
-  // Returns base64-encoded PDF file
+  // Returns base64-encoded PDF file WITH PRODUCTS
   ordersPdf: protectedProcedure
     .input(exportInputSchema)
     .mutation(async ({ input }) => {
       const rows = await fetchOrdersForExport(input);
+      const orderIds = rows.map(o => o.id);
+      const itemsMap = await fetchItemsForOrders(orderIds);
 
       return new Promise<{ base64: string; filename: string; mimeType: string }>((resolve, reject) => {
         const doc = new PDFDocument({
-          size: "A4",
+          size: "A3",
           layout: "landscape",
           margin: 30,
           info: { Title: "Relatório de Pedidos - Integrarte", Author: "Sistema Integrarte" },
@@ -236,18 +360,17 @@ export const exportsRouter = router({
         });
         doc.on("error", reject);
 
-        const pageWidth = doc.page.width - 60; // margins
+        const pageWidth = doc.page.width - 60;
         const green = "#2D6A4F";
         const lightGreen = "#D8F3DC";
         const darkText = "#1B1B1B";
         const mutedText = "#555555";
 
-        // ── HEADER ────────────────────────────────────────────────────────────
+        // Header
         doc.rect(30, 30, pageWidth, 40).fill(green);
         doc.fillColor("#FFFFFF").fontSize(16).font("Helvetica-Bold")
           .text("Relatório de Pedidos — Integrarte", 40, 42, { width: pageWidth - 20 });
 
-        // Subtitle with filters
         const filterParts: string[] = [];
         if (input.dateFrom) filterParts.push(`De: ${formatDate(new Date(input.dateFrom))}`);
         if (input.dateTo) filterParts.push(`Até: ${formatDate(new Date(input.dateTo))}`);
@@ -260,17 +383,16 @@ export const exportsRouter = router({
 
         let y = 95;
 
-        // ── TABLE HEADER ──────────────────────────────────────────────────────
         const cols = [
-          { label: "Nº", width: 35 },
-          { label: "Data", width: 55 },
-          { label: "Cliente", width: 110 },
-          { label: "Telefone", width: 75 },
-          { label: "Vendedor(a)", width: 90 },
-          { label: "Entrega", width: 80 },
-          { label: "Pagamento", width: 65 },
-          { label: "Status", width: 70 },
-          { label: "Total", width: 60 },
+          { label: "Nº", width: 30 },
+          { label: "Data", width: 50 },
+          { label: "Cliente", width: 90 },
+          { label: "Telefone", width: 65 },
+          { label: "Vendedor(a)", width: 75 },
+          { label: "Entrega", width: 70 },
+          { label: "Status", width: 55 },
+          { label: "Total", width: 55 },
+          { label: "Produtos", width: 140 },
         ];
 
         const drawTableHeader = (yPos: number) => {
@@ -286,10 +408,9 @@ export const exportsRouter = router({
 
         y = drawTableHeader(y);
 
-        // ── TABLE ROWS ────────────────────────────────────────────────────────
         rows.forEach((o, idx) => {
           if (y > doc.page.height - 60) {
-            doc.addPage({ size: "A4", layout: "landscape", margin: 30 });
+            doc.addPage({ size: "A3", layout: "landscape", margin: 30 });
             y = 30;
             y = drawTableHeader(y);
           }
@@ -308,28 +429,27 @@ export const exportsRouter = router({
             o.customerPhone ?? "",
             o.launcherName ?? "",
             o.deliveryMethodName ?? "",
-            PAYMENT_METHOD_LABELS[o.paymentMethod] ?? o.paymentMethod,
             STATUS_LABELS[o.status] ?? o.status,
             formatCurrency(o.totalAmount),
+            buildProductSummary(itemsMap, o.id),
           ];
           cells.forEach((text, ci) => {
             doc.text(text, x + 3, y + 4, { width: cols[ci].width - 6, ellipsis: true });
             x += cols[ci].width;
           });
 
-          // Row border
           doc.rect(30, y, pageWidth, rowH).stroke("#CCCCCC");
           y += rowH;
         });
 
-        // ── SUMMARY ───────────────────────────────────────────────────────────
+        // Summary
         y += 8;
         if (y > doc.page.height - 50) {
-          doc.addPage({ size: "A4", layout: "landscape", margin: 30 });
+          doc.addPage({ size: "A3", layout: "landscape", margin: 30 });
           y = 30;
         }
         const totalRevenue = rows.reduce((acc, o) => acc + parseFloat(String(o.totalAmount ?? 0)), 0);
-        const paidCount = rows.filter(o => ["paid"].includes(o.status)).length;
+        const paidCount = rows.filter(o => o.status === "paid").length;
         const pendingCount = rows.filter(o => o.paymentStatus === "pending" && o.status !== "cancelled").length;
 
         doc.rect(30, y, pageWidth, 28).fill("#F0FFF4");
@@ -343,12 +463,115 @@ export const exportsRouter = router({
       });
     }),
 
-  // Full database backup as JSON
-  databaseBackup: protectedProcedure
+  // Upload Excel to storage and return public URL (Google Drive-like behavior)
+  ordersExcelToStorage: protectedProcedure
+    .input(exportInputSchema)
+    .mutation(async ({ input }) => {
+      const rows = await fetchOrdersForExport(input);
+      const orderIds = rows.map(o => o.id);
+      const itemsMap = await fetchItemsForOrders(orderIds);
+
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "Sistema Integrarte";
+      workbook.created = new Date();
+
+      const sheet = workbook.addWorksheet("Pedidos", {
+        pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true },
+      });
+
+      const headerFill: ExcelJS.Fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF2D6A4F" },
+      };
+      const headerFont: Partial<ExcelJS.Font> = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+      const headerAlignment: Partial<ExcelJS.Alignment> = { horizontal: "center", vertical: "middle" };
+
+      sheet.columns = [
+        { header: "Nº Pedido", key: "id", width: 12 },
+        { header: "Data", key: "createdAt", width: 14 },
+        { header: "Cliente", key: "customerName", width: 28 },
+        { header: "Telefone", key: "customerPhone", width: 18 },
+        { header: "Bairro", key: "customerNeighborhood", width: 20 },
+        { header: "Cidade", key: "customerCity", width: 18 },
+        { header: "Vendedor(a)", key: "launcherName", width: 22 },
+        { header: "Forma de Entrega", key: "deliveryMethodName", width: 22 },
+        { header: "Data de Entrega", key: "deliveryDate", width: 16 },
+        { header: "Pagamento", key: "paymentMethod", width: 14 },
+        { header: "Status Pedido", key: "status", width: 18 },
+        { header: "Status Pagamento", key: "paymentStatus", width: 18 },
+        { header: "Total", key: "totalAmount", width: 14 },
+        { header: "Produtos", key: "products", width: 55 },
+        { header: "Observações", key: "notes", width: 30 },
+      ];
+
+      const headerRow = sheet.getRow(1);
+      headerRow.height = 22;
+      headerRow.eachCell((cell) => {
+        cell.fill = headerFill;
+        cell.font = headerFont;
+        cell.alignment = headerAlignment;
+        cell.border = { bottom: { style: "thin", color: { argb: "FF1B4332" } } };
+      });
+
+      rows.forEach((o, idx) => {
+        const row = sheet.addRow({
+          id: o.id,
+          createdAt: formatDate(o.createdAt),
+          customerName: o.customerName ?? "",
+          customerPhone: o.customerPhone ?? "",
+          customerNeighborhood: o.customerNeighborhood ?? "",
+          customerCity: o.customerCity ?? "",
+          launcherName: o.launcherName ?? "",
+          deliveryMethodName: o.deliveryMethodName ?? "",
+          deliveryDate: formatDate(o.deliveryDate),
+          paymentMethod: PAYMENT_METHOD_LABELS[o.paymentMethod] ?? o.paymentMethod,
+          status: STATUS_LABELS[o.status] ?? o.status,
+          paymentStatus: PAYMENT_STATUS_LABELS[o.paymentStatus] ?? o.paymentStatus,
+          totalAmount: formatCurrency(o.totalAmount),
+          products: buildProductDetails(itemsMap, o.id),
+          notes: o.notes ?? "",
+        });
+        if (idx % 2 === 0) {
+          row.eachCell((cell) => {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0FFF4" } };
+          });
+        }
+        row.eachCell((cell) => {
+          cell.alignment = { vertical: "middle", wrapText: true };
+        });
+      });
+
+      sheet.views = [{ state: "frozen", ySplit: 1 }];
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const bufferData = Buffer.from(buffer);
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const stored = await storagePut(
+        `exports/pedidos_${dateStr}_${Date.now()}.xlsx`,
+        bufferData,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      );
+
+      const signedUrl = await storageGetSignedUrl(stored.key);
+
+      return {
+        url: signedUrl,
+        filename: `pedidos_${dateStr}.xlsx`,
+        message: "Planilha salva com sucesso no armazenamento do sistema!",
+      };
+    }),
+
+  // Upload backup JSON to storage
+  databaseBackupToStorage: protectedProcedure
     .mutation(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem fazer backup." });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const { productCategories, orderStatusHistory, deliveryRoutes, routeOrders, deliveryRecords, paymentRecords } =
+        await import("../../drizzle/schema");
 
       const [allUsers, allCustomers, allOrders, allOrderItems, allProducts, allCategories,
         allDeliveryMethods, allMinipizzaTypes, allMinipizzaFlavors, allJellyFlavors,
@@ -360,7 +583,7 @@ export const exportsRouter = router({
         db.select().from(orders),
         db.select().from(orderItems),
         db.select().from(products),
-        db.select().from((await import("../../drizzle/schema")).productCategories),
+        db.select().from(productCategories),
         db.select().from(deliveryMethods),
         db.select().from(minipizzaTypes),
         db.select().from(minipizzaFlavors),
@@ -368,13 +591,13 @@ export const exportsRouter = router({
         db.select().from(orderMinipizzas),
         db.select().from(orderMinipizzaFlavors),
         db.select().from(orderJellies),
-        db.select().from((await import("../../drizzle/schema")).orderStatusHistory),
-        db.select().from((await import("../../drizzle/schema")).productFlavors),
-        db.select().from((await import("../../drizzle/schema")).orderItemFlavors),
-        db.select().from((await import("../../drizzle/schema")).deliveryRoutes),
-        db.select().from((await import("../../drizzle/schema")).routeOrders),
-        db.select().from((await import("../../drizzle/schema")).deliveryRecords),
-        db.select().from((await import("../../drizzle/schema")).paymentRecords),
+        db.select().from(orderStatusHistory),
+        db.select().from(productFlavors),
+        db.select().from(orderItemFlavors),
+        db.select().from(deliveryRoutes),
+        db.select().from(routeOrders),
+        db.select().from(deliveryRecords),
+        db.select().from(paymentRecords),
       ]);
 
       const backup = {
@@ -405,10 +628,21 @@ export const exportsRouter = router({
       };
 
       const jsonStr = JSON.stringify(backup, null, 2);
+      const bufferData = Buffer.from(jsonStr);
+
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const stored = await storagePut(
+        `backups/backup_integrarte_${dateStr}_${Date.now()}.json`,
+        bufferData,
+        "application/json"
+      );
+
+      const signedUrl = await storageGetSignedUrl(stored.key);
+
       return {
-        base64: Buffer.from(jsonStr).toString("base64"),
-        filename: `backup_integrarte_${new Date().toISOString().slice(0, 10)}.json`,
-        mimeType: "application/json",
+        url: signedUrl,
+        filename: `backup_integrarte_${dateStr}.json`,
+        message: "Backup salvo com sucesso no armazenamento do sistema!",
       };
     }),
 

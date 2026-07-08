@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Database, Download, FileSpreadsheet, Loader2, Shield } from "lucide-react";
+import { Database, Download, FileSpreadsheet, Loader2, Shield, Cloud } from "lucide-react";
 
 function downloadBase64File(base64: string, filename: string, mimeType: string) {
   const byteCharacters = atob(base64);
@@ -29,13 +29,16 @@ export default function Backup() {
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
 
-  const backupMutation = trpc.exports.databaseBackup.useMutation({
+  const [storageUrl, setStorageUrl] = useState<string | null>(null);
+  const [storageSaving, setStorageSaving] = useState(false);
+
+  const backupToStorageMutation = trpc.exports.databaseBackupToStorage.useMutation({
     onSuccess: (data) => {
-      downloadBase64File(data.base64, data.filename, data.mimeType);
-      toast.success("Backup baixado com sucesso!");
-      setLoadingBackup(false);
+      setStorageUrl(data.url);
+      toast.success(data.message || "Backup salvo com sucesso!");
+      setStorageSaving(false);
     },
-    onError: (e) => { toast.error(e.message); setLoadingBackup(false); },
+    onError: (e) => { toast.error(e.message); setStorageSaving(false); },
   });
 
   const ordersExcelMutation = trpc.exports.ordersExcel.useMutation({
@@ -80,14 +83,21 @@ export default function Backup() {
               <Shield className="w-3.5 h-3.5 text-primary flex-shrink-0" />
               <span className="text-xs text-primary">Senhas não são incluídas no backup</span>
             </div>
-            <Button
-              onClick={() => { setLoadingBackup(true); backupMutation.mutate(); }}
-              disabled={loadingBackup}
-              className="w-full bg-primary text-primary-foreground gap-2"
-            >
-              {loadingBackup ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              Baixar Backup Completo
-            </Button>
+            <div className="flex flex-col gap-2">
+              <Button
+                onClick={() => { setStorageSaving(true); backupToStorageMutation.mutate(); }}
+                disabled={storageSaving}
+                className="w-full bg-blue-700 hover:bg-blue-800 text-white gap-2"
+              >
+                {storageSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4" />}
+                {storageSaving ? "Salvando..." : "Salvar Backup no Armazenamento"}
+              </Button>
+              {storageUrl && (
+                <a href={storageUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline">
+                  Abrir backup no navegador
+                </a>
+              )}
+            </div>
           </CardContent>
         </Card>
 

@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 import { useDeliverer } from "@/contexts/DelivererContext";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
+import { Redirect } from "wouter";
 
 const LOGO_URL = "/integrarte-logo.png";
 
@@ -11,6 +12,14 @@ interface DelivererLayoutProps {
 
 export default function DelivererLayout({ children }: DelivererLayoutProps) {
   const { deliverer, clearDeliverer } = useDeliverer();
+
+  if (!deliverer) {
+    return <Redirect to="/entregador" />;
+  }
+
+  const handleLogout = () => {
+    clearDeliverer();
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-blue-50 flex flex-col">
@@ -29,7 +38,7 @@ export default function DelivererLayout({ children }: DelivererLayoutProps) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={clearDeliverer}
+            onClick={handleLogout}
             className="text-muted-foreground hover:text-destructive gap-1.5 text-xs"
           >
             <LogOut className="w-3.5 h-3.5" />

@@ -1,9 +1,9 @@
 import { TRPCError } from "@trpc/server";
-import { eq, desc, and, gte, lte, like, or, sql } from "drizzle-orm";
+import { eq, desc, and, gte, lte, like, or, sql, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
-  customers, orders, orderItems, orderMinipizzas, orderMinipizzaFlavors,
-  orderJellies, orderStatusHistory, products, minipizzaTypes, minipizzaFlavors,
+  customers, orders, orderItems, orderItemFlavors, orderMinipizzas, orderMinipizzaFlavors,
+  orderJellies, orderStatusHistory, products, productFlavors, minipizzaTypes, minipizzaFlavors,
   jellyFlavors, deliveryMethods, users,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
@@ -157,7 +157,95 @@ export const ordersRouter = router({
 
       const total = filtered.length;
       const data = filtered.slice(offset, offset + pageSize);
-      return { data, total };
+
+      // Fetch products for each order in the page
+      const orderIds = data.map(o => o.id);
+      const productSummaryMap: Record<number, string> = {};
+
+      if (orderIds.length > 0) {
+        // Fetch order items with flavors
+        const allOrderItems = await db.select({
+          id: orderItems.id, orderId: orderItems.orderId, productName: products.name,
+          quantity: orderItems.quantity,
+        }).from(orderItems)
+          .leftJoin(products, eq(orderItems.productId, products.id))
+          .where(inArray(orderItems.orderId, orderIds));
+
+        const allOrderItemIds = allOrderItems.map(i => i.id);
+        const flavorMap: Record<number, string[]> = {};
+        if (allOrderItemIds.length > 0) {
+          const flavorRows = await db.select({
+            orderItemId: orderItemFlavors.orderItemId, flavorName: orderItemFlavors.flavorName,
+          }).from(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId, allOrderItemIds));
+          for (const f of flavorRows) {
+            if (!flavorMap[f.orderItemId]) flavorMap[f.orderItemId] = [];
+            flavorMap[f.orderItemId].push(f.flavorName);
+          }
+        }
+
+        // Build product names per order
+        const productNamesMap: Record<number, string[]> = {};
+        for (const item of allOrderItems) {
+          if (!productNamesMap[item.orderId]) productNamesMap[item.orderId] = [];
+          const flavors = flavorMap[item.id] ?? [];
+          const flavorStr = flavors.length > 0 ? ` (${flavors.join(", ")})` : "";
+          productNamesMap[item.orderId].push(`${item.productName}${flavorStr} (${item.quantity}x)`);
+        }
+
+        // Fetch minipizzas
+        const mpRows = await db.select({
+          id: orderMinipizzas.id, orderId: orderMinipizzas.orderId,
+          typeName: minipizzaTypes.name, quantity: orderMinipizzas.quantity,
+        }).from(orderMinipizzas)
+          .leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
+          .where(inArray(orderMinipizzas.orderId, orderIds));
+
+        const mpIds = mpRows.map(m => m.id);
+        const mpFlavorMap: Record<number, string[]> = {};
+        if (mpIds.length > 0) {
+          const flavorRows = await db.select({
+            orderMinipizzaId: orderMinipizzaFlavors.orderMinipizzaId,
+            flavorName: minipizzaFlavors.name,
+          }).from(orderMinipizzaFlavors)
+            .leftJoin(minipizzaFlavors, eq(orderMinipizzaFlavors.minipizzaFlavorId, minipizzaFlavors.id))
+            .where(inArray(orderMinipizzaFlavors.orderMinipizzaId, mpIds));
+          for (const f of flavorRows) {
+            if (!mpFlavorMap[f.orderMinipizzaId]) mpFlavorMap[f.orderMinipizzaId] = [];
+            mpFlavorMap[f.orderMinipizzaId].push(f.flavorName ?? "");
+          }
+        }
+
+        for (const mp of mpRows) {
+          if (!productNamesMap[mp.orderId]) productNamesMap[mp.orderId] = [];
+          const flavors = mpFlavorMap[mp.id] ?? [];
+          const flavorStr = flavors.length > 0 ? ` (${flavors.join(", ")})` : "";
+          productNamesMap[mp.orderId].push(`Minipizza ${mp.typeName ?? "—"}${flavorStr} (${mp.quantity}x)`);
+        }
+
+        // Fetch jellies
+        const jRows = await db.select({
+          orderId: orderJellies.orderId, flavorName: jellyFlavors.name, quantity: orderJellies.quantity,
+        }).from(orderJellies)
+          .leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
+          .where(inArray(orderJellies.orderId, orderIds));
+
+        for (const j of jRows) {
+          if (!productNamesMap[j.orderId]) productNamesMap[j.orderId] = [];
+          productNamesMap[j.orderId].push(`Geleia ${j.flavorName} (${j.quantity}x)`);
+        }
+
+        for (const order of data) {
+          productSummaryMap[order.id] = productNamesMap[order.id]?.join(", ") ?? "—";
+        }
+      }
+
+      // Enrich data with products
+      const enrichedData = data.map(o => ({
+        ...o,
+        productSummary: productSummaryMap[o.id] ?? "—",
+      }));
+
+      return { data: enrichedData, total };
     }),
 
   getById: protectedProcedure
