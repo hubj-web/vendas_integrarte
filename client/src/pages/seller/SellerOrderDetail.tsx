@@ -8,8 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, User, Package, XCircle } from "lucide-react";
+import { ArrowLeft, User, Package, XCircle, Share2 } from "lucide-react";
 import { Link } from "wouter";
+import { OrderReceiptButton } from "@/components/OrderReceipt";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -80,7 +81,10 @@ export default function SellerOrderDetail() {
               : "—"}
           </p>
         </div>
-        <StatusBadge status={order.status} />
+        <div className="flex flex-col items-end gap-2">
+          <StatusBadge status={order.status} />
+          <OrderReceiptButton order={order as any} />
+        </div>
       </div>
 
       {/* Customer */}

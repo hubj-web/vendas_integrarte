@@ -148,15 +148,17 @@ function Router() {
       </Route>
 
       {/* ── SELLER ── */}
-      <Route path="/vendedor/:rest*">
-        <SellerProvider>
-          <SellerArea />
-        </SellerProvider>
+      <Route path="/vendedor/novo-pedido">
+        <SellerProvider><SellerLayout><SellerNewOrder /></SellerLayout></SellerProvider>
+      </Route>
+      <Route path="/vendedor/meus-pedidos">
+        <SellerProvider><SellerLayout><MyOrders /></SellerLayout></SellerProvider>
+      </Route>
+      <Route path="/vendedor/pedido/:id">
+        <SellerProvider><SellerLayout><SellerOrderDetail /></SellerLayout></SellerProvider>
       </Route>
       <Route path="/">
-        <SellerProvider>
-          <SellerArea />
-        </SellerProvider>
+        <SellerProvider><SellerArea /></SellerProvider>
       </Route>
 
       <Route component={NotFound} />

@@ -273,17 +273,18 @@ export const sellerRouter = router({
         .limit(1);
       if (!orderResult[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
       const order = orderResult[0];
-      const [items, minipizzasData, jelliesData, customerData] = await Promise.all([
-        db.select({ id: orderItems.id, productId: orderItems.productId, quantity: orderItems.quantity, unitPrice: orderItems.unitPrice, subtotal: orderItems.subtotal, productName: products.name })
+      const [items, minipizzasData, jelliesData, customerData, deliveryMethodData] = await Promise.all([
+        db.select({ id: orderItems.id, productId: orderItems.productId, quantity: orderItems.quantity, unitPrice: orderItems.unitPrice, subtotal: orderItems.subtotal, productName: products.name, unit: products.unit })
           .from(orderItems).leftJoin(products, eq(orderItems.productId, products.id))
           .where(eq(orderItems.orderId, input.orderId)),
-        db.select({ id: orderMinipizzas.id, minipizzaTypeId: orderMinipizzas.minipizzaTypeId, quantity: orderMinipizzas.quantity, unitPrice: orderMinipizzas.unitPrice, subtotal: orderMinipizzas.subtotal, typeName: minipizzaTypes.name })
+        db.select({ id: orderMinipizzas.id, minipizzaTypeId: orderMinipizzas.minipizzaTypeId, quantity: orderMinipizzas.quantity, unitPrice: orderMinipizzas.unitPrice, subtotal: orderMinipizzas.subtotal, typeName: minipizzaTypes.name, typeUnits: minipizzaTypes.units })
           .from(orderMinipizzas).leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
           .where(eq(orderMinipizzas.orderId, input.orderId)),
         db.select({ id: orderJellies.id, jellyFlavorId: orderJellies.jellyFlavorId, quantity: orderJellies.quantity, unitPrice: orderJellies.unitPrice, subtotal: orderJellies.subtotal, flavorName: jellyFlavors.name })
           .from(orderJellies).leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
           .where(eq(orderJellies.orderId, input.orderId)),
         db.select().from(customers).where(eq(customers.id, order.customerId)).limit(1),
+        db.select({ name: deliveryMethods.name }).from(deliveryMethods).where(eq(deliveryMethods.id, order.deliveryMethodId)).limit(1),
       ]);
       
       // Fetch flavor info for each order item
@@ -293,7 +294,30 @@ export const sellerRouter = router({
         return { ...item, flavors: flavorsData };
       }));
       
-      return { ...order, customer: customerData[0], items: itemsWithFlavors, minipizzas: minipizzasData, jellies: jelliesData };
+      // Mapear minipizzas para incluir sabores no formato esperado pelo recibo
+      const minipizzasWithFlavors = await Promise.all(minipizzasData.map(async (mp) => {
+        const flavors = await db.select({ name: minipizzaFlavors.name })
+          .from(orderMinipizzaFlavors)
+          .leftJoin(minipizzaFlavors, eq(orderMinipizzaFlavors.minipizzaFlavorId, minipizzaFlavors.id))
+          .where(eq(orderMinipizzaFlavors.orderMinipizzaId, mp.id));
+        return { ...mp, flavors: flavors.map(f => f.name) };
+      }));
+
+      return { 
+        ...order, 
+        customer: customerData[0], 
+        customerName: customerData[0]?.name,
+        customerPhone: customerData[0]?.phone,
+        customerStreet: customerData[0]?.street,
+        customerNumber: customerData[0]?.number,
+        customerNeighborhood: customerData[0]?.neighborhood,
+        customerCity: customerData[0]?.city,
+        customerLocationRef: customerData[0]?.locationReference,
+        deliveryMethodName: deliveryMethodData[0]?.name,
+        items: itemsWithFlavors, 
+        minipizzas: minipizzasWithFlavors, 
+        jellies: jelliesData 
+      };
     }),
 
   /** Cancela um pedido próprio (apenas se ainda em produção) */
