@@ -51,7 +51,7 @@ export default function DeliveryRoutes() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [expandedRoute, setExpandedRoute] = useState<number | null>(null);
-  const [routeForm, setRouteForm] = useState({ name: "", deliveryDate: "", deliveryUserId: "" });
+  const [routeForm, setRouteForm] = useState({ name: "", deliveryDate: "", deliveryUserId: "", startingAddress: "Rua Eloi da Costa, 145, Luizote de Freitas, Uberlândia, MG" });
   const [selectedOrders, setSelectedOrders] = useState<number[]>([]);
 
   const deliveryUsers = deliverers.filter(u => u.role === "delivery" || (u as any).roles?.includes('"delivery"'));
@@ -188,6 +188,10 @@ export default function DeliveryRoutes() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="col-span-2 space-y-2">
+                <Label>Endereço de Saída</Label>
+                <Input value={routeForm.startingAddress} onChange={e => setRouteForm(f => ({ ...f, startingAddress: e.target.value }))} className="bg-input" placeholder="Endereço de saída para a rota" />
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -224,7 +228,7 @@ export default function DeliveryRoutes() {
                 if (!routeForm.deliveryDate) return toast.error("Informe a data.");
                 if (!routeForm.deliveryUserId) return toast.error("Selecione um entregador.");
                 if (selectedOrders.length === 0) return toast.error("Selecione ao menos um pedido.");
-                createMutation.mutate({ name: routeForm.name, deliveryDate: routeForm.deliveryDate, deliveryUserId: Number(routeForm.deliveryUserId), orderIds: selectedOrders });
+                createMutation.mutate({ name: routeForm.name, deliveryDate: routeForm.deliveryDate, deliveryUserId: Number(routeForm.deliveryUserId), orderIds: selectedOrders, startingAddress: routeForm.startingAddress });
               }}
               className="bg-primary text-primary-foreground"
               disabled={createMutation.isPending}

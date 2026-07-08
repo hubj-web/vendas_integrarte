@@ -85,6 +85,7 @@ const routesRouter = router({
       deliveryDate: z.string(),
       deliveryUserId: z.number(),
       orderIds: z.array(z.number()).min(1),
+      startingAddress: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -94,6 +95,7 @@ const routesRouter = router({
         name: input.name,
         deliveryDate: new Date(input.deliveryDate),
         deliveryUserId: input.deliveryUserId,
+        startingAddress: input.startingAddress || "Rua Eloi da Costa, 145, Luizote de Freitas, Uberlândia, MG",
         createdBy: ctx.user.id,
         status: "planned",
       });
