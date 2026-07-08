@@ -10,6 +10,7 @@ import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { googleSheets } from "../google-sheets";
 import { uploadReceiptToDrive } from "../google-drive";
+import { sendOrderNotification } from "../telegram";
 
 // ─── CUSTOMERS ────────────────────────────────────────────────────────────────
 const customersRouter = router({
@@ -446,9 +447,10 @@ export const ordersRouter = router({
             
             await googleSheets.appendOrder(fullOrder);
             await uploadReceiptToDrive(fullOrder);
+            await sendOrderNotification(fullOrder);
           }
         } catch (error) {
-          console.error("Error in background tasks (Sheets/Drive):", error);
+          console.error("Error in background tasks (Sheets/Drive/Telegram):", error);
         }
       }
 

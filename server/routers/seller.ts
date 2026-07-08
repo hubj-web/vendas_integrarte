@@ -16,6 +16,7 @@ import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
 import { googleSheets } from "../google-sheets";
 import { uploadReceiptToDrive } from "../google-drive";
+import { sendOrderNotification } from "../telegram";
 
 // Helper: validate that userId belongs to a launcher/seller
 // id=-1 is the special "Outro" (guest) seller — allowed without DB lookup
@@ -262,9 +263,10 @@ export const sellerRouter = router({
             const fullOrder = { ...orderData, products: productsList.join("; ") };
             await googleSheets.appendOrder(fullOrder);
             await uploadReceiptToDrive(fullOrder);
+            await sendOrderNotification(fullOrder);
           }
         } catch (error) {
-          console.error("Error in background tasks (Sheets/Drive):", error);
+          console.error("Error in background tasks (Sheets/Drive/Telegram):", error);
         }
       }
 
