@@ -206,34 +206,6 @@ export default function Exports() {
 
           {/* Export buttons */}
           <div className="flex flex-col gap-3">
-            {/* Google Sheets - primary action */}
-            <Button
-              className="gap-2 bg-[#0F9D58] hover:bg-[#0B8043] text-white"
-              onClick={() => ordersToGoogleSheets.mutate(exportInput)}
-              disabled={isLoadingOrders}
-            >
-              {ordersToGoogleSheets.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <SheetsIcon className="w-4 h-4" />
-              )}
-              {ordersToGoogleSheets.isPending ? "Salvando no Google Sheets..." : "Salvar no Google Sheets"}
-            </Button>
-
-            {/* Save to storage */}
-            <Button
-              className="gap-2 bg-blue-700 hover:bg-blue-800 text-white"
-              onClick={() => ordersExcelToStorage.mutate(exportInput)}
-              disabled={isLoadingOrders}
-            >
-              {ordersExcelToStorage.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Cloud className="w-4 h-4" />
-              )}
-              {ordersExcelToStorage.isPending ? "Salvando no armazenamento..." : "Salvar Planilha no Armazenamento"}
-            </Button>
-
             <div className="flex flex-col sm:flex-row gap-3">
               <Button
                 className="flex-1 gap-2 bg-green-700 hover:bg-green-800 text-white"
@@ -262,25 +234,7 @@ export default function Exports() {
               </Button>
             </div>
 
-            {ordersToGoogleSheets.data && (
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200">
-                <ExternalLink className="w-4 h-4 text-green-700" />
-                <a
-                  href={ordersToGoogleSheets.data.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-green-700 underline hover:text-green-800"
-                >
-                  Abrir planilha no Google Sheets — aba "{ordersToGoogleSheets.data.sheetTitle}"
-                </a>
-              </div>
-            )}
-
             <p className="text-xs text-muted-foreground">
-              <strong>Google Sheets:</strong> salva os pedidos em uma nova aba na planilha do Google, incluindo produtos de cada pedido.
-              <br />
-              <strong>Armazenamento:</strong> salva automaticamente no sistema e gera um link público.
-              <br />
               <strong>Excel/PDF:</strong> faz download direto para o seu dispositivo.
             </p>
           </div>
@@ -305,19 +259,6 @@ export default function Exports() {
         <CardContent className="space-y-4">
           <div className="flex flex-col gap-3">
             <Button
-              className="gap-2 bg-[#0F9D58] hover:bg-[#0B8043] text-white"
-              onClick={() => customersToGoogleSheets.mutate()}
-              disabled={isLoadingCustomers}
-            >
-              {customersToGoogleSheets.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <SheetsIcon className="w-4 h-4" />
-              )}
-              {customersToGoogleSheets.isPending ? "Salvando no Google Sheets..." : "Salvar Clientes no Google Sheets"}
-            </Button>
-
-            <Button
               className="gap-2 bg-blue-700 hover:bg-blue-800 text-white"
               onClick={() => customersExcel.mutate()}
               disabled={isLoadingCustomers}
@@ -330,20 +271,6 @@ export default function Exports() {
               {customersExcel.isPending ? "Gerando..." : "Exportar Clientes (.xlsx)"}
             </Button>
           </div>
-
-          {customersToGoogleSheets.data && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200">
-              <ExternalLink className="w-4 h-4 text-green-700" />
-              <a
-                href={customersToGoogleSheets.data.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-green-700 underline hover:text-green-800"
-              >
-                Abrir planilha de clientes no Google Sheets
-              </a>
-            </div>
-          )}
 
           <p className="text-xs text-muted-foreground">
             Inclui: nome, telefone, endereço completo, bairro, cidade e data de cadastro.
