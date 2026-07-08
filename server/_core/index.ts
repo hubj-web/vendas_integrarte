@@ -10,6 +10,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { overduePaymentsHandler } from "../routers/notifications";
 import { registerDbSetupRoute } from "../dbSetup";
+import { testTelegramConnection } from "../telegram";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -63,6 +64,8 @@ async function startServer() {
 
   server.listen(port, "0.0.0.0", () => {
     console.log(`Server running on port ${port}`);
+    // Test Telegram connection on startup
+    testTelegramConnection();
   });
 }
 

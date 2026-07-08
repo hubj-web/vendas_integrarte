@@ -1,16 +1,20 @@
 import axios from "axios";
 
 const ENV = {
-  token: process.env.TELEGRAM_BOT_TOKEN ?? "",
-  chatId: process.env.TELEGRAM_CHAT_ID ?? "",
+  token: (process.env.TELEGRAM_BOT_TOKEN ?? "").trim(),
+  chatId: (process.env.TELEGRAM_CHAT_ID ?? "").trim(),
 };
 
 /**
  * Sends a notification message to Telegram
  */
 export async function sendOrderNotification(order: any) {
+  console.log("[Telegram] Attempting to send notification for order:", order.id);
+  console.log("[Telegram] Using Token:", ENV.token ? "Configured (starts with " + ENV.token.substring(0, 4) + ")" : "MISSING");
+  console.log("[Telegram] Using Chat ID:", ENV.chatId || "MISSING");
+
   if (!ENV.token || !ENV.chatId) {
-    console.log("[Telegram] Bot token or Chat ID not configured, skipping notification.");
+    console.error("[Telegram] Bot token or Chat ID not configured, skipping notification.");
     return;
   }
 
@@ -46,6 +50,27 @@ ${order.products || "—"}
     });
     console.log(`[Telegram] Notification sent for order #${order.id}`);
   } catch (error: any) {
-    console.error("[Telegram] Error sending notification:", error.response?.data || error.message);
+    console.error("[Telegram] Error sending notification:", error.message);
+    if (error.response && error.response.data) {
+      console.error("[Telegram] API Response Error:", JSON.stringify(error.response.data));
+    }
+  }
+}
+
+/**
+ * Test function to verify connection on startup
+ */
+export async function testTelegramConnection() {
+  if (!ENV.token || !ENV.chatId) return;
+  
+  try {
+    await axios.post(`https://api.telegram.org/bot${ENV.token}/sendMessage`, {
+      chat_id: ENV.chatId,
+      text: "✅ *Sistema de Notificações Integrarte Ativado!*",
+      parse_mode: "Markdown",
+    });
+    console.log("[Telegram] Startup test message sent successfully");
+  } catch (error: any) {
+    console.error("[Telegram] Startup test failed:", error.message);
   }
 }
