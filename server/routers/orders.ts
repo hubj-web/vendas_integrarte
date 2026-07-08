@@ -9,6 +9,7 @@ import {
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { googleSheets } from "../google-sheets";
+import { uploadReceiptToDrive } from "../google-drive";
 
 // ─── CUSTOMERS ────────────────────────────────────────────────────────────────
 const customersRouter = router({
@@ -265,7 +266,8 @@ export const ordersRouter = router({
         cancelledAt: orders.cancelledAt, createdAt: orders.createdAt,
         customerId: orders.customerId, customerName: customers.name,
         customerPhone: customers.phone, customerStreet: customers.street,
-        customerNumber: customers.number, customerNeighborhood: customers.neighborhood,
+        customerNumber: customers.number, customerComplement: customers.complement,
+        customerNeighborhood: customers.neighborhood,
         customerCity: customers.city, customerLocationRef: customers.locationReference,
         launcherId: orders.launcherId, launcherName: users.name,
         deliveryMethodId: orders.deliveryMethodId, deliveryMethodName: deliveryMethods.name,
@@ -437,13 +439,16 @@ export const ordersRouter = router({
               .where(eq(orderJellies.orderId, orderId));
             jellies.forEach(j => productsList.push(`Geleia ${j.flavor} (${j.qty}x)`));
 
-            await googleSheets.appendOrder({
+            const fullOrder = {
               ...orderData,
               products: productsList.join("; ")
-            });
+            };
+            
+            await googleSheets.appendOrder(fullOrder);
+            await uploadReceiptToDrive(fullOrder);
           }
         } catch (error) {
-          console.error("Error appending order to Google Sheets:", error);
+          console.error("Error in background tasks (Sheets/Drive):", error);
         }
       }
 

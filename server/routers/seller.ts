@@ -14,6 +14,8 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
+import { googleSheets } from "../google-sheets";
+import { uploadReceiptToDrive } from "../google-drive";
 
 // Helper: validate that userId belongs to a launcher/seller
 // id=-1 is the special "Outro" (guest) seller — allowed without DB lookup
@@ -220,6 +222,52 @@ export const sellerRouter = router({
         orderId, userId: input.sellerId, fromStatus: null, toStatus: "production",
         notes: "Pedido criado pelo vendedor",
       });
+
+      // Async background task to append to Google Sheets and Drive
+      if (googleSheets.isConfigured()) {
+        try {
+          const [orderData] = await db.select({
+            id: orders.id, createdAt: orders.createdAt, totalAmount: orders.totalAmount,
+            paymentMethod: orders.paymentMethod, deliveryDate: orders.deliveryDate,
+            deliveryAddress: orders.deliveryAddress, notes: orders.notes,
+            status: orders.status, paymentStatus: orders.paymentStatus,
+            customerName: customers.name, customerPhone: customers.phone,
+            customerNeighborhood: customers.neighborhood, customerCity: customers.city,
+            launcherName: users.name, deliveryMethodName: deliveryMethods.name,
+          })
+            .from(orders)
+            .leftJoin(customers, eq(orders.customerId, customers.id))
+            .leftJoin(users, eq(orders.launcherId, users.id))
+            .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
+            .where(eq(orders.id, orderId))
+            .limit(1);
+
+          if (orderData) {
+            const productsList: string[] = [];
+            const items = await db.select({ name: products.name, qty: orderItems.quantity })
+              .from(orderItems).leftJoin(products, eq(orderItems.productId, products.id))
+              .where(eq(orderItems.orderId, orderId));
+            items.forEach(i => productsList.push(`${i.name} (${i.qty}x)`));
+
+            const mps = await db.select({ type: minipizzaTypes.name, qty: orderMinipizzas.quantity })
+              .from(orderMinipizzas).leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
+              .where(eq(orderMinipizzas.orderId, orderId));
+            mps.forEach(m => productsList.push(`Minipizza ${m.type} (${m.qty}x)`));
+
+            const jellies = await db.select({ flavor: jellyFlavors.name, qty: orderJellies.quantity })
+              .from(orderJellies).leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
+              .where(eq(orderJellies.orderId, orderId));
+            jellies.forEach(j => productsList.push(`Geleia ${j.flavor} (${j.qty}x)`));
+
+            const fullOrder = { ...orderData, products: productsList.join("; ") };
+            await googleSheets.appendOrder(fullOrder);
+            await uploadReceiptToDrive(fullOrder);
+          }
+        } catch (error) {
+          console.error("Error in background tasks (Sheets/Drive):", error);
+        }
+      }
+
       return { success: true, orderId };
     }),
 
