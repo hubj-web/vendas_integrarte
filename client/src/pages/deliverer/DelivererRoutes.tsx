@@ -2,7 +2,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useDeliverer } from "@/contexts/DelivererContext";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Truck, MapPin, Navigation, CheckCircle, Play, Package,
-  Phone, ArrowLeft, Camera
+  Phone, ArrowLeft, Camera, Route,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -43,10 +43,11 @@ export default function DelivererRoutes() {
     { enabled: !!deliverer }
   );
 
-  const { data: routeDetail, isLoading: loadingDetail, refetch: refetchDetail } = trpc.deliveryPublic.routeDetail.useQuery(
-    { routeId: selectedRouteId!, delivererId: deliverer?.id ?? 0 },
-    { enabled: !!selectedRouteId && !!deliverer }
-  );
+  const { data: routeDetail, isLoading: loadingDetail, refetch: refetchDetail } =
+    trpc.deliveryPublic.routeDetail.useQuery(
+      { routeId: selectedRouteId!, delivererId: deliverer?.id ?? 0 },
+      { enabled: !!selectedRouteId && !!deliverer }
+    );
 
   const startRouteMutation = trpc.deliveryPublic.startRoute.useMutation({
     onSuccess: () => { toast.success("Rota iniciada!"); refetchRoutes(); refetchDetail(); },
@@ -77,52 +78,66 @@ export default function DelivererRoutes() {
     reader.readAsDataURL(file);
   };
 
-  // Route list view
+  // ─── Lista de rotas ───────────────────────────────────────────────────────
   if (!selectedRouteId) {
+    const activeRoutes = routes?.filter(r => r.status !== "completed") ?? [];
+    const completedRoutes = routes?.filter(r => r.status === "completed") ?? [];
+
     return (
       <div className="space-y-4">
         <h2 className="text-lg font-semibold text-foreground">Minhas Rotas</h2>
+
         {isLoading ? (
           <div className="space-y-3">
-            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-24 w-full rounded-xl" />
+            ))}
           </div>
         ) : routes?.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground">
             <Truck className="w-10 h-10 mx-auto mb-3 opacity-30" />
-            <p>Nenhuma rota atribuída.</p>
+            <p className="font-medium">Nenhuma rota atribuída.</p>
+            <p className="text-sm mt-1 opacity-70">
+              Aguarde o gestor criar e atribuir uma rota para você.
+            </p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {routes?.map(route => (
-              <Card
-                key={route.id}
-                className="bg-card border-border hover:border-primary/30 transition-colors cursor-pointer"
-                onClick={() => setSelectedRouteId(route.id)}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <p className="font-semibold text-foreground">{route.name}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {route.deliveryDate
-                          ? format(new Date(route.deliveryDate), "dd/MM/yyyy", { locale: ptBR })
-                          : "—"}
-                      </p>
-                    </div>
-                    <Badge className={`text-xs border ${statusColor[route.status] ?? ""}`} variant="outline">
-                      {statusLabel[route.status] ?? route.status}
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <>
+            {/* Rotas ativas */}
+            {activeRoutes.length > 0 && (
+              <div className="space-y-3">
+                {activeRoutes.map(route => (
+                  <RouteCard
+                    key={route.id}
+                    route={route}
+                    onClick={() => setSelectedRouteId(route.id)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Rotas concluídas */}
+            {completedRoutes.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-4">
+                  Concluídas recentemente
+                </p>
+                {completedRoutes.map(route => (
+                  <RouteCard
+                    key={route.id}
+                    route={route}
+                    onClick={() => setSelectedRouteId(route.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     );
   }
 
-  // Route detail view
+  // ─── Detalhe da rota ──────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
       <button
@@ -140,7 +155,7 @@ export default function DelivererRoutes() {
         </div>
       ) : routeDetail ? (
         <>
-          {/* Route header */}
+          {/* Cabeçalho da rota */}
           <div className="flex items-start justify-between">
             <div>
               <h2 className="text-xl font-semibold text-foreground">{routeDetail.name}</h2>
@@ -149,13 +164,44 @@ export default function DelivererRoutes() {
                   ? format(new Date(routeDetail.deliveryDate), "dd/MM/yyyy", { locale: ptBR })
                   : "—"}
               </p>
+              {routeDetail.totalDistance && parseFloat(routeDetail.totalDistance) > 0 && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                  <Route className="w-3 h-3" />
+                  ~{parseFloat(routeDetail.totalDistance).toFixed(1)} km estimados
+                </p>
+              )}
             </div>
-            <Badge className={`text-xs border ${statusColor[routeDetail.status] ?? ""}`} variant="outline">
+            <Badge
+              className={`text-xs border ${statusColor[routeDetail.status] ?? ""}`}
+              variant="outline"
+            >
               {statusLabel[routeDetail.status] ?? routeDetail.status}
             </Badge>
           </div>
 
-          {/* Action buttons */}
+          {/* Progresso */}
+          {routeDetail.items.length > 0 && (
+            <div className="bg-muted/20 rounded-xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-muted-foreground">Progresso das entregas</span>
+                <span className="text-xs font-semibold">
+                  {routeDetail.items.filter(i => i.orderStatus === "delivered" || i.orderStatus === "paid").length}
+                  {" / "}
+                  {routeDetail.items.length}
+                </span>
+              </div>
+              <div className="w-full bg-muted rounded-full h-2">
+                <div
+                  className="bg-emerald-500 rounded-full h-2 transition-all"
+                  style={{
+                    width: `${(routeDetail.items.filter(i => i.orderStatus === "delivered" || i.orderStatus === "paid").length / routeDetail.items.length) * 100}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Botões de ação */}
           <div className="flex gap-2">
             {routeDetail.status === "planned" && (
               <Button
@@ -196,40 +242,61 @@ export default function DelivererRoutes() {
             )}
           </div>
 
-          {/* Stops */}
+          {/* Paradas */}
           <div className="space-y-3">
-            <h3 className="text-sm font-medium text-muted-foreground">Paradas ({routeDetail.items.length})</h3>
+            <h3 className="text-sm font-medium text-muted-foreground">
+              Paradas ({routeDetail.items.length})
+            </h3>
             {routeDetail.items.map((item, idx) => {
               const delivered = item.orderStatus === "delivered" || item.orderStatus === "paid";
+              const address = (item as any).fullAddress || item.deliveryAddress || "Sem endereço";
+
               return (
                 <Card
                   key={item.id}
-                  className={`border transition-colors ${delivered ? "border-emerald-500/20 bg-emerald-500/5" : "border-border bg-card"}`}
+                  className={`border transition-colors ${
+                    delivered
+                      ? "border-emerald-500/20 bg-emerald-500/5"
+                      : "border-border bg-card"
+                  }`}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
-                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                        delivered ? "bg-emerald-500 text-white" : "bg-primary/10 text-primary"
-                      }`}>
+                      <div
+                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                          delivered
+                            ? "bg-emerald-500 text-white"
+                            : "bg-primary/10 text-primary"
+                        }`}
+                      >
                         {delivered ? <CheckCircle className="w-4 h-4" /> : idx + 1}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-foreground">{item.customerName ?? "—"}</p>
                         {item.customerPhone && (
-                          <a href={`tel:${item.customerPhone}`} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary mt-0.5">
+                          <a
+                            href={`tel:${item.customerPhone}`}
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary mt-0.5"
+                          >
                             <Phone className="w-3 h-3" />
                             {item.customerPhone}
                           </a>
                         )}
-                        {item.deliveryAddress && (
-                          <p className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-                            <MapPin className="w-3 h-3 shrink-0" />
-                            {item.deliveryAddress}
-                          </p>
-                        )}
+                        <p className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                          <MapPin className="w-3 h-3 shrink-0" />
+                          {address}
+                        </p>
+                        {(item as any).distanceFromPrevious &&
+                          parseFloat((item as any).distanceFromPrevious) > 0 && (
+                            <p className="text-xs text-muted-foreground mt-0.5 opacity-70">
+                              ~{parseFloat((item as any).distanceFromPrevious).toFixed(1)} km do ponto anterior
+                            </p>
+                          )}
                         <div className="flex items-center justify-between mt-2">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium text-foreground">{fmt(item.totalAmount ?? 0)}</span>
+                            <span className="text-xs font-medium text-foreground">
+                              {fmt(item.totalAmount ?? 0)}
+                            </span>
                             <span className="text-xs text-muted-foreground capitalize">
                               {item.paymentMethod === "pix" ? "PIX" : "Dinheiro"}
                             </span>
@@ -238,7 +305,9 @@ export default function DelivererRoutes() {
                             <Button
                               size="sm"
                               className="h-7 text-xs gap-1"
-                              onClick={() => setDeliveryDialog({ orderId: item.orderId, routeId: routeDetail.id })}
+                              onClick={() =>
+                                setDeliveryDialog({ orderId: item.orderId, routeId: routeDetail.id })
+                              }
                             >
                               <Package className="w-3.5 h-3.5" />
                               Registrar Entrega
@@ -255,16 +324,27 @@ export default function DelivererRoutes() {
         </>
       ) : null}
 
-      {/* Delivery registration dialog */}
-      <Dialog open={!!deliveryDialog} onOpenChange={(v) => { if (!v) { setDeliveryDialog(null); setDeliveryNotes(""); setProofImage(null); } }}>
+      {/* Diálogo de registro de entrega */}
+      <Dialog
+        open={!!deliveryDialog}
+        onOpenChange={(v) => {
+          if (!v) {
+            setDeliveryDialog(null);
+            setDeliveryNotes("");
+            setProofImage(null);
+          }
+        }}
+      >
         <DialogContent>
-          <DialogHeader><DialogTitle>Registrar Entrega</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Registrar Entrega</DialogTitle>
+          </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label>Observações (opcional)</Label>
               <Textarea
                 value={deliveryNotes}
-                onChange={e => setDeliveryNotes(e.target.value)}
+                onChange={(e) => setDeliveryNotes(e.target.value)}
                 placeholder="Alguma observação sobre a entrega..."
                 className="min-h-[80px]"
               />
@@ -274,21 +354,40 @@ export default function DelivererRoutes() {
               <div className="border-2 border-dashed border-border rounded-lg p-4 text-center">
                 {proofImage ? (
                   <div className="space-y-2">
-                    <img src={proofImage} alt="Comprovante" className="max-h-40 mx-auto rounded-lg object-cover" />
-                    <Button variant="outline" size="sm" onClick={() => setProofImage(null)}>Remover</Button>
+                    <img
+                      src={proofImage}
+                      alt="Comprovante"
+                      className="max-h-40 mx-auto rounded-lg object-cover"
+                    />
+                    <Button variant="outline" size="sm" onClick={() => setProofImage(null)}>
+                      Remover
+                    </Button>
                   </div>
                 ) : (
                   <label className="cursor-pointer flex flex-col items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
                     <Camera className="w-8 h-8" />
                     <span className="text-sm">Tirar foto ou selecionar</span>
-                    <input type="file" accept="image/*" capture="environment" onChange={handleImageUpload} className="hidden" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
                   </label>
                 )}
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setDeliveryDialog(null); setDeliveryNotes(""); setProofImage(null); }}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeliveryDialog(null);
+                setDeliveryNotes("");
+                setProofImage(null);
+              }}
+            >
               Cancelar
             </Button>
             <Button
@@ -310,5 +409,52 @@ export default function DelivererRoutes() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// Componente de card de rota para a lista
+function RouteCard({
+  route,
+  onClick,
+}: {
+  route: {
+    id: number;
+    name: string;
+    deliveryDate: Date | null;
+    status: string;
+    totalDistance?: string | null;
+  };
+  onClick: () => void;
+}) {
+  return (
+    <Card
+      className="bg-card border-border hover:border-primary/30 transition-colors cursor-pointer"
+      onClick={onClick}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <p className="font-semibold text-foreground">{route.name}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {route.deliveryDate
+                ? format(new Date(route.deliveryDate), "dd/MM/yyyy", { locale: ptBR })
+                : "—"}
+            </p>
+            {route.totalDistance && parseFloat(route.totalDistance) > 0 && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                <Route className="w-3 h-3" />
+                ~{parseFloat(route.totalDistance).toFixed(1)} km
+              </p>
+            )}
+          </div>
+          <Badge
+            className={`text-xs border ${statusColor[route.status] ?? ""}`}
+            variant="outline"
+          >
+            {statusLabel[route.status] ?? route.status}
+          </Badge>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
