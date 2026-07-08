@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Database, Download, FileSpreadsheet, Loader2, Shield, Cloud } from "lucide-react";
+import { Database, Download, FileSpreadsheet, Loader2, Shield, Cloud, FileSpreadsheet as SheetsIcon, ExternalLink } from "lucide-react";
 
 function downloadBase64File(base64: string, filename: string, mimeType: string) {
   const byteCharacters = atob(base64);
@@ -31,6 +31,13 @@ export default function Backup() {
 
   const [storageUrl, setStorageUrl] = useState<string | null>(null);
   const [storageSaving, setStorageSaving] = useState(false);
+
+  const backupToGoogleSheetsMutation = trpc.exports.backupToGoogleSheets.useMutation({
+    onSuccess: (data) => {
+      toast.success(data.message || "Backup salvo no Google Sheets!");
+    },
+    onError: (e) => { toast.error(e.message); },
+  });
 
   const backupToStorageMutation = trpc.exports.databaseBackupToStorage.useMutation({
     onSuccess: (data) => {
@@ -85,18 +92,36 @@ export default function Backup() {
             </div>
             <div className="flex flex-col gap-2">
               <Button
-                onClick={() => { setStorageSaving(true); backupToStorageMutation.mutate(); }}
-                disabled={storageSaving}
-                className="w-full bg-blue-700 hover:bg-blue-800 text-white gap-2"
+                onClick={() => { backupToGoogleSheetsMutation.mutate(); }}
+                disabled={backupToGoogleSheetsMutation.isPending}
+                className="w-full bg-[#0F9D58] hover:bg-[#0B8043] text-white gap-2"
               >
-                {storageSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4" />}
-                {storageSaving ? "Salvando..." : "Salvar Backup no Armazenamento"}
+                {backupToGoogleSheetsMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <SheetsIcon className="w-4 h-4" />}
+                {backupToGoogleSheetsMutation.isPending ? "Salvando..." : "Salvar Backup no Google Sheets"}
               </Button>
-              {storageUrl && (
-                <a href={storageUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline">
-                  Abrir backup no navegador
-                </a>
+              {backupToGoogleSheetsMutation.data && (
+                <div className="flex items-center gap-2">
+                  <ExternalLink className="w-3.5 h-3.5 text-green-700" />
+                  <a href={backupToGoogleSheetsMutation.data.url} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">
+                    Abrir planilha no Google Sheets
+                  </a>
+                </div>
               )}
+              <div className="flex flex-col gap-2">
+                <Button
+                  onClick={() => { setStorageSaving(true); backupToStorageMutation.mutate(); }}
+                  disabled={storageSaving}
+                  className="w-full bg-blue-700 hover:bg-blue-800 text-white gap-2"
+                >
+                  {storageSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4" />}
+                  {storageSaving ? "Salvando..." : "Salvar Backup no Armazenamento"}
+                </Button>
+                {storageUrl && (
+                  <a href={storageUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 underline">
+                    Abrir backup no navegador
+                  </a>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

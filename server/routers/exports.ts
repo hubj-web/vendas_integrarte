@@ -11,6 +11,7 @@ import {
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { storagePut, storageGetSignedUrl } from "../storage";
+import { googleSheets } from "../google-sheets";
 
 const STATUS_LABELS: Record<string, string> = {
   production: "Em produção",
@@ -704,6 +705,139 @@ export const exportsRouter = router({
         base64: Buffer.from(buffer).toString("base64"),
         filename: `clientes_${new Date().toISOString().slice(0, 10)}.xlsx`,
         mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      };
+    }),
+
+  // ─── GOOGLE SHEETS INTEGRATION ─────────────────────────────────────────────────
+
+  /** Save orders to Google Sheets */
+  ordersToGoogleSheets: protectedProcedure
+    .input(exportInputSchema)
+    .mutation(async ({ input }) => {
+      if (!googleSheets.isConfigured()) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Google Sheets não configurado. Adicione as variáveis de ambiente GOOGLE_SHEETS_CLIENT_EMAIL, GOOGLE_SHEETS_PRIVATE_KEY e GOOGLE_SHEETS_SPREADSHEET_ID.",
+        });
+      }
+
+      const rows = await fetchOrdersForExport(input);
+      const orderIds = rows.map(o => o.id);
+      const itemsMap = await fetchItemsForOrders(orderIds);
+
+      const productSummaryMap: Record<number, string> = {};
+      for (const order of rows) {
+        const items = itemsMap[order.id] || [];
+        productSummaryMap[order.id] = items.length > 0
+          ? items.map(i => `${i.name} (${i.qty}x)`).join("; ")
+          : "—";
+      }
+
+      const ordersForSheets = rows.map(o => ({
+        id: o.id,
+        createdAt: o.createdAt,
+        customerName: o.customerName,
+        customerPhone: o.customerPhone,
+        customerNeighborhood: o.customerNeighborhood,
+        customerCity: o.customerCity,
+        launcherName: o.launcherName,
+        deliveryMethodName: o.deliveryMethodName,
+        deliveryDate: o.deliveryDate,
+        paymentMethod: o.paymentMethod,
+        status: o.status,
+        paymentStatus: o.paymentStatus,
+        totalAmount: o.totalAmount,
+        products: productSummaryMap[o.id],
+        notes: o.notes,
+      }));
+
+      // Use a dynamic sheet title based on date
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const sheetTitle = `Pedidos ${dateStr}`;
+
+      const spreadsheetUrl = await googleSheets.writeOrders(ordersForSheets, sheetTitle);
+
+      return {
+        url: spreadsheetUrl,
+        sheetTitle,
+        count: rows.length,
+        message: `${rows.length} pedidos salvos no Google Sheets com sucesso!`,
+      };
+    }),
+
+  /** Save backup summary to Google Sheets */
+  backupToGoogleSheets: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas administradores podem fazer backup." });
+      }
+      if (!googleSheets.isConfigured()) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Google Sheets não configurado. Adicione as variáveis de ambiente GOOGLE_SHEETS_CLIENT_EMAIL, GOOGLE_SHEETS_PRIVATE_KEY e GOOGLE_SHEETS_SPREADSHEET_ID.",
+        });
+      }
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const { productCategories, orderStatusHistory, deliveryRoutes, routeOrders, deliveryRecords, paymentRecords, productFlavors: pf, orderItemFlavors: oif } =
+        await import("../../drizzle/schema");
+
+      const [allUsers, allCustomers, allOrders, allProducts, allCategories, allFlavors, allOrderItems] =
+        await Promise.all([
+          db.select().from(users),
+          db.select().from(customers),
+          db.select().from(orders),
+          db.select().from(products),
+          db.select().from(productCategories),
+          db.select().from(pf),
+          db.select().from(orderItems),
+        ]);
+
+      const totalRevenue = allOrders.reduce(
+        (acc: number, o) => acc + parseFloat(String(o.totalAmount ?? 0)),
+        0
+      );
+
+      const summary = {
+        users: allUsers.length,
+        customers: allCustomers.length,
+        products: allProducts.length,
+        orders: allOrders.length,
+        totalRevenue: formatCurrency(totalRevenue),
+        exportedAt: new Date().toISOString(),
+      };
+
+      const spreadsheetUrl = await googleSheets.writeBackup(summary);
+
+      return {
+        url: spreadsheetUrl,
+        summary,
+        message: "Resumo do backup salvo no Google Sheets com sucesso!",
+      };
+    }),
+
+  /** Save customer list to Google Sheets */
+  customersToGoogleSheets: protectedProcedure
+    .mutation(async () => {
+      if (!googleSheets.isConfigured()) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Google Sheets não configurado. Adicione as variáveis de ambiente GOOGLE_SHEETS_CLIENT_EMAIL, GOOGLE_SHEETS_PRIVATE_KEY e GOOGLE_SHEETS_SPREADSHEET_ID.",
+        });
+      }
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const rows = await db.select().from(customers).orderBy(customers.name);
+      const spreadsheetUrl = await googleSheets.writeCustomerList(rows);
+
+      return {
+        url: spreadsheetUrl,
+        count: rows.length,
+        message: `${rows.length} clientes salvos no Google Sheets com sucesso!`,
       };
     }),
 });
