@@ -244,6 +244,7 @@ async function writeOrders(
     createdAt: Date;
     customerName: string | null;
     customerPhone: string | null;
+    deliveryAddress: string | null;
     customerNeighborhood: string | null;
     customerCity: string | null;
     launcherName: string | null;
@@ -274,7 +275,7 @@ async function writeOrders(
   });
 
   const headers = [
-    "Nº Pedido", "Data", "Cliente", "Telefone", "Bairro", "Cidade",
+    "Nº Pedido", "Data", "Cliente", "Telefone", "Endereço", "Bairro", "Cidade",
     "Vendedor(a)", "Forma de Entrega", "Data de Entrega",
     "Pagamento", "Status Pedido", "Status Pagamento", "Total",
     "Produtos", "Observações",
@@ -297,6 +298,7 @@ async function writeOrders(
     fmtDate(o.createdAt),
     o.customerName ?? "",
     o.customerPhone ?? "",
+    o.deliveryAddress ?? "",
     o.customerNeighborhood ?? "",
     o.customerCity ?? "",
     o.launcherName ?? "",
