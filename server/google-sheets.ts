@@ -277,7 +277,6 @@ async function appendOrder(order: any, sheetTitle: string = "Pedidos") {
     statusLabels[order.status] ?? order.status,
     paymentStatusLabels[order.paymentStatus] ?? order.paymentStatus,
     fmtCurrency(order.totalAmount),
-    order.products,
     order.notes ?? "",
   ];
 
@@ -304,7 +303,6 @@ async function appendOrder(order: any, sheetTitle: string = "Pedidos") {
       "Status Pedido",
       "Status Pagamento",
       "Total",
-      "Produtos",
       "Observações",
     ]);
   }
@@ -329,7 +327,7 @@ async function appendOrder(order: any, sheetTitle: string = "Pedidos") {
                 sheetId,
                 dimension: "COLUMNS",
                 startIndex: 0,
-                endIndex: 16,
+                endIndex: 15,
               },
             },
           },
@@ -385,7 +383,7 @@ async function writeOrders(
     "Nº Pedido", "Data", "Cliente", "Telefone", "Endereço", "Bairro", "Cidade",
     "Vendedor(a)", "Forma de Entrega", "Data de Entrega",
     "Pagamento", "Status Pedido", "Status Pagamento", "Total",
-    "Produtos", "Observações",
+    "Observações",
   ];
 
   const fmtDate = (d: Date | null) => d ? new Date(d).toLocaleDateString("pt-BR") : "";
@@ -415,7 +413,6 @@ async function writeOrders(
     statusLabels[o.status] ?? o.status,
     paymentStatusLabels[o.paymentStatus] ?? o.paymentStatus,
     fmtCurrency(o.totalAmount),
-    o.products,
     o.notes ?? "",
   ]);
 

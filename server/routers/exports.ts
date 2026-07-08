@@ -283,7 +283,6 @@ export const exportsRouter = router({
         { header: "Status Pedido", key: "status", width: 18 },
         { header: "Status Pagamento", key: "paymentStatus", width: 18 },
         { header: "Total", key: "totalAmount", width: 14 },
-        { header: "Produtos", key: "products", width: 55 },
         { header: "Observações", key: "notes", width: 30 },
       ];
 
@@ -312,7 +311,6 @@ export const exportsRouter = router({
           status: STATUS_LABELS[o.status] ?? o.status,
           paymentStatus: PAYMENT_STATUS_LABELS[o.paymentStatus] ?? o.paymentStatus,
           totalAmount: formatCurrency(o.totalAmount),
-          products: buildProductDetails(itemsMap, o.id),
           notes: o.notes ?? "",
         });
         if (idx % 2 === 0) {
@@ -505,7 +503,6 @@ export const exportsRouter = router({
         { header: "Status Pedido", key: "status", width: 18 },
         { header: "Status Pagamento", key: "paymentStatus", width: 18 },
         { header: "Total", key: "totalAmount", width: 14 },
-        { header: "Produtos", key: "products", width: 55 },
         { header: "Observações", key: "notes", width: 30 },
       ];
 
@@ -534,7 +531,6 @@ export const exportsRouter = router({
           status: STATUS_LABELS[o.status] ?? o.status,
           paymentStatus: PAYMENT_STATUS_LABELS[o.paymentStatus] ?? o.paymentStatus,
           totalAmount: formatCurrency(o.totalAmount),
-          products: buildProductDetails(itemsMap, o.id),
           notes: o.notes ?? "",
         });
         if (idx % 2 === 0) {
@@ -752,7 +748,6 @@ export const exportsRouter = router({
         status: o.status,
         paymentStatus: o.paymentStatus,
         totalAmount: o.totalAmount,
-        products: productSummaryMap[o.id],
         notes: o.notes,
       }));
 

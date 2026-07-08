@@ -4,7 +4,7 @@ import { z } from "zod";
 import {
   customers, orders, orderItems, orderItemFlavors, orderMinipizzas, orderMinipizzaFlavors,
   orderJellies, orderStatusHistory, products, productFlavors, minipizzaTypes, minipizzaFlavors,
-  jellyFlavors, deliveryMethods, users,
+  jellyFlavors, deliveryMethods, users, deliveryRecords, paymentRecords, routeOrders,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -511,4 +511,82 @@ export const ordersRouter = router({
       .where(and(eq(orders.paymentStatus, "pending"), eq(orders.status, "delivered")));
     return rows;
   }),
+
+  bulkUpdateStatus: protectedProcedure
+    .input(z.object({
+      ids: z.array(z.number()),
+      status: z.enum(["production", "in_route", "delivered", "paid", "cancelled"]),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const updateData: Record<string, any> = { status: input.status };
+      if (input.status === "paid") updateData.paymentStatus = "paid";
+      if (input.status === "cancelled") {
+        updateData.paymentStatus = "cancelled";
+        updateData.cancelledBy = ctx.user.id;
+        updateData.cancelledAt = new Date();
+      }
+
+      // Get current statuses for history
+      const currentOrders = await db.select({ id: orders.id, status: orders.status }).from(orders).where(inArray(orders.id, input.ids));
+
+      await db.update(orders).set(updateData).where(inArray(orders.id, input.ids));
+
+      // Record history
+      if (currentOrders.length > 0) {
+        await db.insert(orderStatusHistory).values(
+          currentOrders.map(o => ({
+            orderId: o.id,
+            userId: ctx.user.id,
+            fromStatus: o.status,
+            toStatus: input.status,
+            notes: "Atualização em massa",
+          }))
+        );
+      }
+
+      return { success: true };
+    }),
+
+  bulkUpdatePaymentStatus: protectedProcedure
+    .input(z.object({
+      ids: z.array(z.number()),
+      paymentStatus: z.enum(["pending", "paid", "partial", "cancelled"]),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.update(orders).set({ paymentStatus: input.paymentStatus }).where(inArray(orders.id, input.ids));
+      return { success: true };
+    }),
+
+  bulkDelete: protectedProcedure
+    .input(z.object({
+      ids: z.array(z.number()),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      
+      // Delete from related tables first
+      await db.delete(orderItems).where(inArray(orderItems.orderId, input.ids));
+      await db.delete(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId, 
+        db.select({ id: orderItems.id }).from(orderItems).where(inArray(orderItems.orderId, input.ids))
+      ));
+      await db.delete(orderMinipizzas).where(inArray(orderMinipizzas.orderId, input.ids));
+      await db.delete(orderMinipizzaFlavors).where(inArray(orderMinipizzaFlavors.orderMinipizzaId,
+        db.select({ id: orderMinipizzas.id }).from(orderMinipizzas).where(inArray(orderMinipizzas.orderId, input.ids))
+      ));
+      await db.delete(orderJellies).where(inArray(orderJellies.orderId, input.ids));
+      await db.delete(orderStatusHistory).where(inArray(orderStatusHistory.orderId, input.ids));
+      await db.delete(deliveryRecords).where(inArray(deliveryRecords.orderId, input.ids));
+      await db.delete(paymentRecords).where(inArray(paymentRecords.orderId, input.ids));
+      await db.delete(routeOrders).where(inArray(routeOrders.orderId, input.ids));
+      
+      // Finally delete the orders
+      await db.delete(orders).where(inArray(orders.id, input.ids));
+      return { success: true };
+    }),
 });
