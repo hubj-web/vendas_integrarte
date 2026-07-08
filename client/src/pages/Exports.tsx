@@ -105,9 +105,10 @@ export default function Exports() {
         </Button>
         <div>
           <h1 className="text-2xl font-bold text-foreground">Exportar Dados</h1>
-        <p className="text-muted-foreground mt-1">
-          Exporte pedidos e clientes em Excel (.xlsx), PDF ou salve diretamente no Google Sheets.
-        </p>
+          <p className="text-muted-foreground mt-1">
+            Exporte pedidos e clientes em Excel (.xlsx), PDF ou salve diretamente no Google Sheets.
+          </p>
+        </div>
       </div>
 
       {/* Orders export card */}
