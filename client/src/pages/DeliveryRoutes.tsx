@@ -11,8 +11,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { Plus, MapPin, Truck, ExternalLink, ChevronDown, ChevronUp, Loader2, GripVertical, Calendar } from "lucide-react";
+import { Plus, MapPin, Truck, ExternalLink, ChevronDown, ChevronUp, Loader2, GripVertical, Calendar, Zap } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
+import { Link } from "wouter";
 
 const monthNames = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -90,9 +91,16 @@ export default function DeliveryRoutes() {
         description="Organize e acompanhe as rotas de entrega"
         actions={
           user?.role !== "delivery" ? (
-            <Button onClick={() => setCreateOpen(true)} className="bg-primary text-primary-foreground gap-2">
-              <Plus className="w-4 h-4" />Nova Rota
-            </Button>
+            <div className="flex items-center gap-2">
+              <Link href="/admin/rotas/otimizar">
+                <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+                  <Zap className="w-4 h-4" />Gerar Rotas Otimizadas
+                </Button>
+              </Link>
+              <Button onClick={() => setCreateOpen(true)} className="bg-primary text-primary-foreground gap-2">
+                <Plus className="w-4 h-4" />Nova Rota
+              </Button>
+            </div>
           ) : undefined
         }
       />

@@ -21,11 +21,12 @@ const statusFlow: Record<string, string[]> = {
   production: ["in_route", "cancelled"],
   in_route: ["delivered", "cancelled"],
   delivered: ["paid", "cancelled"],
-  paid: [],
+  paid: ["cancelled"],
   cancelled: [],
 };
 
 const statusLabels: Record<string, string> = {
+  production: "Em Produção",
   in_route: "Enviar para Rota",
   delivered: "Marcar como Entregue",
   paid: "Marcar como Pago",

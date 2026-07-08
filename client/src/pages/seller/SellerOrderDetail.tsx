@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, User, Package, XCircle, Share2 } from "lucide-react";
+import { ArrowLeft, User, Package, XCircle, Share2, CheckCircle2, Clock } from "lucide-react";
 import { Link } from "wouter";
 import { OrderReceiptButton } from "@/components/OrderReceipt";
 import { format } from "date-fns";
@@ -33,6 +33,14 @@ export default function SellerOrderDetail() {
   const cancelMutation = trpc.seller.cancelOrder.useMutation({
     onSuccess: () => {
       toast.success("Pedido cancelado com sucesso.");
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const updatePaymentMutation = trpc.seller.updatePaymentStatus.useMutation({
+    onSuccess: () => {
+      toast.success("Status de pagamento atualizado.");
       refetch();
     },
     onError: (e) => toast.error(e.message),
@@ -135,15 +143,41 @@ export default function SellerOrderDetail() {
       </Card>
 
       {/* Payment info */}
-      <div className="flex gap-3 text-sm">
-        <div className="flex-1 bg-card border border-border rounded-xl p-3">
-          <p className="text-muted-foreground text-xs mb-1">Pagamento</p>
-          <p className="font-medium text-foreground capitalize">{order.paymentMethod === "pix" ? "PIX" : "Dinheiro"}</p>
+      <div className="flex flex-col gap-3">
+        <div className="flex gap-3 text-sm">
+          <div className="flex-1 bg-card border border-border rounded-xl p-3">
+            <p className="text-muted-foreground text-xs mb-1">Pagamento</p>
+            <p className="font-medium text-foreground capitalize">{order.paymentMethod === "pix" ? "PIX" : "Dinheiro"}</p>
+          </div>
+          <div className="flex-1 bg-card border border-border rounded-xl p-3">
+            <p className="text-muted-foreground text-xs mb-1">Status pagamento</p>
+            <StatusBadge status={order.paymentStatus} />
+          </div>
         </div>
-        <div className="flex-1 bg-card border border-border rounded-xl p-3">
-          <p className="text-muted-foreground text-xs mb-1">Status pagamento</p>
-          <StatusBadge status={order.paymentStatus} />
-        </div>
+
+        {/* Payment Actions */}
+        {order.status !== "cancelled" && (
+          <div className="grid grid-cols-2 gap-3">
+            <Button
+              variant={order.paymentStatus === "pending" ? "default" : "outline"}
+              className="w-full gap-2"
+              onClick={() => updatePaymentMutation.mutate({ orderId: order.id, sellerId: seller!.id, paymentStatus: "pending" })}
+              disabled={order.paymentStatus === "pending" || updatePaymentMutation.isPending}
+            >
+              <Clock className="w-4 h-4" />
+              Pendente
+            </Button>
+            <Button
+              variant={order.paymentStatus === "paid" ? "default" : "outline"}
+              className="w-full gap-2"
+              onClick={() => updatePaymentMutation.mutate({ orderId: order.id, sellerId: seller!.id, paymentStatus: "paid" })}
+              disabled={order.paymentStatus === "paid" || updatePaymentMutation.isPending}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              Pago
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Cancel */}

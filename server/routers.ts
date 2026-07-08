@@ -9,6 +9,7 @@ import { reportsRouter } from "./routers/reports";
 import { sellerRouter } from "./routers/seller";
 import { deliveryPublicRouter } from "./routers/deliveryPublic";
 import { exportsRouter } from "./routers/exports";
+import { routeOptimizationRouter } from "./routers/routeOptimization";
 export const appRouter = router({
   system: systemRouter,
   auth: authRouter,
@@ -20,6 +21,7 @@ export const appRouter = router({
   seller: sellerRouter,
   deliveryPublic: deliveryPublicRouter,
   exports: exportsRouter,
+  routeOptimization: routeOptimizationRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -37,6 +37,7 @@ import DeliveryMethods from "./pages/admin/DeliveryMethods";
 import Users from "./pages/admin/Users";
 import Exports from "./pages/Exports";
 import Backup from "./pages/admin/Backup";
+import OptimizedRouteGenerator from "./pages/OptimizedRouteGenerator";
 import NotFound from "./pages/NotFound";
 
 // ── SELLER AREA ──
@@ -125,6 +126,9 @@ function Router() {
       </Route>
       <Route path="/admin/pedidos">
         <AdminGuard><AppLayout><Orders /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/rotas/otimizar">
+        <AdminGuard><AppLayout><OptimizedRouteGenerator /></AppLayout></AdminGuard>
       </Route>
       <Route path="/admin/rotas">
         <AdminGuard><AppLayout><DeliveryRoutes /></AppLayout></AdminGuard>

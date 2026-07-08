@@ -320,6 +320,30 @@ export const sellerRouter = router({
       };
     }),
 
+  /** Atualiza o status de pagamento de um pedido próprio */
+  updatePaymentStatus: publicProcedure
+    .input(z.object({
+      orderId: z.number(),
+      sellerId: z.number(),
+      paymentStatus: z.enum(["pending", "paid", "partial", "cancelled"]),
+    }))
+    .mutation(async ({ input }) => {
+      await requireLauncher(input.sellerId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const current = await db.select().from(orders)
+        .where(and(eq(orders.id, input.orderId), eq(orders.launcherId, input.sellerId)))
+        .limit(1);
+      if (!current[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
+
+      await db.update(orders)
+        .set({ paymentStatus: input.paymentStatus })
+        .where(eq(orders.id, input.orderId));
+
+      return { success: true };
+    }),
+
   /** Cancela um pedido próprio (apenas se ainda em produção) */
   cancelOrder: publicProcedure
     .input(z.object({ orderId: z.number(), sellerId: z.number(), cancelReason: z.string().min(1) }))
@@ -330,7 +354,7 @@ export const sellerRouter = router({
       const current = await db.select().from(orders)
         .where(and(eq(orders.id, input.orderId), eq(orders.launcherId, input.sellerId)))
         .limit(1);
-      if (!current[0]) throw new TRPCError({ code: "NOT_FOUND" });
+      if (!current[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
       if (current[0].status !== "production") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas pedidos em produção podem ser cancelados pelo vendedor." });
       }
