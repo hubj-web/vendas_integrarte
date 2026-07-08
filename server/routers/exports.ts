@@ -231,16 +231,16 @@ function formatCurrency(v: string | number | null | undefined): string {
 function buildProductSummary(itemsMap: Record<number, any[]>, orderId: number): string {
   const items = itemsMap[orderId] || [];
   if (items.length === 0) return "—";
-  return items.map(i => `${i.name} (${i.qty}x)`).join("; ");
+  return items.map(i => `${i.name}: ${i.qty}x`).join("; ");
 }
 
 /**
- * Build a detailed product string with prices for Excel
+ * Build a detailed product string for Excel
  */
 function buildProductDetails(itemsMap: Record<number, any[]>, orderId: number): string {
   const items = itemsMap[orderId] || [];
   if (items.length === 0) return "—";
-  return items.map(i => `${i.name}: ${i.qty}x ${i.price} = ${i.subtotal}`).join("\n");
+  return items.map(i => `${i.name}: ${i.qty}x`).join("\n");
 }
 
 export const exportsRouter = router({
