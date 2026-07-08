@@ -106,7 +106,7 @@ export default function OrderDetail() {
             {(order.customerStreet || order.customerNeighborhood) && (
               <div className="flex items-start gap-1.5 text-muted-foreground">
                 <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                <span>{[order.customerStreet, order.customerNumber, order.customerNeighborhood, order.customerCity].filter(Boolean).join(", ")}</span>
+                <span>{[order.customerStreet, order.customerNumber, (order as any).customerComplement, order.customerNeighborhood, order.customerCity].filter(Boolean).join(", ")}</span>
               </div>
             )}
           </CardContent>

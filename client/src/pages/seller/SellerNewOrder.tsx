@@ -50,7 +50,7 @@ export default function SellerNewOrder() {
     locationReference?: string | null;
   } | null>(null);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", street: "", neighborhood: "", city: "" });
+  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", street: "", number: "", complement: "", neighborhood: "", city: "" });
 
   const { data: searchResults } = trpc.seller.searchCustomers.useQuery(
     { query: customerSearch },
@@ -664,9 +664,19 @@ export default function SellerNewOrder() {
               <Label className="text-xs text-muted-foreground">Telefone *</Label>
               <Input value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} className="bg-input border-border" />
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Rua</Label>
+                <Input value={newCustomer.street} onChange={(e) => setNewCustomer({ ...newCustomer, street: e.target.value })} className="bg-input border-border" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Número</Label>
+                <Input value={newCustomer.number} onChange={(e) => setNewCustomer({ ...newCustomer, number: e.target.value })} className="bg-input border-border" />
+              </div>
+            </div>
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Rua</Label>
-              <Input value={newCustomer.street} onChange={(e) => setNewCustomer({ ...newCustomer, street: e.target.value })} className="bg-input border-border" />
+              <Label className="text-xs text-muted-foreground">Complemento (Apto/Bloco)</Label>
+              <Input value={newCustomer.complement} onChange={(e) => setNewCustomer({ ...newCustomer, complement: e.target.value })} className="bg-input border-border" />
             </div>
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Bairro</Label>

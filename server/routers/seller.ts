@@ -100,6 +100,7 @@ export const sellerRouter = router({
       number: z.string().optional(),
       neighborhood: z.string().optional(),
       city: z.string().optional(),
+      complement: z.string().optional(),
       zipCode: z.string().optional(),
       locationReference: z.string().optional(),
     }))
@@ -111,6 +112,7 @@ export const sellerRouter = router({
         phone: input.phone,
         street: input.street,
         number: input.number,
+        complement: input.complement,
         neighborhood: input.neighborhood,
         city: input.city,
         zipCode: input.zipCode,
