@@ -213,19 +213,20 @@ export const routeOptimizationRouter = router({
       const createdRoutes = [];
 
       for (const optimizedRoute of optimizedRoutes) {
-        const startingAddress = input.startingAddress && input.startingAddress.trim() !== "" 
-          ? input.startingAddress 
-          : "Rua Eloi da Costa, 145, Luizote de Freitas, Uberlândia, MG";
-
-        const routeResult = await db.insert(deliveryRoutes).values({
+        const routeValues: any = {
           name: `${input.routeNamePrefix} - ${optimizedRoute.deliveryUserName}`,
           deliveryDate: new Date(input.dateFrom),
           deliveryUserId: optimizedRoute.deliveryUserId,
-          startingAddress: startingAddress,
           totalDistance: optimizedRoute.estimatedDistance.toString(),
           createdBy: ctx.user.id,
           status: "planned",
-        });
+        };
+
+        if (input.startingAddress && input.startingAddress.trim() !== "") {
+          routeValues.startingAddress = input.startingAddress;
+        }
+
+        const routeResult = await db.insert(deliveryRoutes).values(routeValues);
 
         const routeId = Number((routeResult as any).insertId);
 
