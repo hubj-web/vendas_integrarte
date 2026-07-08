@@ -225,6 +225,7 @@ export default function Orders() {
           </Select>
         )}
       </div>
+      </div>
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <Table>
