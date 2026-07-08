@@ -379,8 +379,8 @@ export function OrderReceiptButton({ order }: { order: OrderData }) {
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-[480px] p-0 overflow-hidden">
-          <DialogHeader className="px-5 pt-5 pb-3">
+        <DialogContent className="max-w-[480px] p-0 overflow-hidden max-h-[90vh] flex flex-col">
+          <DialogHeader className="px-5 pt-5 pb-3 flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Share2 className="w-4 h-4 text-green-600" />
               Recibo do Pedido #{order.id}
@@ -404,7 +404,7 @@ export function OrderReceiptButton({ order }: { order: OrderData }) {
           </div>
 
           {/* Preview */}
-          <div className="px-5 pb-2">
+          <div className="px-5 pb-2 overflow-y-auto flex-1">
             {generating ? (
               <div className="flex flex-col items-center justify-center py-16 gap-3">
                 <Loader2 className="w-8 h-8 animate-spin text-green-600" />
@@ -419,7 +419,7 @@ export function OrderReceiptButton({ order }: { order: OrderData }) {
 
           {/* Actions */}
           {imageUrl && (
-            <div className="px-5 pb-5 flex flex-col gap-2">
+            <div className="px-5 pb-5 pt-2 flex flex-col gap-2 flex-shrink-0 border-t border-border mt-2 bg-background/50 backdrop-blur-sm">
               <div className="flex gap-2">
                 <Button
                   className="flex-1 gap-2 bg-green-700 hover:bg-green-800 text-white"

@@ -49,7 +49,7 @@ export default function Dashboard() {
         description="Visão geral do sistema hoje"
         actions={
           role !== "delivery" ? (
-            <Link href="/pedidos/novo">
+            <Link href="/admin/pedidos/novo">
               <Button className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2">
                 <Plus className="w-4 h-4" />
                 Novo Pedido
@@ -105,7 +105,7 @@ export default function Dashboard() {
           <Card className="bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between pb-3">
               <CardTitle className="text-base font-semibold">Pedidos Recentes</CardTitle>
-              <Link href="/pedidos">
+              <Link href="/admin/pedidos">
                 <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary gap-1 text-xs">
                   Ver todos <ArrowRight className="w-3 h-3" />
                 </Button>
@@ -117,7 +117,7 @@ export default function Dashboard() {
               ) : (
                 <div className="space-y-2">
                   {data.recentOrders.map(order => (
-                    <Link key={order.id} href={`/pedidos/${order.id}`}>
+                    <Link key={order.id} href={`/admin/pedidos/${order.id}`}>
                       <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -156,7 +156,7 @@ export default function Dashboard() {
                     </p>
                     <p className="text-xs text-muted-foreground">Total pendente: {fmt(data.pendingAmount)}</p>
                   </div>
-                  <Link href="/pagamentos">
+                  <Link href="/admin/entregas-pagamentos">
                     <Button variant="outline" size="sm" className="text-orange-400 border-orange-500/30 hover:bg-orange-500/10">
                       Ver
                     </Button>

@@ -34,7 +34,7 @@ const statusLabels: Record<string, string> = {
 };
 
 export default function OrderDetail() {
-  const [, params] = useRoute("/pedidos/:id");
+  const [, params] = useRoute("/admin/pedidos/:id");
   const [, navigate] = useLocation();
   const { user } = useLocalAuth();
   const orderId = Number(params?.id);
@@ -78,7 +78,7 @@ export default function OrderDetail() {
         description={`Criado em ${new Date(order.createdAt).toLocaleString("pt-BR")}`}
         actions={
           <div className="flex items-center gap-2">
-            <Link href="/pedidos">
+            <Link href="/admin/pedidos">
               <Button variant="outline" size="sm" className="gap-2"><ArrowLeft className="w-4 h-4" />Voltar</Button>
             </Link>
             <OrderReceiptButton order={order} />

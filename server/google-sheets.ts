@@ -61,7 +61,7 @@ async function ensureSheet(auth: InstanceType<typeof google.auth.GoogleAuth>, ti
 
   const existing = meta.data.sheets?.find((s) => s.properties?.title === title);
   if (existing && existing.properties) {
-    return existing.properties.title;
+    return { title: existing.properties.title!, sheetId: existing.properties.sheetId! };
   }
 
   // Create new sheet
@@ -84,9 +84,6 @@ async function ensureSheet(auth: InstanceType<typeof google.auth.GoogleAuth>, ti
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao criar aba no Google Sheets." });
   }
 
-  // Rename to avoid Google auto-naming issues
-  const finalTitle = newSheet.title ?? title;
-
   // Update title to match exactly
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: ENV.spreadsheetId,
@@ -100,13 +97,13 @@ async function ensureSheet(auth: InstanceType<typeof google.auth.GoogleAuth>, ti
     },
   });
 
-  return title;
+  return { title, sheetId: newSheet.sheetId! };
 }
 
 /**
  * Write a header row with bold formatting and auto-resize columns.
  */
-async function writeHeader(auth: InstanceType<typeof google.auth.GoogleAuth>, range: string, headers: string[]) {
+async function writeHeader(auth: InstanceType<typeof google.auth.GoogleAuth>, sheetId: number, range: string, headers: string[]) {
   const sheets = google.sheets({ version: "v4", auth });
 
   await sheets.spreadsheets.values.update({
@@ -133,7 +130,7 @@ async function writeHeader(auth: InstanceType<typeof google.auth.GoogleAuth>, ra
         {
           repeatCell: {
             range: {
-              sheetId: 0,
+              sheetId: sheetId,
               startRowIndex: startRow - 1,
               endRowIndex: startRow,
               startColumnIndex: 0,
@@ -153,7 +150,7 @@ async function writeHeader(auth: InstanceType<typeof google.auth.GoogleAuth>, ra
         {
           repeatCell: {
             range: {
-              sheetId: 0,
+              sheetId: sheetId,
               startRowIndex: startRow - 1,
               endRowIndex: startRow,
               startColumnIndex: 0,
@@ -245,7 +242,7 @@ async function appendOrder(order: any, sheetTitle: string = "Pedidos") {
   const auth = getAuth();
   const sheets = google.sheets({ version: "v4", auth });
 
-  const title = await ensureSheet(auth, sheetTitle);
+  const { title, sheetId } = await ensureSheet(auth, sheetTitle);
 
   const fmtDate = (d: Date | null) => (d ? new Date(d).toLocaleDateString("pt-BR") : "");
   const fmtCurrency = (v: string | null) => (v ? `R$ ${parseFloat(v).toFixed(2).replace(".", ",")}` : "R$ 0,00");
@@ -321,23 +318,28 @@ async function appendOrder(order: any, sheetTitle: string = "Pedidos") {
   });
 
   // Auto-resize columns
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: ENV.spreadsheetId,
-    requestBody: {
-      requests: [
-        {
-          autoResizeDimensions: {
-            dimensions: {
-              sheetId: 0, // Note: This might need the actual sheetId if not the first one
-              dimension: "COLUMNS",
-              startIndex: 0,
-              endIndex: 16,
+  try {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: ENV.spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            autoResizeDimensions: {
+              dimensions: {
+                sheetId,
+                dimension: "COLUMNS",
+                startIndex: 0,
+                endIndex: 16,
+              },
             },
           },
-        },
-      ],
-    },
-  });
+        ],
+      },
+    });
+  } catch (resizeError) {
+    console.error("Error resizing Google Sheets columns:", resizeError);
+    // Don't fail the whole operation if just resizing fails
+  }
 }
 
 /**
@@ -371,7 +373,7 @@ async function writeOrders(
   const auth = getAuth();
   const sheets = google.sheets({ version: "v4", auth });
 
-  const title = await ensureSheet(auth, sheetTitle);
+  const { title, sheetId } = await ensureSheet(auth, sheetTitle);
 
   // Clear existing data in the sheet
   await sheets.spreadsheets.values.clear({
@@ -425,26 +427,26 @@ async function writeOrders(
     requestBody: { values: [headers] },
   });
 
-  // Bold/format header
+  // Bold header formatting
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId: ENV.spreadsheetId,
     requestBody: {
       requests: [
         {
           repeatCell: {
-            range: { startRowIndex: 0, endRowIndex: 1 },
-            cell: {
-              userEnteredFormat: {
-                backgroundColor: { red: 0.176, green: 0.416, blue: 0.31 },
-                horizontalAlignment: "CENTER",
-              },
+            range: {
+              sheetId: sheetId,
+              startRowIndex: 0,
+              endRowIndex: 1,
+              startColumnIndex: 0,
+              endColumnIndex: headers.length,
             },
             fields: "userEnteredFormat(backgroundColor,horizontalAlignment)",
           },
         },
         {
           repeatCell: {
-            range: { startRowIndex: 0, endRowIndex: 1 },
+            range: { sheetId: sheetId, startRowIndex: 0, endRowIndex: 1 },
             cell: {
               userEnteredFormat: {
                 textFormat: { bold: true, fontSize: 11, foregroundColor: { red: 1, green: 1, blue: 1 } },
@@ -559,7 +561,7 @@ async function writeBackup(summary: {
         },
         {
           repeatCell: {
-            range: { startRowIndex: 0, endRowIndex: 1 },
+            range: { sheetId: sheetId, startRowIndex: 0, endRowIndex: 1 },
             cell: {
               userEnteredFormat: {
                 textFormat: { bold: true, fontSize: 11, foregroundColor: { red: 1, green: 1, blue: 1 } },
@@ -653,7 +655,7 @@ async function writeCustomerList(customers: Array<{
         },
         {
           repeatCell: {
-            range: { startRowIndex: 0, endRowIndex: 1 },
+            range: { sheetId: sheetId, startRowIndex: 0, endRowIndex: 1 },
             cell: {
               userEnteredFormat: {
                 textFormat: { bold: true, fontSize: 11, foregroundColor: { red: 1, green: 1, blue: 1 } },

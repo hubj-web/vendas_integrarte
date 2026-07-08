@@ -35,7 +35,7 @@ export default function NewOrder() {
   const { data: deliveryMethods = [] } = trpc.catalog.deliveryMethods.list.useQuery();
 
   const createOrderMutation = trpc.orders.create.useMutation({
-    onSuccess: (data) => { toast.success("Pedido criado com sucesso!"); navigate(`/pedidos/${data.orderId}`); },
+    onSuccess: (data) => { toast.success("Pedido criado com sucesso!"); navigate(`/admin/pedidos/${data.orderId}`); },
     onError: (e) => toast.error(e.message),
   });
   const createCustomerMutation = trpc.orders.customers.create.useMutation({

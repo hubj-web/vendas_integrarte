@@ -88,7 +88,7 @@ export default function Orders() {
         description={`${total} pedido${total !== 1 ? "s" : ""} encontrado${total !== 1 ? "s" : ""}`}
         actions={
           user?.role !== "delivery" ? (
-            <Link href="/pedidos/novo">
+            <Link href="/admin/pedidos/novo">
               <Button className="bg-primary text-primary-foreground gap-2"><Plus className="w-4 h-4" />Novo Pedido</Button>
             </Link>
           ) : undefined
@@ -170,7 +170,7 @@ export default function Orders() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Link href={`/pedidos/${o.id}`}>
+                    <Link href={`/admin/pedidos/${o.id}`}>
                       <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary"><Eye className="w-3.5 h-3.5" /></Button>
                     </Link>
                   </TableCell>
