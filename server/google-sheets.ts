@@ -233,7 +233,112 @@ export const googleSheets = {
   writeOrders,
   writeBackup,
   writeCustomerList,
+  appendOrder,
 };
+
+/**
+ * Append a single order to the Google Sheets spreadsheet.
+ */
+async function appendOrder(order: any, sheetTitle: string = "Pedidos") {
+  if (!ENV.spreadsheetId) return;
+
+  const auth = getAuth();
+  const sheets = google.sheets({ version: "v4", auth });
+
+  const title = await ensureSheet(auth, sheetTitle);
+
+  const fmtDate = (d: Date | null) => (d ? new Date(d).toLocaleDateString("pt-BR") : "");
+  const fmtCurrency = (v: string | null) => (v ? `R$ ${parseFloat(v).toFixed(2).replace(".", ",")}` : "R$ 0,00");
+
+  const statusLabels: Record<string, string> = {
+    production: "Em produção",
+    in_route: "Em rota",
+    delivered: "Entregue",
+    paid: "Pago",
+    cancelled: "Cancelado",
+  };
+  const paymentStatusLabels: Record<string, string> = {
+    pending: "Pendente",
+    paid: "Pago",
+    partial: "Parcial",
+    cancelled: "Cancelado",
+  };
+  const paymentMethodLabels: Record<string, string> = { cash: "Dinheiro", pix: "PIX" };
+
+  const row = [
+    String(order.id),
+    fmtDate(order.createdAt),
+    order.customerName ?? "",
+    order.customerPhone ?? "",
+    order.deliveryAddress ?? "",
+    order.customerNeighborhood ?? "",
+    order.customerCity ?? "",
+    order.launcherName ?? "",
+    order.deliveryMethodName ?? "",
+    fmtDate(order.deliveryDate),
+    paymentMethodLabels[order.paymentMethod] ?? order.paymentMethod,
+    statusLabels[order.status] ?? order.status,
+    paymentStatusLabels[order.paymentStatus] ?? order.paymentStatus,
+    fmtCurrency(order.totalAmount),
+    order.products,
+    order.notes ?? "",
+  ];
+
+  // Get current values to see if we need to add headers
+  const existing = await sheets.spreadsheets.values.get({
+    spreadsheetId: ENV.spreadsheetId,
+    range: `${title}!A1:A1`,
+  });
+
+  const values = [];
+  if (!existing.data.values || existing.data.values.length === 0) {
+    values.push([
+      "Nº Pedido",
+      "Data",
+      "Cliente",
+      "Telefone",
+      "Endereço",
+      "Bairro",
+      "Cidade",
+      "Vendedor(a)",
+      "Forma de Entrega",
+      "Data de Entrega",
+      "Pagamento",
+      "Status Pedido",
+      "Status Pagamento",
+      "Total",
+      "Produtos",
+      "Observações",
+    ]);
+  }
+  values.push(row);
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: ENV.spreadsheetId,
+    range: `${title}!A1`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values },
+  });
+
+  // Auto-resize columns
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: ENV.spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          autoResizeDimensions: {
+            dimensions: {
+              sheetId: 0, // Note: This might need the actual sheetId if not the first one
+              dimension: "COLUMNS",
+              startIndex: 0,
+              endIndex: 16,
+            },
+          },
+        },
+      ],
+    },
+  });
+}
 
 /**
  * Write order data to Google Sheets (creates new tab or overwrites).

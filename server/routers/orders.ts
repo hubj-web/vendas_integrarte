@@ -8,6 +8,7 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
+import { googleSheets } from "../google-sheets";
 
 // ─── CUSTOMERS ────────────────────────────────────────────────────────────────
 const customersRouter = router({
@@ -383,6 +384,66 @@ export const ordersRouter = router({
         orderId, userId: ctx.user.id, fromStatus: null, toStatus: "production",
         notes: "Pedido criado",
       });
+
+      // Async background task to append to Google Sheets
+      if (googleSheets.isConfigured()) {
+        try {
+          // Fetch full order data for the sheet
+          const [orderData] = await db.select({
+            id: orders.id,
+            createdAt: orders.createdAt,
+            totalAmount: orders.totalAmount,
+            paymentMethod: orders.paymentMethod,
+            deliveryDate: orders.deliveryDate,
+            deliveryAddress: orders.deliveryAddress,
+            notes: orders.notes,
+            status: orders.status,
+            paymentStatus: orders.paymentStatus,
+            customerName: customers.name,
+            customerPhone: customers.phone,
+            customerNeighborhood: customers.neighborhood,
+            customerCity: customers.city,
+            launcherName: users.name,
+            deliveryMethodName: deliveryMethods.name,
+          })
+            .from(orders)
+            .leftJoin(customers, eq(orders.customerId, customers.id))
+            .leftJoin(users, eq(orders.launcherId, users.id))
+            .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
+            .where(eq(orders.id, orderId))
+            .limit(1);
+
+          if (orderData) {
+            // Build products string (similar to export logic)
+            const productsList: string[] = [];
+            
+            // Items
+            const items = await db.select({ name: products.name, qty: orderItems.quantity })
+              .from(orderItems).leftJoin(products, eq(orderItems.productId, products.id))
+              .where(eq(orderItems.orderId, orderId));
+            items.forEach(i => productsList.push(`${i.name} (${i.qty}x)`));
+
+            // Minipizzas
+            const mps = await db.select({ type: minipizzaTypes.name, qty: orderMinipizzas.quantity })
+              .from(orderMinipizzas).leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
+              .where(eq(orderMinipizzas.orderId, orderId));
+            mps.forEach(m => productsList.push(`Minipizza ${m.type} (${m.qty}x)`));
+
+            // Jellies
+            const jellies = await db.select({ flavor: jellyFlavors.name, qty: orderJellies.quantity })
+              .from(orderJellies).leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
+              .where(eq(orderJellies.orderId, orderId));
+            jellies.forEach(j => productsList.push(`Geleia ${j.flavor} (${j.qty}x)`));
+
+            await googleSheets.appendOrder({
+              ...orderData,
+              products: productsList.join("; ")
+            });
+          }
+        } catch (error) {
+          console.error("Error appending order to Google Sheets:", error);
+        }
+      }
 
       return { success: true, orderId };
     }),
