@@ -28,22 +28,33 @@ const ENV = {
 };
 
 function getAuth() {
+  console.log("[GoogleSheets] Initializing auth...");
+  console.log("[GoogleSheets] Email:", ENV.clientEmail);
+  console.log("[GoogleSheets] Key Length:", ENV.privateKey.length);
+  console.log("[GoogleSheets] Spreadsheet ID:", ENV.spreadsheetId);
+
   if (!ENV.clientEmail || !ENV.privateKey) {
+    console.error("[GoogleSheets] Missing credentials!");
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
       message: "Credenciais do Google Sheets não configuradas. Configure GOOGLE_SHEETS_CLIENT_EMAIL e GOOGLE_SHEETS_PRIVATE_KEY.",
     });
   }
 
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: ENV.clientEmail,
-      private_key: ENV.privateKey,
-    },
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-
-  return auth;
+  try {
+    const auth = new google.auth.GoogleAuth({
+      credentials: {
+        client_email: ENV.clientEmail,
+        private_key: ENV.privateKey,
+      },
+      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    });
+    console.log("[GoogleSheets] Auth object created successfully");
+    return auth;
+  } catch (authError: any) {
+    console.error("[GoogleSheets] Error creating auth object:", authError.message);
+    throw authError;
+  }
 }
 
 /**
@@ -237,12 +248,19 @@ export const googleSheets = {
  * Append a single order to the Google Sheets spreadsheet.
  */
 async function appendOrder(order: any, sheetTitle: string = "Pedidos") {
-  if (!ENV.spreadsheetId) return;
+  console.log("[GoogleSheets] Appending order:", order.id);
+  if (!ENV.spreadsheetId) {
+    console.error("[GoogleSheets] No spreadsheet ID configured!");
+    return;
+  }
 
-  const auth = getAuth();
-  const sheets = google.sheets({ version: "v4", auth });
+  try {
+    const auth = getAuth();
+    const sheets = google.sheets({ version: "v4", auth });
 
-  const { title, sheetId } = await ensureSheet(auth, sheetTitle);
+    console.log("[GoogleSheets] Ensuring sheet exists:", sheetTitle);
+    const { title, sheetId } = await ensureSheet(auth, sheetTitle);
+    console.log("[GoogleSheets] Sheet confirmed:", title, "(ID:", sheetId, ")");
 
   const fmtDate = (d: Date | null) => (d ? new Date(d).toLocaleDateString("pt-BR") : "");
   const fmtCurrency = (v: string | null) => (v ? `R$ ${parseFloat(v).toFixed(2).replace(".", ",")}` : "R$ 0,00");
@@ -336,9 +354,11 @@ async function appendOrder(order: any, sheetTitle: string = "Pedidos") {
         ],
       },
     });
-  } catch (resizeError) {
-    console.error("Error resizing Google Sheets columns:", resizeError);
-    // Don't fail the whole operation if just resizing fails
+  } catch (error: any) {
+    console.error("[GoogleSheets] Error in appendOrder:", error.message);
+    if (error.response && error.response.data) {
+      console.error("[GoogleSheets] API Response Error:", JSON.stringify(error.response.data));
+    }
   }
 }
 
