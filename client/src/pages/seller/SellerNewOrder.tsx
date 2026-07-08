@@ -50,7 +50,7 @@ export default function SellerNewOrder() {
     locationReference?: string | null;
   } | null>(null);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", street: "", number: "", complement: "", neighborhood: "", city: "" });
+  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", locationReference: "", street: "", number: "", complement: "", neighborhood: "", city: "" });
 
   const { data: searchResults } = trpc.seller.searchCustomers.useQuery(
     { query: customerSearch },
@@ -64,11 +64,14 @@ export default function SellerNewOrder() {
         name: newCustomer.name, 
         phone: newCustomer.phone,
         street: newCustomer.street,
+        number: newCustomer.number,
+        complement: newCustomer.complement,
         neighborhood: newCustomer.neighborhood,
-        city: newCustomer.city
+        city: newCustomer.city,
+        locationReference: newCustomer.locationReference
       });
       setShowNewCustomer(false);
-      setNewCustomer({ name: "", phone: "", street: "", neighborhood: "", city: "" });
+      setNewCustomer({ name: "", phone: "", locationReference: "", street: "", number: "", complement: "", neighborhood: "", city: "" });
       toast.success("Cliente cadastrado!");
     },
     onError: (e) => toast.error(e.message),
@@ -317,7 +320,10 @@ export default function SellerNewOrder() {
                 </div>
                 <div>
                   <p className="font-semibold text-foreground">{selectedCustomer.name}</p>
-                  <p className="text-xs text-muted-foreground">{selectedCustomer.phone}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedCustomer.phone}
+                    {selectedCustomer.locationReference && <span className="ml-2 text-primary font-medium">• {selectedCustomer.locationReference}</span>}
+                  </p>
                 </div>
               </div>
               <Button variant="ghost" size="sm" onClick={() => setSelectedCustomer(null)} className="text-muted-foreground hover:text-destructive">
@@ -343,7 +349,10 @@ export default function SellerNewOrder() {
                       <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-xs font-bold">{c.name.charAt(0)}</div>
                       <div>
                         <p className="text-sm font-medium">{c.name}</p>
-                        <p className="text-xs text-muted-foreground">{c.phone}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {c.phone}
+                          {c.locationReference && <span className="ml-2 text-primary font-medium">• {c.locationReference}</span>}
+                        </p>
                       </div>
                     </button>
                   ))}
@@ -663,6 +672,10 @@ export default function SellerNewOrder() {
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Telefone *</Label>
               <Input value={newCustomer.phone} onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Referência (ex: Casa azul, Próximo ao mercado)</Label>
+              <Input value={newCustomer.locationReference} onChange={(e) => setNewCustomer({ ...newCustomer, locationReference: e.target.value })} className="bg-input border-border" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-2">

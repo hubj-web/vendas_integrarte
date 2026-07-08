@@ -39,15 +39,15 @@ export default function NewOrder() {
     onError: (e) => toast.error(e.message),
   });
   const createCustomerMutation = trpc.orders.customers.create.useMutation({
-    onSuccess: (data) => { toast.success("Cliente cadastrado!"); setSelectedCustomer({ id: data.id, name: newCustomer.name, phone: newCustomer.phone }); setCustomerDialogOpen(false); },
+    onSuccess: (data) => { toast.success("Cliente cadastrado!"); setSelectedCustomer({ id: data.id, name: newCustomer.name, phone: newCustomer.phone, locationReference: newCustomer.locationReference }); setCustomerDialogOpen(false); },
   });
 
   // State
   const [step, setStep] = useState<"customer" | "products" | "delivery" | "summary">("customer");
   const [customerSearch, setCustomerSearch] = useState("");
-  const [selectedCustomer, setSelectedCustomer] = useState<{ id: number; name: string; phone: string } | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<{ id: number; name: string; phone: string; locationReference?: string | null } | null>(null);
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", street: "", number: "", complement: "", neighborhood: "", city: "" });
+  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", locationReference: "", street: "", number: "", complement: "", neighborhood: "", city: "" });
 
   const [cart, setCart] = useState<CartEntry[]>([]);
   const [productSearch, setProductSearch] = useState("");
@@ -212,13 +212,16 @@ export default function NewOrder() {
                 {customerResults.length > 0 && (
                   <div className="space-y-1 max-h-48 overflow-y-auto">
                     {customerResults.map(c => (
-                      <button key={c.id} onClick={() => { setSelectedCustomer({ id: c.id, name: c.name, phone: c.phone }); setCustomerSearch(""); }} className={`w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all hover:bg-muted/50 ${selectedCustomer?.id === c.id ? "bg-primary/10 border border-primary/20" : "bg-muted/20"}`}>
+                      <button key={c.id} onClick={() => { setSelectedCustomer({ id: c.id, name: c.name, phone: c.phone, locationReference: c.locationReference }); setCustomerSearch(""); }} className={`w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all hover:bg-muted/50 ${selectedCustomer?.id === c.id ? "bg-primary/10 border border-primary/20" : "bg-muted/20"}`}>
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                           <User className="w-4 h-4 text-primary" />
                         </div>
                         <div>
                           <p className="text-sm font-medium">{c.name}</p>
-                          <p className="text-xs text-muted-foreground">{c.phone}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {c.phone}
+                            {c.locationReference && <span className="ml-2 text-primary font-medium">• {c.locationReference}</span>}
+                          </p>
                         </div>
                         {selectedCustomer?.id === c.id && <Check className="w-4 h-4 text-primary ml-auto" />}
                       </button>
@@ -230,7 +233,10 @@ export default function NewOrder() {
                     <User className="w-5 h-5 text-primary" />
                     <div>
                       <p className="text-sm font-semibold text-foreground">{selectedCustomer.name}</p>
-                      <p className="text-xs text-muted-foreground">{selectedCustomer.phone}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {selectedCustomer.phone}
+                        {selectedCustomer.locationReference && <span className="ml-2 text-primary font-medium">• {selectedCustomer.locationReference}</span>}
+                      </p>
                     </div>
                     <button onClick={() => setSelectedCustomer(null)} className="ml-auto text-muted-foreground hover:text-destructive"><X className="w-4 h-4" /></button>
                   </div>
@@ -462,10 +468,11 @@ export default function NewOrder() {
       <Dialog open={customerDialogOpen} onOpenChange={setCustomerDialogOpen}>
         <DialogContent className="bg-card border-border max-w-md">
           <DialogHeader><DialogTitle>Cadastrar Novo Cliente</DialogTitle></DialogHeader>
-          <form onSubmit={e => { e.preventDefault(); createCustomerMutation.mutate({ name: newCustomer.name, phone: newCustomer.phone, street: newCustomer.street || undefined, number: newCustomer.number || undefined, complement: newCustomer.complement || undefined, neighborhood: newCustomer.neighborhood || undefined, city: newCustomer.city || undefined }); }} className="space-y-3">
+          <form onSubmit={e => { e.preventDefault(); createCustomerMutation.mutate({ name: newCustomer.name, phone: newCustomer.phone, locationReference: newCustomer.locationReference || undefined, street: newCustomer.street || undefined, number: newCustomer.number || undefined, complement: newCustomer.complement || undefined, neighborhood: newCustomer.neighborhood || undefined, city: newCustomer.city || undefined }); }} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 space-y-1"><Label>Nome *</Label><Input value={newCustomer.name} onChange={e => setNewCustomer(f => ({ ...f, name: e.target.value }))} required className="bg-input" /></div>
               <div className="col-span-2 space-y-1"><Label>Telefone *</Label><Input value={newCustomer.phone} onChange={e => setNewCustomer(f => ({ ...f, phone: e.target.value }))} required className="bg-input" /></div>
+              <div className="col-span-2 space-y-1"><Label>Referência (ex: Casa azul, Próximo ao mercado)</Label><Input value={newCustomer.locationReference} onChange={e => setNewCustomer(f => ({ ...f, locationReference: e.target.value }))} className="bg-input" /></div>
               <div className="col-span-2 sm:col-span-1 space-y-1"><Label>Rua</Label><Input value={newCustomer.street} onChange={e => setNewCustomer(f => ({ ...f, street: e.target.value }))} className="bg-input" /></div>
               <div className="space-y-1"><Label>Número</Label><Input value={newCustomer.number} onChange={e => setNewCustomer(f => ({ ...f, number: e.target.value }))} className="bg-input" /></div>
               <div className="space-y-1"><Label>Complemento (Apto/Bloco)</Label><Input value={newCustomer.complement} onChange={e => setNewCustomer(f => ({ ...f, complement: e.target.value }))} className="bg-input" /></div>
