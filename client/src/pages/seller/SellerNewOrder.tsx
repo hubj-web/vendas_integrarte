@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, User, UserPlus,
-  ChevronRight, Check, Tag, MapPin, ArrowLeft
+  ChevronRight, Check, Tag, MapPin, ArrowLeft, X
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -137,6 +137,7 @@ export default function SellerNewOrder() {
       }
 
       // Load cart items from order items
+      // Each order item already represents a product+flavor combination with its own quantity
       const newCart: CartItem[] = existingOrder.items.map((item, index) => {
         const flavors = (item as any).flavors ?? [];
         const flavorNames = flavors.map((f: any) => f.flavorName ?? f.name);
@@ -163,11 +164,12 @@ export default function SellerNewOrder() {
   const [productQtys, setProductQtys] = useState<Record<number, number>>({});
 
   // Flavor selection dialog (for products with maxFlavors > 0)
+  // Now supports per-flavor quantities
   const [flavorProduct, setFlavorProduct] = useState<{
     id: number; name: string; price: number; maxFlavors: number;
   } | null>(null);
   const [selectedFlavorIds, setSelectedFlavorIds] = useState<number[]>([]);
-  const [flavorQty, setFlavorQty] = useState(1);
+  const [flavorQuantities, setFlavorQuantities] = useState<Record<number, number>>({});
 
   const totalAmount = useMemo(() => cart.reduce((s, i) => s + i.subtotal, 0), [cart]);
 
@@ -219,7 +221,7 @@ export default function SellerNewOrder() {
   const openFlavorDialog = (product: { id: number; name: string; price: string; maxFlavors: number }) => {
     setFlavorProduct({ id: product.id, name: product.name, price: Number(product.price), maxFlavors: product.maxFlavors });
     setSelectedFlavorIds([]);
-    setFlavorQty(1);
+    setFlavorQuantities({});
   };
 
   const toggleFlavor = (flavorId: number) => {
@@ -229,7 +231,27 @@ export default function SellerNewOrder() {
       toast.error(`Máximo de ${flavorProduct.maxFlavors} sabor(es) por unidade.`);
       return;
     }
-    setSelectedFlavorIds(prev => has ? prev.filter(id => id !== flavorId) : [...prev, flavorId]);
+    setSelectedFlavorIds(prev => {
+      const next = has ? prev.filter(id => id !== flavorId) : [...prev, flavorId];
+      return next;
+    });
+    // Initialize quantity to 1 when selecting, remove when deselecting
+    setFlavorQuantities(prev => {
+      const next = { ...prev };
+      if (!has) {
+        next[flavorId] = 1;
+      } else {
+        delete next[flavorId];
+      }
+      return next;
+    });
+  };
+
+  const changeFlavorQty = (flavorId: number, delta: number) => {
+    setFlavorQuantities(prev => ({
+      ...prev,
+      [flavorId]: Math.max(1, (prev[flavorId] || 1) + delta),
+    }));
   };
 
   const confirmFlavorProduct = () => {
@@ -238,26 +260,38 @@ export default function SellerNewOrder() {
       toast.error("Selecione pelo menos 1 sabor.");
       return;
     }
-    const flavorNames = selectedFlavorIds
-      .map(fId => catalog?.productFlavors?.find(f => f.id === fId)?.name ?? "")
-      .filter(Boolean);
-    const label = `${flavorProduct.name} (${flavorNames.join(", ")})`;
-    const unitPrice = flavorProduct.price;
-    setCart(prev => [...prev, {
-      type: "product",
-      id: `p-${flavorProduct.id}-${Date.now()}`,
-      label,
-      quantity: flavorQty,
-      unitPrice,
-      subtotal: flavorQty * unitPrice,
-      productId: flavorProduct.id,
-      flavorIds: selectedFlavorIds,
-      flavorNames,
-    }]);
+
+    // Check that all selected flavors have a quantity
+    const itemsToAdd: CartItem[] = [];
+    for (const fId of selectedFlavorIds) {
+      const qty = flavorQuantities[fId] || 0;
+      if (qty <= 0) {
+        toast.error(`Informe a quantidade do sabor "${catalog?.productFlavors?.find(f => f.id === fId)?.name}".`);
+        return;
+      }
+      const flavorName = catalog?.productFlavors?.find(f => f.id === fId)?.name ?? "";
+      const flavorAdditionalPrice = catalog?.productFlavors?.find(f => f.id === fId)?.additionalPrice
+        ? parseFloat(catalog.productFlavors.find(f => f.id === fId)!.additionalPrice)
+        : 0;
+      const unitPrice = flavorProduct.price + flavorAdditionalPrice;
+      itemsToAdd.push({
+        type: "product",
+        id: `p-${flavorProduct.id}-${fId}-${Date.now()}`,
+        label: `${flavorProduct.name} (${flavorName})`,
+        quantity: qty,
+        unitPrice,
+        subtotal: qty * unitPrice,
+        productId: flavorProduct.id,
+        flavorIds: [fId],
+        flavorNames: [flavorName],
+      });
+    }
+
+    setCart(prev => [...prev, ...itemsToAdd]);
     setFlavorProduct(null);
     setSelectedFlavorIds([]);
-    setFlavorQty(1);
-    toast.success("Produto adicionado ao pedido!");
+    setFlavorQuantities({});
+    toast.success(`${itemsToAdd.length} item(ns) adicionado(s) ao pedido!`);
   };
 
   const confirmCategoryProducts = () => {
@@ -384,6 +418,11 @@ export default function SellerNewOrder() {
     if (!flavorProduct || !catalog?.productFlavors) return [];
     return catalog.productFlavors.filter(f => f.productId === flavorProduct.id && f.active);
   }, [flavorProduct, catalog]);
+
+  // Total quantity across all selected flavors
+  const totalFlavorQty = useMemo(() => {
+    return selectedFlavorIds.reduce((sum, fId) => sum + (flavorQuantities[fId] || 0), 0);
+  }, [selectedFlavorIds, flavorQuantities]);
 
   // Disable editing if status is not "production"
   const isDisabled = isEditMode && existingOrder && existingOrder.status !== "production";
@@ -736,11 +775,11 @@ export default function SellerNewOrder() {
         </DialogContent>
       </Dialog>
 
-      {/* Flavor Selection Dialog */}
-      <Dialog open={flavorProduct !== null} onOpenChange={(open) => { if (!open) { setFlavorProduct(null); setSelectedFlavorIds([]); } }}>
+      {/* Flavor Selection Dialog with Per-Flavor Quantities */}
+      <Dialog open={flavorProduct !== null} onOpenChange={(open) => { if (!open) { setFlavorProduct(null); setSelectedFlavorIds([]); setFlavorQuantities({}); } }}>
         <DialogContent className="max-w-sm max-h-[80vh] flex flex-col p-0 overflow-hidden">
           <DialogHeader className="p-4 border-b border-border">
-            <DialogTitle>{flavorProduct?.name} - Sabores</DialogTitle>
+            <DialogTitle>{flavorProduct?.name} - Escolha os Sabores</DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <div className="flex items-center justify-between">
@@ -755,36 +794,65 @@ export default function SellerNewOrder() {
               {availableFlavors.map(f => {
                 const selected = selectedFlavorIds.includes(f.id);
                 return (
-                  <Button
-                    key={f.id}
-                    variant={selected ? "default" : "outline"}
-                    className={`h-12 justify-between border-border ${selected ? "bg-primary shadow-md shadow-primary/20" : ""}`}
-                    onClick={() => toggleFlavor(f.id)}
-                  >
-                    <span>{f.name}</span>
-                    <div className="flex items-center gap-2">
-                      {f.additionalPrice && parseFloat(f.additionalPrice) > 0 && (
-                        <span className="text-xs opacity-70">+{fmt(parseFloat(f.additionalPrice))}</span>
-                      )}
-                      {selected && <Check className="w-4 h-4" />}
+                  <div key={f.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl border transition-colors ${
+                    selected ? "bg-primary/10 border-primary/30" : "bg-accent/20 border-border/40"
+                  }`}>
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <Button
+                        variant={selected ? "default" : "outline"}
+                        size="sm"
+                        className="w-8 h-8 p-0 shrink-0 rounded-full"
+                        onClick={() => toggleFlavor(f.id)}
+                      >
+                        {selected ? <Check className="w-4 h-4" /> : <span className="text-[10px] w-3 h-3 flex items-center justify-center">+</span>}
+                      </Button>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground">{f.name}</p>
+                        {f.additionalPrice && parseFloat(f.additionalPrice) > 0 && (
+                          <p className="text-[10px] text-muted-foreground">+{fmt(parseFloat(f.additionalPrice))}</p>
+                        )}
+                      </div>
                     </div>
-                  </Button>
+                    {/* Per-flavor quantity controls */}
+                    {selected && (
+                      <div className="flex items-center gap-1.5 bg-background rounded-lg p-1 border border-border/50 shrink-0">
+                        <Button variant="ghost" size="icon" className="w-7 h-7 rounded-md" onClick={() => changeFlavorQty(f.id, -1)}>
+                          <Minus className="w-3 h-3" />
+                        </Button>
+                        <span className="text-sm font-bold min-w-[1.5rem] text-center">{flavorQuantities[f.id] || 1}</span>
+                        <Button variant="ghost" size="icon" className="w-7 h-7 rounded-md" onClick={() => changeFlavorQty(f.id, 1)}>
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
 
             {selectedFlavorIds.length > 0 && (
-              <div className="space-y-4 pt-2 flex flex-col items-center">
+              <div className="space-y-3 pt-2 flex flex-col items-center">
                 <Separator className="bg-border/50" />
-                <Label className="text-xs text-muted-foreground">Quantidade</Label>
-                <div className="flex items-center gap-6 bg-accent/30 p-4 rounded-2xl border border-border/50">
-                  <Button variant="outline" size="icon" className="w-12 h-12 rounded-xl" onClick={() => setFlavorQty(Math.max(1, flavorQty - 1))}>
-                    <Minus className="w-5 h-5" />
-                  </Button>
-                  <span className="text-3xl font-black min-w-[3rem] text-center">{flavorQty}</span>
-                  <Button variant="outline" size="icon" className="w-12 h-12 rounded-xl" onClick={() => setFlavorQty(flavorQty + 1)}>
-                    <Plus className="w-5 h-5" />
-                  </Button>
+                <div className="w-full bg-accent/20 rounded-xl p-3 border border-border/50">
+                  <p className="text-xs text-muted-foreground mb-2">Resumo da seleção:</p>
+                  <div className="space-y-1.5">
+                    {selectedFlavorIds.map(fId => {
+                      const flavor = catalog?.productFlavors?.find(f => f.id === fId);
+                      const qty = flavorQuantities[fId] || 1;
+                      return (
+                        <div key={fId} className="flex justify-between text-sm">
+                          <span className="text-foreground">{flavor?.name ?? "—"}</span>
+                          <span className="font-semibold text-primary">{qty} un.</span>
+                        </div>
+                      );
+                    })}
+                    <div className="border-t border-border/50 pt-1.5 mt-1">
+                      <div className="flex justify-between text-sm font-semibold">
+                        <span className="text-foreground">Total de unidades</span>
+                        <span className="text-foreground">{totalFlavorQty}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <Button className="w-full font-bold h-12" onClick={confirmFlavorProduct}>
                   Confirmar e Adicionar
