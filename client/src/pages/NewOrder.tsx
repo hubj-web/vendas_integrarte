@@ -125,16 +125,39 @@ export default function NewOrder() {
     if (!mpSelectedType || mpSelectedFlavors.length === 0) return;
     const t = mpTypes.find(t => t.id === mpSelectedType)!;
     const selectedFlavors = mpFlavors.filter(f => mpSelectedFlavors.includes(f.id));
-    
     const price = parseFloat(t.price);
-    const tempId = `mp_${Date.now()}`;
 
-    setCart(prev => [...prev, {
-      type: "minipizza", tempId, typeId: t.id, typeName: t.name,
-      flavorNames: selectedFlavors.map(f => f.name),
-      flavorIds: mpSelectedFlavors,
-      price, quantity: mpQty,
-    }]);
+    setCart(prev => {
+      // Procura se já existe esse tipo de minipizza no carrinho
+      const existingIdx = prev.findIndex(i => i.type === "minipizza" && (i as CartMinipizza).typeId === t.id);
+      
+      if (existingIdx >= 0) {
+        // Se já existe, apenas atualiza os sabores do item existente, SEM criar nova linha e SEM somar preços
+        const updated = [...prev];
+        const existing = updated[existingIdx] as CartMinipizza;
+        
+        // Unifica os IDs de sabores sem duplicar
+        const newFlavorIds = Array.from(new Set([...existing.flavorIds, ...mpSelectedFlavors]));
+        const newFlavorNames = mpFlavors.filter(f => newFlavorIds.includes(f.id)).map(f => f.name);
+
+        updated[existingIdx] = {
+          ...existing,
+          flavorNames: newFlavorNames,
+          flavorIds: newFlavorIds,
+          // A quantidade e o preço permanecem os mesmos do pacote já existente
+        };
+        return updated;
+      }
+
+      // Se não existe, adiciona como um novo item único
+      const tempId = `mp_${t.id}`;
+      return [...prev, {
+        type: "minipizza", tempId, typeId: t.id, typeName: t.name,
+        flavorNames: selectedFlavors.map(f => f.name),
+        flavorIds: mpSelectedFlavors,
+        price, quantity: 1, // Sempre começa com 1 pacote
+      }];
+    });
     setMpDialogOpen(false);
   }
 
