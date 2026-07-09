@@ -107,6 +107,7 @@ const productsRouter = router({
         productTypeId: products.productTypeId,
         categoryId: products.categoryId,
         categoryName: productCategories.name,
+        supplierId: products.supplierId,
       })
         .from(products)
         .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
@@ -123,6 +124,7 @@ const productsRouter = router({
     .input(z.object({
       name: z.string().min(2), categoryId: z.number(),
       unit: z.string().min(1), price: z.string(),
+      supplierId: z.number().nullable().optional(),
       description: z.string().optional(), active: z.boolean().default(true),
     }))
     .mutation(async ({ input }) => {
@@ -135,6 +137,7 @@ const productsRouter = router({
         productTypeId: 1, // legacy field, kept for backward compat
         unit: input.unit,
         price: input.price,
+        supplierId: input.supplierId,
         description: input.description,
         active: input.active,
       });
@@ -145,8 +148,8 @@ const productsRouter = router({
     .input(z.object({
       id: z.number(), name: z.string().min(2).optional(),
       categoryId: z.number().optional(), unit: z.string().optional(),
-      price: z.string().optional(), description: z.string().optional(),
-      active: z.boolean().optional(),
+      price: z.string().optional(), supplierId: z.number().nullable().optional(),
+      description: z.string().optional(), active: z.boolean().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -245,6 +248,20 @@ const minipizzaTypesRouter = router({
     if (!db) return [];
     return db.select().from(minipizzaTypes).orderBy(asc(minipizzaTypes.name));
   }),
+  update: adminProcedure
+    .input(z.object({
+      id: z.number(),
+      supplierId: z.number().nullable().optional(),
+      price: z.string().optional(),
+      active: z.boolean().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { id, ...data } = input;
+      await db.update(minipizzaTypes).set(data).where(eq(minipizzaTypes.id, id));
+      return { success: true };
+    }),
 });
 
 // ─── MINIPIZZA FLAVORS (legacy) ──────────────────────────────────────────────

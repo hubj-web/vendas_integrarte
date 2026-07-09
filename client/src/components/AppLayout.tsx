@@ -26,12 +26,14 @@ const navItems: NavItem[] = [
   { label: "Rotas de Entrega", href: "/admin/rotas", icon: MapPin },
   { label: "Entregas", href: "/admin/entregas-pagamentos", icon: Truck },
   { label: "Relatórios", href: "/admin/relatorios", icon: BarChart3 },
+  { label: "Produção/Fornecedores", href: "/admin/relatorio-producao", icon: Package },
   { label: "Exportações", href: "/admin/exportar", icon: Download },
 ];
 
 const adminNavItems: NavItem[] = [
   { label: "Categorias", href: "/admin/config/categorias", icon: Tag },
   { label: "Produtos", href: "/admin/config/produtos", icon: Package },
+  { label: "Fornecedores", href: "/admin/config/fornecedores", icon: Truck },
   { label: "Formas de Entrega", href: "/admin/config/formas-entrega", icon: Truck },
   { label: "Usuários", href: "/admin/config/usuarios", icon: Users },
   { label: "Backup", href: "/admin/config/backup", icon: Database },

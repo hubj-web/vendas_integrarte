@@ -58,12 +58,25 @@ export const productTypes = mysqlTable("product_types", {
 
 export type ProductType = typeof productTypes.$inferSelect;
 
+// ─── SUPPLIERS ────────────────────────────────────────────────────────────────
+export const suppliers = mysqlTable("suppliers", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 150 }).notNull(),
+  contactName: varchar("contactName", { length: 150 }),
+  phone: varchar("phone", { length: 50 }),
+  email: varchar("email", { length: 150 }),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 // ─── PRODUCTS ─────────────────────────────────────────────────────────────────
 export const products = mysqlTable("products", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 150 }).notNull(),
   categoryId: int("categoryId"),
   productTypeId: int("productTypeId").notNull(),
+  supplierId: int("supplierId"), // Relacionamento com fornecedor
   unit: varchar("unit", { length: 50 }).notNull(),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   description: text("description"),
@@ -105,6 +118,7 @@ export const minipizzaTypes = mysqlTable("minipizza_types", {
   name: varchar("name", { length: 150 }).notNull(),
   units: int("units").notNull(),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  supplierId: int("supplierId"), // Relacionamento com fornecedor
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

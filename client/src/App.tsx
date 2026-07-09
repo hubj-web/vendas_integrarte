@@ -30,6 +30,8 @@ import DeliveryPayments from "./pages/DeliveryPayments";
 import Reports from "./pages/Reports";
 import Categories from "./pages/admin/Categories";
 import Products from "./pages/admin/Products";
+import Suppliers from "./pages/admin/Suppliers";
+import ProductionReport from "./pages/admin/ProductionReport";
 import ProductTypes from "./pages/admin/ProductTypes";
 import Minipizzas from "./pages/admin/Minipizzas";
 import Jellies from "./pages/admin/Jellies";
@@ -102,6 +104,9 @@ function Router() {
       <Route path="/admin/config/produtos">
         <AdminGuard><AppLayout><Products /></AppLayout></AdminGuard>
       </Route>
+      <Route path="/admin/config/fornecedores">
+        <AdminGuard><AppLayout><Suppliers /></AppLayout></AdminGuard>
+      </Route>
       <Route path="/admin/config/tipos">
         <AdminGuard><AppLayout><ProductTypes /></AppLayout></AdminGuard>
       </Route>
@@ -139,6 +144,9 @@ function Router() {
       </Route>
       <Route path="/admin/relatorios">
         <AdminGuard><AppLayout><Reports /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/relatorio-producao">
+        <AdminGuard><AppLayout><ProductionReport /></AppLayout></AdminGuard>
       </Route>
       <Route path="/admin/exportar">
         <AdminGuard><Exports /></AdminGuard>

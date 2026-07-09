@@ -20,6 +20,7 @@ type Product = {
   productTypeId: number;
   categoryId: number | null; categoryName: string | null;
   maxFlavors: number | null;
+  supplierId: number | null;
 };
 
 type Flavor = {
@@ -33,6 +34,7 @@ const units = ["bandeja", "caixa", "pote", "unidade", "pacote", "kg", "g", "litr
 export default function Products() {
   const utils = trpc.useUtils();
   const { data: categories = [] } = trpc.catalog.categories.list.useQuery();
+  const { data: suppliers = [] } = trpc.suppliers.list.useQuery();
   const { data: products = [], isLoading } = trpc.catalog.products.list.useQuery();
   const createMutation = trpc.catalog.products.create.useMutation({
     onSuccess: () => { utils.catalog.products.list.invalidate(); toast.success("Produto criado!"); setOpen(false); },
@@ -68,7 +70,7 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
 
-  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", description: "", active: true, maxFlavors: "0" });
+  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", description: "", active: true, maxFlavors: "0", supplierId: "" });
 
   // Flavor management dialog
   const [showFlavors, setShowFlavors] = useState(false);
@@ -76,7 +78,7 @@ export default function Products() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ name: "", categoryId: "", unit: "unidade", price: "", description: "", active: true, maxFlavors: "0" });
+    setForm({ name: "", categoryId: "", unit: "unidade", price: "", description: "", active: true, maxFlavors: "0", supplierId: "" });
     setOpen(true);
   }
 
@@ -90,6 +92,7 @@ export default function Products() {
       description: p.description ?? "",
       active: p.active,
       maxFlavors: String(p.maxFlavors ?? 0),
+      supplierId: p.supplierId ? String(p.supplierId) : "",
     });
     setOpen(true);
   }
@@ -106,6 +109,7 @@ export default function Products() {
     const categoryId = parseInt(form.categoryId);
     const maxFlavors = parseInt(form.maxFlavors) || 0;
 
+    const supplierId = form.supplierId ? parseInt(form.supplierId) : null;
     if (editing) {
       updateMutation.mutate({
         id: editing.id,
@@ -113,6 +117,7 @@ export default function Products() {
         categoryId,
         unit: form.unit,
         price: form.price,
+        supplierId,
         description: form.description,
         active: form.active,
         maxFlavors,
@@ -123,6 +128,7 @@ export default function Products() {
         categoryId,
         unit: form.unit,
         price: form.price,
+        supplierId,
         description: form.description || undefined,
         active: form.active,
         maxFlavors,
@@ -289,6 +295,16 @@ export default function Products() {
               <p className="text-xs text-muted-foreground">
                 Defina quantos sabores o cliente pode escolher. 0 = produto sem sabores.
               </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Fornecedor</Label>
+              <Select value={form.supplierId} onValueChange={v => setForm(f => ({ ...f, supplierId: v }))}>
+                <SelectTrigger className="bg-input"><SelectValue placeholder="Selecione o fornecedor (opcional)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem fornecedor</SelectItem>
+                  {suppliers.filter(s => s.active).map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label>Descrição</Label>
