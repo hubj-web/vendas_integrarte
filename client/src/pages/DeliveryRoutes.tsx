@@ -50,7 +50,7 @@ export default function DeliveryRoutes() {
     onError: (e) => toast.error(e.message),
   });
 
-  const deleteRoutesMutation = trpc.routeOptimization.deleteRoutes.useMutation({
+  const deleteRoutesMutation = trpc.delivery.routes.delete.useMutation({
     onSuccess: (data) => {
       utils.delivery.routes.list.invalidate();
       utils.delivery.routes.availableOrders.invalidate({});

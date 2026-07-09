@@ -155,6 +155,36 @@ const routesRouter = router({
       return { success: true };
     }),
 
+  // Delete routes (returns orders to production)
+  delete: protectedProcedure
+    .input(z.object({ routeIds: z.array(z.number()) }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Get all orderIds from the routes being deleted
+      const routeOrderRows = await db.select({ orderId: routeOrders.orderId })
+        .from(routeOrders)
+        .where(inArray(routeOrders.routeId, input.routeIds));
+
+      const orderIds = routeOrderRows.map(r => r.orderId);
+
+      // Remove route_orders entries
+      await db.delete(routeOrders).where(inArray(routeOrders.routeId, input.routeIds));
+
+      // Remove delivery_routes entries
+      await db.delete(deliveryRoutes).where(inArray(deliveryRoutes.id, input.routeIds));
+
+      // Return orders to production status
+      if (orderIds.length > 0) {
+        await db.update(orders)
+          .set({ status: "production" })
+          .where(inArray(orders.id, orderIds));
+      }
+
+      return { success: true, deletedCount: input.routeIds.length, orderIds };
+    }),
+
   // Orders available for routing (in_route or production with delivery date)
   availableOrders: protectedProcedure
     .input(z.object({ deliveryDate: z.string().optional() }))

@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { eq, and, gte, lte, desc, sql, count, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, desc, sql, count, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import {
   orders, orderItems, orderMinipizzas, orderJellies,
@@ -135,13 +135,26 @@ export const reportsRouter = router({
       const to = new Date(input.dateTo);
       to.setHours(23, 59, 59);
 
-      // 1. Fetch orders in the period by deliveryDate (not createdAt!)
-      const orderRows = await db.select({ id: orders.id, deliveryDate: orders.deliveryDate })
+      // 1. Fetch orders in the period
+      // Use deliveryDate if set, otherwise fallback to createdAt
+      // This ensures orders without deliveryDate are still found
+      const orderRows = await db.select({ id: orders.id, deliveryDate: orders.deliveryDate, createdAt: orders.createdAt })
         .from(orders)
         .where(and(
-          gte(orders.deliveryDate, from),
-          lte(orders.deliveryDate, to),
-          sql`${orders.status} != 'cancelled'`
+          sql`${orders.status} != 'cancelled'`,
+          or(
+            // Orders with deliveryDate in the range
+            and(
+              gte(orders.deliveryDate, from),
+              lte(orders.deliveryDate, to)
+            ),
+            // Orders without deliveryDate but createdAt in the range
+            and(
+              isNull(orders.deliveryDate),
+              gte(orders.createdAt, from),
+              lte(orders.createdAt, to)
+            )
+          )
         ));
 
       if (orderRows.length === 0) return [];
@@ -156,14 +169,13 @@ export const reportsRouter = router({
         quantity: orderItems.quantity,
         orderItemId: orderItems.id,
         orderId: orderItems.orderId,
-        type: sql<"product">`'product'`,
       })
         .from(orderItems)
         .leftJoin(products, eq(orderItems.productId, products.id))
         .where(inArray(orderItems.orderId, orderIds));
 
       // 3. Fetch flavors for these items
-      const itemIds = items.filter(i => i.type === "product").map(i => i.orderItemId);
+      const itemIds = items.map(i => i.orderItemId);
       const flavorMap: Record<number, string[]> = {};
       if (itemIds.length > 0) {
         const flavorRows = await db.select({
@@ -181,30 +193,27 @@ export const reportsRouter = router({
 
       // 4. Fetch legacy minipizzas (with supplierId from minipizzaTypes)
       const minipizzaItems = await db.select({
-        productId: sql<number>`-1`,
+        productId: orderMinipizzas.minipizzaTypeId,
         productName: minipizzaTypes.name,
         unit: sql<string>`'unidade'`,
         supplierId: minipizzaTypes.supplierId,
         quantity: orderMinipizzas.quantity,
-        orderItemId: sql<number>`-1`,
         orderId: orderMinipizzas.orderId,
-        type: sql<"minipizza">`'minipizza'`,
       })
         .from(orderMinipizzas)
         .leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
         .where(inArray(orderMinipizzas.orderId, orderIds));
 
-      // 5. Fetch minipizza flavors
-      const minipizzaOrderIds = minipizzaItems.map(m => m.orderId);
+      // 5. Fetch minipizza flavors per order
       const minipizzaFlavorMap: Record<number, string[]> = {};
-      if (minipizzaOrderIds.length > 0) {
+      if (minipizzaItems.length > 0) {
         const mpFlavorRows = await db.select({
           orderMinipizzaId: orderMinipizzaFlavors.orderMinipizzaId,
           flavorName: minipizzaFlavors.name,
         })
           .from(orderMinipizzaFlavors)
           .leftJoin(minipizzaFlavors, eq(orderMinipizzaFlavors.minipizzaFlavorId, minipizzaFlavors.id))
-          .where(inArray(orderMinipizzaFlavors.orderMinipizzaId, minipizzaOrderIds));
+          .where(inArray(orderMinipizzaFlavors.orderMinipizzaId, minipizzaItems.map(m => m.productId as unknown as number)));
 
         mpFlavorRows.forEach(f => {
           if (!f.flavorName) return;
@@ -215,14 +224,12 @@ export const reportsRouter = router({
 
       // 6. Fetch legacy jellies (no supplier)
       const jellyItems = await db.select({
-        productId: sql<number>`-2`,
+        productId: orderJellies.jellyFlavorId,
         productName: jellyFlavors.name,
         unit: sql<string>`'unidade'`,
-        supplierId: sql<number>`null`,
+        supplierId: sql<number>`NULL`,
         quantity: orderJellies.quantity,
-        orderItemId: sql<number>`-1`,
         orderId: orderJellies.orderId,
-        type: sql<"jelly">`'jelly'`,
       })
         .from(orderJellies)
         .leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
@@ -257,15 +264,8 @@ export const reportsRouter = router({
       // Process legacy minipizzas
       minipizzaItems.forEach(mp => {
         const sId = mp.supplierId || 0;
-        // Minipizza flavors are per order, not per type — collect all flavors for this type in these orders
-        const mpFlavors: string[] = [];
-        minipizzaOrderIds.forEach((oid, idx) => {
-          if (oid === mp.orderId) {
-            const mpFl = minipizzaFlavorMap[oid] || [];
-            mpFl.forEach(f => mpFlavors.push(f));
-          }
-        });
-        addItem(sId, mp.productName || "Minipizza", mp.quantity, "unidade", mpFlavors);
+        const flavors = minipizzaFlavorMap[mp.orderId] || [];
+        addItem(sId, mp.productName || "Minipizza", mp.quantity, "unidade", flavors);
       });
 
       // Process legacy jellies
