@@ -253,7 +253,15 @@ function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAd
   const chunkSize = 10;
   const mapLinks: string[] = [];
   
-  const buildAddr = (o: any) => o.deliveryAddress || [o.customerStreet, o.customerNumber, o.customerNeighborhood, o.customerCity, "MG"].filter(Boolean).join(", ");
+  const buildAddr = (o: any) => {
+    // Para Google Maps: apenas rua, número, bairro, cidade e CEP
+    const parts = [o.customerStreet, o.customerNumber, o.customerNeighborhood, o.customerCity].filter(Boolean);
+    if (o.customerZipCode) parts.push(o.customerZipCode);
+    if (parts.length > 0) return parts.join(", ");
+    // Fallback para deliveryAddress (que pode conter referência) — limpar parênteses
+    if (o.deliveryAddress) return o.deliveryAddress.replace(/\s*\([^)]*\)/g, "").trim();
+    return "";
+  };
 
   for (let i = 0; i < route.orders.length; i += chunkSize) {
     const chunk = route.orders.slice(i, i + chunkSize);

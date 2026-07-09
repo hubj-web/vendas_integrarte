@@ -55,12 +55,14 @@ export default function SellerNewOrder() {
     phone: string;
     street?: string | null;
     number?: string | null;
+    complement?: string | null;
     neighborhood?: string | null;
     city?: string | null;
+    zipCode?: string | null;
     locationReference?: string | null;
   } | null>(null);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", locationReference: "", street: "", number: "", complement: "", neighborhood: "", city: "" });
+  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", locationReference: "", street: "", number: "", complement: "", neighborhood: "", city: "", zipCode: "" });
 
   const { data: searchResults } = trpc.seller.searchCustomers.useQuery(
     { query: customerSearch },
@@ -78,10 +80,11 @@ export default function SellerNewOrder() {
         complement: newCustomer.complement,
         neighborhood: newCustomer.neighborhood,
         city: newCustomer.city,
-        locationReference: newCustomer.locationReference
+        locationReference: newCustomer.locationReference,
+        zipCode: newCustomer.zipCode || undefined
       });
       setShowNewCustomer(false);
-      setNewCustomer({ name: "", phone: "", locationReference: "", street: "", number: "", complement: "", neighborhood: "", city: "" });
+      setNewCustomer({ name: "", phone: "", locationReference: "", street: "", number: "", complement: "", neighborhood: "", city: "", zipCode: "" });
       toast.success("Cliente cadastrado!");
     },
     onError: (e) => toast.error(e.message),
@@ -169,6 +172,7 @@ export default function SellerNewOrder() {
     id: number; name: string; price: number; maxFlavors: number;
   } | null>(null);
   const [selectedFlavorIds, setSelectedFlavorIds] = useState<number[]>([]);
+  const [flavorQuantities, setFlavorQuantities] = useState<Record<number, number>>({});
 
 
   const totalAmount = useMemo(() => cart.reduce((s, i) => s + i.subtotal, 0), [cart]);
@@ -336,8 +340,8 @@ export default function SellerNewOrder() {
     let finalAddress = deliveryAddress;
     if (deliveryAddressOption === "customer" && selectedCustomer) {
       const c = selectedCustomer as any;
+      // Apenas rua, número, bairro e cidade para o Google Maps
       finalAddress = [c.street, c.number, c.neighborhood, c.city].filter(Boolean).join(", ");
-      if (c.locationReference) finalAddress += ` (${c.locationReference})`;
     }
 
     if (!seller) return;
@@ -842,6 +846,10 @@ export default function SellerNewOrder() {
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Cidade</Label>
               <Input value={newCustomer.city} onChange={(e) => setNewCustomer({ ...newCustomer, city: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">CEP</Label>
+              <Input value={newCustomer.zipCode} onChange={(e) => setNewCustomer({ ...newCustomer, zipCode: e.target.value })} className="bg-input border-border" placeholder="00000-000" />
             </div>
             <Button
               className="w-full font-bold"

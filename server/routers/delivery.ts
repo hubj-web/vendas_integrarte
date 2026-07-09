@@ -73,6 +73,7 @@ const routesRouter = router({
         deliveryAddress: orders.deliveryAddress,
         customerStreet: customers.street, customerNumber: customers.number,
         customerNeighborhood: customers.neighborhood, customerCity: customers.city,
+        customerZipCode: customers.zipCode,
       })
         .from(routeOrders)
         .leftJoin(orders, eq(routeOrders.orderId, orders.id))
@@ -199,6 +200,7 @@ const routesRouter = router({
         customerName: customers.name, customerPhone: customers.phone,
         customerStreet: customers.street, customerNumber: customers.number,
         customerNeighborhood: customers.neighborhood, customerCity: customers.city,
+        customerZipCode: customers.zipCode,
         deliveryMethodName: deliveryMethods.name,
       })
         .from(orders)

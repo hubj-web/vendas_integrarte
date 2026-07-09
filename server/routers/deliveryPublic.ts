@@ -32,7 +32,7 @@ async function requireDelivery(userId: number) {
 
 /**
  * Monta o endereço completo de um pedido para uso no Google Maps.
- * Prioriza deliveryAddress; fallback para rua + número + bairro + cidade.
+ * Usa apenas rua, número, bairro, cidade e CEP — sem referência ou complemento.
  */
 function buildAddress(item: {
   deliveryAddress: string | null;
@@ -40,19 +40,19 @@ function buildAddress(item: {
   customerNumber: string | null;
   customerNeighborhood: string | null;
   customerCity: string | null;
+  customerZipCode?: string | null;
 }): string {
+  // Primeiro tenta montar com campos estruturados (mais confiável para o Maps)
+  const parts = [item.customerStreet, item.customerNumber, item.customerNeighborhood, item.customerCity].filter(Boolean);
+  if (item.customerZipCode) parts.push(item.customerZipCode);
+  if (parts.length > 0) return parts.join(", ");
+  
+  // Fallback: deliveryAddress, mas limpando referências entre parênteses
   if (item.deliveryAddress && item.deliveryAddress.trim()) {
-    return item.deliveryAddress.trim();
+    return item.deliveryAddress.replace(/\s*\([^)]*\)/g, "").trim();
   }
-  return [
-    item.customerStreet,
-    item.customerNumber,
-    item.customerNeighborhood,
-    item.customerCity,
-    "MG",
-  ]
-    .filter(Boolean)
-    .join(", ");
+  
+  return "";
 }
 
 export const deliveryPublicRouter = router({
@@ -138,6 +138,7 @@ export const deliveryPublicRouter = router({
           customerNumber: customers.number,
           customerNeighborhood: customers.neighborhood,
           customerCity: customers.city,
+          customerZipCode: customers.zipCode,
           deliveryAddress: orders.deliveryAddress,
           totalAmount: orders.totalAmount,
           paymentMethod: orders.paymentMethod,

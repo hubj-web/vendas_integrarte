@@ -379,7 +379,7 @@ export default function OptimizedRouteGenerator() {
                                   <div className="flex-1 min-w-0">
                                     <p className="text-sm font-medium">{o.customerName}</p>
                                     <p className="text-xs text-muted-foreground truncate">
-                                      {o.deliveryAddress || `${o.customerStreet}, ${o.customerNumber}`}
+                                      {[o.customerStreet, o.customerNumber, o.customerNeighborhood, o.customerCity].filter(Boolean).join(", ") || o.deliveryAddress?.replace(/\s*\([^)]*\)/g, "").trim() || "Sem endereço"}
                                     </p>
                                   </div>
                                   <Badge variant="secondary" className="text-[10px]">{o.deliveryMethodName}</Badge>
@@ -405,7 +405,7 @@ export default function OptimizedRouteGenerator() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium">{o.customerName}</p>
                           <p className="text-xs text-muted-foreground truncate">
-                            {o.customerNeighborhood} · {o.deliveryAddress || `${o.customerStreet}, ${o.customerNumber}`}
+                            {[o.customerNeighborhood, o.customerCity].filter(Boolean).join(" · ") || "Sem endereço"}
                           </p>
                         </div>
                         <Badge variant="secondary" className="text-[10px]">{o.deliveryMethodName}</Badge>
