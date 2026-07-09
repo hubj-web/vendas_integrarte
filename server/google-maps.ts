@@ -75,7 +75,51 @@ interface OptimizationResponse {
 
 export const googleMapsClient = {
   isConfigured(): boolean {
-    return !!ENV.googleMapsApiKey && !!ENV.googleCloudProjectId;
+    const hasKey = !!ENV.googleMapsApiKey;
+    const hasProjectId = !!ENV.googleCloudProjectId;
+    
+    if (!hasKey || !hasProjectId) {
+      console.warn(
+        "[Google Maps] Configuração incompleta:",
+        {
+          hasApiKey: hasKey ? "✓ configurada" : "✗ FALTANDO",
+          hasProjectId: hasProjectId ? "✓ configurada" : "✗ FALTANDO",
+          apiKeyLength: ENV.googleMapsApiKey?.length || 0,
+          projectIdLength: ENV.googleCloudProjectId?.length || 0,
+        }
+      );
+    }
+    
+    return hasKey && hasProjectId;
+  },
+
+  /**
+   * Converte um endereço em texto para coordenadas usando a Geocoding API
+   */
+  async geocode(address: string): Promise<Location | null> {
+    if (!this.isConfigured()) return null;
+    
+    try {
+      const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+      url.searchParams.append("address", address);
+      url.searchParams.append("key", ENV.googleMapsApiKey);
+      
+      const response = await fetch(url.toString());
+      if (!response.ok) return null;
+      
+      const data = await response.json();
+      if (data.status === "OK" && data.results?.[0]?.geometry?.location) {
+        const loc = data.results[0].geometry.location;
+        return {
+          latitude: loc.lat,
+          longitude: loc.lng
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error("[Google Maps] Erro na geocodificação:", error);
+      return null;
+    }
   },
 
   /**

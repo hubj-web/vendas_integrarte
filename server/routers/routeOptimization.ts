@@ -31,17 +31,52 @@ interface OrderWithLocation {
 }
 
 function buildFullAddress(o: OrderWithLocation): string {
-  if (o.deliveryAddress) return o.deliveryAddress;
-  return [o.customerStreet, o.customerNumber, o.customerNeighborhood, o.customerCity, "MG"]
-    .filter(Boolean).join(", ");
+  if (o.deliveryAddress && o.deliveryAddress.length > 10) return o.deliveryAddress;
+  const parts = [o.customerStreet, o.customerNumber, o.customerNeighborhood, o.customerCity, "MG"];
+  return parts.filter(Boolean).join(", ");
 }
+
+// Coordenadas aproximadas dos bairros de Uberlândia para fallback imediato
+const NEIGHBORHOOD_COORDS: Record<string, { lat: number; lng: number }> = {
+  "centro": { lat: -18.9186, lng: -48.2772 },
+  "fundinho": { lat: -18.9220, lng: -48.2790 },
+  "santa monica": { lat: -18.9190, lng: -48.2580 },
+  "jardim finotti": { lat: -18.9250, lng: -48.2620 },
+  "segismundo pereira": { lat: -18.9320, lng: -48.2450 },
+  "tibery": { lat: -18.9050, lng: -48.2550 },
+  "brasil": { lat: -18.9050, lng: -48.2750 },
+  "aparecida": { lat: -18.9100, lng: -48.2650 },
+  "martins": { lat: -18.9150, lng: -48.2850 },
+  "osvaldo rezende": { lat: -18.9200, lng: -48.2900 },
+  "bom jesus": { lat: -18.9100, lng: -48.2950 },
+  "patrimonio": { lat: -18.9400, lng: -48.2850 },
+  "copacabana": { lat: -18.9500, lng: -48.2900 },
+  "sao jorge": { lat: -18.9650, lng: -48.2750 },
+  "laranjal": { lat: -18.9600, lng: -48.2600 },
+  "dom almir": { lat: -18.9350, lng: -48.2100 },
+  "joana darc": { lat: -18.9400, lng: -48.2000 },
+  "mansour": { lat: -18.9150, lng: -48.3300 },
+  "luizote de freitas": { lat: -18.9050, lng: -48.3250 },
+  "jardim patricia": { lat: -18.9250, lng: -48.3200 },
+  "dona zulmira": { lat: -18.8950, lng: -48.3150 },
+  "taiaman": { lat: -18.8850, lng: -48.3300 },
+  "guarani": { lat: -18.8800, lng: -48.3000 },
+  "uuarani": { lat: -18.8800, lng: -48.3000 },
+  "tocantins": { lat: -18.8700, lng: -48.3150 },
+  "canaan": { lat: -18.8750, lng: -48.3300 },
+  "industrial": { lat: -18.8600, lng: -48.2800 },
+  "distrito industrial": { lat: -18.8500, lng: -48.2700 },
+  "aclimacao": { lat: -18.8900, lng: -48.2300 },
+  "custodio pereira": { lat: -18.8950, lng: -48.2500 },
+  "uuarujá": { lat: -18.8850, lng: -48.2400 },
+  "altamira": { lat: -18.9450, lng: -48.2650 },
+  "gávea": { lat: -18.9550, lng: -48.2600 },
+  "shopping park": { lat: -18.9800, lng: -48.2800 },
+};
 
 // ─── ROUTER ──────────────────────────────────────────────────────────────────
 
 export const routeOptimizationRouter = router({
-  /**
-   * Lista pedidos disponíveis com filtro por tipo de entrega.
-   */
   availableOrdersForPeriod: protectedProcedure
     .input(z.object({
       dateFrom: z.string(),
@@ -91,9 +126,6 @@ export const routeOptimizationRouter = router({
       return rows as OrderWithLocation[];
     }),
 
-  /**
-   * Gera rotas otimizadas usando a Google Maps Route Optimization API
-   */
   generateOptimizedRoutes: protectedProcedure
     .input(z.object({
       selectedOrderIds: z.array(z.number()),
@@ -105,15 +137,14 @@ export const routeOptimizationRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // Verifica se a API está configurada
       if (!googleMapsClient.isConfigured()) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Google Maps API não configurada. Configure GOOGLE_MAPS_API_KEY e GOOGLE_CLOUD_PROJECT_ID.",
+          message: "Google Maps API não configurada no servidor.",
         });
       }
 
-      // 1. Busca dados completos dos pedidos selecionados
+      // 1. Busca dados dos pedidos
       const orderRows = await db
         .select({
           id: orders.id,
@@ -139,31 +170,46 @@ export const routeOptimizationRouter = router({
       if (orderRows.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum pedido encontrado." });
 
       const ordersToProcess = orderRows as OrderWithLocation[];
-      const numRoutes = Math.min(input.numRoutes, ordersToProcess.length);
+      
+      // 2. Geocodificação dos pedidos e da origem
+      console.log(`[Roteirização] Iniciando geocodificação de ${ordersToProcess.length} pedidos...`);
+      
+      const originCoords = await googleMapsClient.geocode(input.startingAddress) || { latitude: -18.9186, longitude: -48.2772 };
 
-      // 2. Prepara dados para a API do Google Maps
-      // Usa coordenadas aproximadas do bairro se não houver lat/lon
-      const shipments = ordersToProcess.map((o, idx) => ({
-        id: o.id,
-        location: {
-          latitude: o.latitude || -18.9186, // Centro de Uberlândia como fallback
-          longitude: o.longitude || -48.2772,
-        },
-        label: `Pedido #${o.id} - ${o.customerName}`,
+      const shipments = await Promise.all(ordersToProcess.map(async (o) => {
+        const fullAddress = buildFullAddress(o);
+        let coords = await googleMapsClient.geocode(fullAddress);
+        
+        // Fallback para bairro se a geocodificação falhar
+        if (!coords && o.customerNeighborhood) {
+          const neighborhood = o.customerNeighborhood.toLowerCase().trim();
+          const fallback = NEIGHBORHOOD_COORDS[neighborhood];
+          if (fallback) {
+            coords = { latitude: fallback.lat, longitude: fallback.lng };
+          }
+        }
+        
+        // Fallback final (centro) com um pequeno offset para não ficarem no mesmo ponto exato
+        if (!coords) {
+          coords = { 
+            latitude: -18.9186 + (Math.random() - 0.5) * 0.01, 
+            longitude: -48.2772 + (Math.random() - 0.5) * 0.01 
+          };
+        }
+
+        return {
+          id: o.id,
+          location: coords,
+          label: `Pedido #${o.id} - ${o.customerName}`,
+        };
       }));
 
-      // Cria veículos fictícios (sem informações específicas, apenas para divisão)
+      const numRoutes = Math.min(input.numRoutes, ordersToProcess.length);
       const vehicles = Array.from({ length: numRoutes }, (_, i) => ({
         id: i,
         displayName: `${input.routeNamePrefix} #${i + 1}`,
-        startLocation: {
-          latitude: -18.9186, // Centro de Uberlândia
-          longitude: -48.2772,
-        },
-        endLocation: {
-          latitude: -18.9186,
-          longitude: -48.2772,
-        },
+        startLocation: originCoords,
+        endLocation: originCoords,
       }));
 
       // 3. Chama a API do Google Maps
@@ -171,7 +217,7 @@ export const routeOptimizationRouter = router({
       try {
         optimizationResult = await googleMapsClient.optimizeRoutes(shipments, vehicles, {
           routeStrategy: "DEFAULT_ROUTE_STRATEGY",
-          trafficAware: false,
+          trafficAware: true,
         });
       } catch (error: any) {
         throw new TRPCError({
@@ -183,11 +229,11 @@ export const routeOptimizationRouter = router({
       if (!optimizationResult || !optimizationResult.routes) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "O Google Maps não retornou rotas válidas. Verifique se os endereços têm coordenadas ou se a API está ativa.",
+          message: "O Google Maps não conseguiu gerar rotas válidas para estes endereços.",
         });
       }
 
-      // 4. Salva as rotas otimizadas no banco de dados
+      // 4. Salva as rotas
       const createdRouteIds: number[] = [];
       const now = new Date();
 
@@ -200,13 +246,12 @@ export const routeOptimizationRouter = router({
 
         if (ordersInRoute.length === 0) continue;
 
-        // Calcula distância total da rota
-        const totalDistance = route.metrics.travelDistanceMeters / 1000; // Converte para km
+        const totalDistance = route.metrics.travelDistanceMeters / 1000;
 
         const [newRoute] = await db.insert(deliveryRoutes).values({
           name: vehicles[route.vehicleIndex]?.displayName || `${input.routeNamePrefix} #${route.vehicleIndex + 1}`,
           deliveryDate: now,
-          deliveryUserId: 0, // Será atribuído manualmente depois
+          deliveryUserId: 0,
           startingAddress: input.startingAddress,
           totalDistance: totalDistance.toFixed(2),
           status: "planned",
@@ -216,26 +261,10 @@ export const routeOptimizationRouter = router({
         const routeId = (newRoute as any).insertId;
         createdRouteIds.push(routeId);
 
-        // Insere paradas na ordem otimizada
         for (let j = 0; j < ordersInRoute.length; j++) {
           const order = ordersInRoute[j];
-          const prevOrder = j === 0 ? null : ordersInRoute[j - 1];
-          
-          // Calcula distância até esta parada (aproximada)
-          let distFromPrev = 0;
-          if (prevOrder) {
-            const prevCoords = {
-              latitude: prevOrder.latitude || -18.9186,
-              longitude: prevOrder.longitude || -48.2772,
-            };
-            const currCoords = {
-              latitude: order.latitude || -18.9186,
-              longitude: order.longitude || -48.2772,
-            };
-            // Usa a distância do visit se disponível, senão calcula aproximadamente
-            const visit = route.visits[j];
-            distFromPrev = visit?.distanceMeters ? visit.distanceMeters / 1000 : 0;
-          }
+          const visit = route.visits[j];
+          const distFromPrev = visit?.distanceMeters ? visit.distanceMeters / 1000 : 0;
 
           await db.insert(routeOrders).values({
             routeId,
@@ -252,13 +281,10 @@ export const routeOptimizationRouter = router({
         totalRoutes: createdRouteIds.length,
         totalOrders: input.selectedOrderIds.length,
         routeIds: createdRouteIds,
-        message: `${createdRouteIds.length} rota(s) otimizada(s) com sucesso usando Google Maps API!`,
+        message: `${createdRouteIds.length} rota(s) otimizada(s) com Google Maps!`,
       };
     }),
 
-  /**
-   * Atribui um entregador a uma rota.
-   */
   assignDeliverer: protectedProcedure
     .input(z.object({
       routeId: z.number(),
@@ -273,9 +299,6 @@ export const routeOptimizationRouter = router({
       return { success: true };
     }),
 
-  /**
-   * Exclui rotas e reverte pedidos para produção.
-   */
   deleteRoutes: protectedProcedure
     .input(z.object({ routeIds: z.array(z.number()) }))
     .mutation(async ({ input }) => {
