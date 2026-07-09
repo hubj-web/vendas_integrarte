@@ -151,9 +151,16 @@ export const googleMapsClient = {
       });
 
       if (!response.ok) {
-        const error = await response.text();
-        console.error("[Google Maps] Erro na otimização:", error);
-        return null;
+        const errorText = await response.text();
+        let errorMessage = errorText;
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.error?.message || errorJson.message || errorText;
+        } catch (e) {}
+        
+        console.error("[Google Maps] Erro na otimização:", errorMessage);
+        // Retornamos o erro para ser capturado no router
+        throw new Error(`Google Maps API Error: ${errorMessage}`);
       }
 
       const data = (await response.json()) as OptimizationResponse;

@@ -167,15 +167,23 @@ export const routeOptimizationRouter = router({
       }));
 
       // 3. Chama a API do Google Maps
-      const optimizationResult = await googleMapsClient.optimizeRoutes(shipments, vehicles, {
-        routeStrategy: "DEFAULT_ROUTE_STRATEGY",
-        trafficAware: false,
-      });
+      let optimizationResult;
+      try {
+        optimizationResult = await googleMapsClient.optimizeRoutes(shipments, vehicles, {
+          routeStrategy: "DEFAULT_ROUTE_STRATEGY",
+          trafficAware: false,
+        });
+      } catch (error: any) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: error.message || "Erro na comunicação com Google Maps.",
+        });
+      }
 
       if (!optimizationResult || !optimizationResult.routes) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Falha ao otimizar rotas com Google Maps API. Tente novamente.",
+          message: "O Google Maps não retornou rotas válidas. Verifique se os endereços têm coordenadas ou se a API está ativa.",
         });
       }
 
