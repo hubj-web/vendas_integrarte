@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 
 type CartItem = { type: "product"; productId: number; name: string; unit: string; price: number; quantity: number };
-type CartMinipizza = { type: "minipizza"; tempId: string; typeId: number; typeName: string; flavorIds: number[]; flavorNames: string[]; price: number; quantity: number };
+type CartMinipizza = { type: "minipizza"; tempId: string; typeId: number; typeName: string; flavorIds: number[]; flavorNames: string[]; price: number; additionalPrice: number; quantity: number };
 type CartJelly = { type: "jelly"; flavorId: number; name: string; price: number; quantity: number };
 type CartEntry = CartItem | CartMinipizza | CartJelly;
 
@@ -76,7 +76,13 @@ export default function NewOrder() {
   const selectedDeliveryMethod = deliveryMethods.find(m => String(m.id) === deliveryMethodId);
 
   // Cart helpers
-  const cartTotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  const cartTotal = cart.reduce((acc, item) => {
+    if (item.type === "minipizza") {
+      const mp = item as CartMinipizza;
+      return acc + (mp.price + mp.additionalPrice) * mp.quantity;
+    }
+    return acc + item.price * item.quantity;
+  }, 0);
   const fmt = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
   function addProduct(p: typeof products[0]) {
@@ -126,12 +132,12 @@ export default function NewOrder() {
     const t = mpTypes.find(t => t.id === mpSelectedType)!;
     const flavs = mpFlavors.filter(f => mpSelectedFlavors.includes(f.id));
     const additionalPrice = flavs.reduce((acc, f) => acc + parseFloat(f.additionalPrice ?? "0"), 0);
-    const price = parseFloat(t.price) + additionalPrice;
+    const price = parseFloat(t.price);
     const tempId = `mp_${Date.now()}`;
     setCart(prev => [...prev, {
       type: "minipizza", tempId, typeId: t.id, typeName: t.name,
       flavorIds: mpSelectedFlavors, flavorNames: flavs.map(f => f.name),
-      price, quantity: mpQty,
+      price, additionalPrice, quantity: mpQty,
     }]);
     setMpDialogOpen(false);
   }
@@ -147,7 +153,8 @@ export default function NewOrder() {
     });
     const minipizzas = cart.filter(i => i.type === "minipizza").map(i => {
       const mp = i as CartMinipizza;
-      return { minipizzaTypeId: mp.typeId, flavorIds: mp.flavorIds, quantity: mp.quantity, unitPrice: String(mp.price.toFixed(2)), subtotal: String((mp.price * mp.quantity).toFixed(2)) };
+      const unitPrice = mp.price + mp.additionalPrice;
+      return { minipizzaTypeId: mp.typeId, flavorIds: mp.flavorIds, quantity: mp.quantity, unitPrice: String(unitPrice.toFixed(2)), subtotal: String((unitPrice * mp.quantity).toFixed(2)) };
     });
     const jellies = cart.filter(i => i.type === "jelly").map(i => {
       const j = i as CartJelly;
@@ -397,7 +404,7 @@ export default function NewOrder() {
                         )}
                         <span className="text-muted-foreground"> × {item.quantity}</span>
                       </div>
-                      <span className="font-semibold text-primary">{fmt(item.price * item.quantity)}</span>
+                      <span className="font-semibold text-primary">{fmt(item.type === "minipizza" ? ((item as CartMinipizza).price + (item as CartMinipizza).additionalPrice) * item.quantity : item.price * item.quantity)}</span>
                     </div>
                   ))}
                 </div>
@@ -442,7 +449,7 @@ export default function NewOrder() {
                         {item.type === "minipizza" && (item as CartMinipizza).flavorNames.length > 0 && (
                           <p className="text-xs text-muted-foreground truncate">{(item as CartMinipizza).flavorNames.join(", ")}</p>
                         )}
-                        <p className="text-xs text-primary font-semibold">{fmt(item.price * item.quantity)}</p>
+                        <p className="text-xs text-primary font-semibold">{fmt(item.type === "minipizza" ? ((item as CartMinipizza).price + (item as CartMinipizza).additionalPrice) * item.quantity : item.price * item.quantity)}</p>
                       </div>
                       <div className="flex items-center gap-1">
                         <button onClick={() => updateQty(idx, -1)} className="w-5 h-5 rounded-full bg-muted flex items-center justify-center hover:bg-muted/70"><Minus className="w-2.5 h-2.5" /></button>
