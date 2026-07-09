@@ -64,7 +64,7 @@ export const suppliers = mysqlTable("suppliers", {
   name: varchar("name", { length: 150 }).notNull(),
   contactName: varchar("contactName", { length: 150 }),
   phone: varchar("phone", { length: 50 }),
-  email: varchar("email", { length: 150 }),
+  email: varchar("email", { length: 150 }).default(''),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
