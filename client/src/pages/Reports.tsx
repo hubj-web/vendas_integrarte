@@ -106,10 +106,10 @@ export default function Reports() {
                 <StatCard title="Total Vendido" value={fmt(salesReport.totalRevenue)} icon={DollarSign} color="bg-primary/10 text-primary" />
                 <StatCard title="Pedidos" value={String(salesReport.totalOrders)} icon={Package} color="bg-blue-500/10 text-blue-400" />
                 <StatCard title="Ticket Médio" value={fmt(salesReport.avgTicket)} icon={TrendingUp} color="bg-emerald-500/10 text-emerald-400" />
-                <StatCard title="Vendedores" value={String(salesReport.byLauncher.length)} icon={Users} color="bg-orange-500/10 text-orange-400" />
+                <StatCard title="Vendedores" value={String((salesReport.byLauncher?.length || 0))} icon={Users} color="bg-orange-500/10 text-orange-400" />
               </div>
 
-              {salesReport.byLauncher.length > 0 && (
+              {(salesReport.byLauncher?.length || 0) > 0 && (
                 <Card className="bg-card border-border">
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Vendas por Vendedor</CardTitle></CardHeader>
                   <CardContent>
@@ -126,7 +126,7 @@ export default function Reports() {
                 </Card>
               )}
 
-              {salesReport.topProducts.length > 0 && (
+              {(salesReport.topProducts?.length || 0) > 0 && (
                 <Card className="bg-card border-border">
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Produtos Mais Vendidos</CardTitle></CardHeader>
                   <CardContent>
@@ -166,11 +166,11 @@ export default function Reports() {
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <StatCard title="Total Pedidos" value={String(deliveryReport.totalOrders)} icon={Truck} color="bg-primary/10 text-primary" />
                 <StatCard title="Entregues" value={String(deliveryReport.deliveredCount)} icon={Package} color="bg-emerald-500/10 text-emerald-400" />
-                <StatCard title="Entregadores" value={String(deliveryReport.byDeliverer.length)} icon={Truck} color="bg-blue-500/10 text-blue-400" />
+                <StatCard title="Entregadores" value={String((deliveryReport.byDeliverer?.length || 0))} icon={Truck} color="bg-blue-500/10 text-blue-400" />
                 <StatCard title="Taxa Entrega" value={`${deliveryReport.deliveryRate.toFixed(1)}%`} icon={TrendingUp} color="bg-orange-500/10 text-orange-400" />
               </div>
 
-              {deliveryReport.byDeliverer.length > 0 && (
+              {(deliveryReport.byDeliverer?.length || 0) > 0 && (
                 <Card className="bg-card border-border">
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Desempenho por Entregador</CardTitle></CardHeader>
                   <CardContent>
@@ -200,7 +200,7 @@ export default function Reports() {
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                 <StatCard title="Total Recebido" value={fmt(financialReport.totalReceived)} icon={DollarSign} color="bg-primary/10 text-primary" />
                 <StatCard title="PIX" value={fmt(financialReport.pixReceived)} icon={TrendingUp} color="bg-emerald-500/10 text-emerald-400" />
-                <StatCard title="Pendente" value={fmt(financialReport.totalPending)} icon={Package} color="bg-orange-500/10 text-orange-400" sub={`${financialReport.pendingOrders.length} pedidos`} />
+                <StatCard title="Pendente" value={fmt(financialReport.totalPending)} icon={Package} color="bg-orange-500/10 text-orange-400" sub={`${(financialReport.pendingOrders?.length || 0)} pedidos`} />
               </div>
 
               <Card className="bg-card border-border">
@@ -239,7 +239,7 @@ export default function Reports() {
         <TabsContent value="performance">
           {loadingSales ? <ReportSkeleton /> : salesReport ? (
             <div className="space-y-4">
-              {salesReport.byLauncher.length > 0 && (
+              {(salesReport.byLauncher?.length || 0) > 0 && (
                 <Card className="bg-card border-border">
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Pedidos por Vendedor</CardTitle></CardHeader>
                   <CardContent>

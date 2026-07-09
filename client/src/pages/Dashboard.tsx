@@ -112,7 +112,7 @@ export default function Dashboard() {
               </Link>
             </CardHeader>
             <CardContent>
-              {data.recentOrders.length === 0 ? (
+              {!data.recentOrders || data.recentOrders.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6">Nenhum pedido encontrado.</p>
               ) : (
                 <div className="space-y-2">
