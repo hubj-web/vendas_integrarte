@@ -386,6 +386,90 @@ export const sellerRouter = router({
       };
     }),
 
+  /** Atualiza um pedido próprio (apenas se ainda em produção) */
+  updateOrder: publicProcedure
+    .input(z.object({
+      orderId: z.number(),
+      sellerId: z.number(),
+      customerId: z.number().optional(),
+      deliveryMethodId: z.number().optional(),
+      deliveryDate: z.string().optional(),
+      deliveryAddress: z.string().optional(),
+      paymentMethod: z.enum(["cash", "pix"]).optional(),
+      notes: z.string().optional(),
+      totalAmount: z.string().optional(),
+      items: z.array(z.object({
+        id: z.number().optional(),
+        productId: z.number(),
+        quantity: z.number(),
+        unitPrice: z.string(),
+        subtotal: z.string(),
+        flavorIds: z.array(z.number()).optional(),
+      })).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      await requireLauncher(input.sellerId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const current = await db.select().from(orders)
+        .where(and(eq(orders.id, input.orderId), eq(orders.launcherId, input.sellerId)))
+        .limit(1);
+      if (!current[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
+      if (current[0].status !== "production") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas pedidos em produção podem ser editados." });
+      }
+
+      const updateData: Record<string, any> = {};
+      if (input.customerId !== undefined) updateData.customerId = input.customerId;
+      if (input.deliveryMethodId !== undefined) updateData.deliveryMethodId = input.deliveryMethodId;
+      if (input.deliveryDate !== undefined) updateData.deliveryDate = input.deliveryDate ? new Date(input.deliveryDate) : null;
+      if (input.deliveryAddress !== undefined) updateData.deliveryAddress = input.deliveryAddress;
+      if (input.paymentMethod !== undefined) updateData.paymentMethod = input.paymentMethod;
+      if (input.notes !== undefined) updateData.notes = input.notes;
+      if (input.totalAmount !== undefined) updateData.totalAmount = input.totalAmount;
+
+      if (Object.keys(updateData).length > 0) {
+        await db.update(orders).set(updateData).where(eq(orders.id, input.orderId));
+      }
+
+      if (input.items && input.items.length > 0) {
+        const existingItems = await db.select({ id: orderItems.id }).from(orderItems).where(eq(orderItems.orderId, input.orderId));
+        const existingItemIds = existingItems.map(x => x.id);
+        
+        if (existingItemIds.length > 0) {
+          await db.delete(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId, existingItemIds));
+          await db.delete(orderItems).where(eq(orderItems.orderId, input.orderId));
+        }
+
+        for (const item of input.items) {
+          const itemResult = await db.insert(orderItems).values({
+            orderId: input.orderId,
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            subtotal: item.subtotal,
+          });
+          const orderItemId = Number((itemResult as any).insertId || (itemResult as any)[0]?.insertId);
+          
+          if (item.flavorIds && item.flavorIds.length > 0) {
+            const flavorRows = await db.select().from(productFlavors)
+              .where(inArray(productFlavors.id, item.flavorIds));
+            const flavorValues = flavorRows.map(f => ({
+              orderItemId,
+              productFlavorId: f.id,
+              flavorName: f.name,
+            }));
+            if (flavorValues.length > 0) {
+              await db.insert(orderItemFlavors).values(flavorValues);
+            }
+          }
+        }
+      }
+
+      return { success: true, orderId: input.orderId };
+    }),
+
   /** Atualiza o status de pagamento de um pedido próprio */
   updatePaymentStatus: publicProcedure
     .input(z.object({
