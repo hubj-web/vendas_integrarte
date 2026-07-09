@@ -1,15 +1,58 @@
+import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { PageHeader } from "@/components/ui/page-header";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Info, Check, X } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Info, Check, X, Pencil } from "lucide-react";
+import { toast } from "sonner";
 
 export default function Minipizzas() {
+  const utils = trpc.useUtils();
   const { data: types = [] } = trpc.catalog.minipizzaTypes.list.useQuery();
   const { data: flavors = [] } = trpc.catalog.minipizzaFlavors.list.useQuery();
   const { data: matrix = [] } = trpc.catalog.minipizzaFlavors.getMatrix.useQuery();
+  const { data: suppliers = [] } = trpc.suppliers.list.useQuery();
+
+  const updateMutation = trpc.catalog.minipizzaTypes.update.useMutation({
+    onSuccess: () => { utils.catalog.minipizzaTypes.list.invalidate(); toast.success("Minipizza atualizada!"); setOpen(false); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<any | null>(null);
+  const [form, setForm] = useState({ price: "", supplierId: "", active: true });
+
+  function openEdit(t: any) {
+    setEditing(t);
+    setForm({
+      price: t.price,
+      supplierId: t.supplierId ? String(t.supplierId) : "",
+      active: t.active,
+    });
+    setOpen(true);
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editing) return;
+
+    const supplierId = form.supplierId ? parseInt(form.supplierId) : null;
+
+    updateMutation.mutate({
+      id: editing.id,
+      price: form.price,
+      supplierId,
+      active: form.active,
+    });
+  }
 
   function isCompatible(typeId: number, flavorId: number) {
     return matrix.some(m => m.minipizzaTypeId === typeId && m.minipizzaFlavorId === flavorId && m.active);
@@ -19,12 +62,17 @@ export default function Minipizzas() {
 
   return (
     <div>
-      <PageHeader title="Minipizzas (Legado)" description="Visualização dos dados de minipizzas do sistema antigo" />
+      <PageHeader
+        title="Minipizzas (Legado)"
+        description="Gerencie os dados de minipizzas do sistema antigo"
+        actions={null}
+      />
 
       <Alert className="mb-4 border-amber-500/30 bg-amber-500/10">
         <Info className="w-4 h-4 text-amber-400" />
         <AlertDescription className="text-amber-200">
-          Esta página é somente leitura. As minipizzas agora são gerenciadas como produtos com sabores na categoria "MiniPizzas" na página de <strong>Produtos</strong>.
+          As minipizzas agora são gerenciadas como produtos com sabores na categoria "MiniPizzas" na página de <strong>Produtos</strong>. 
+          Esta página serve para visualizar e editar os dados do sistema antigo (fornecedor, preço, status).
         </AlertDescription>
       </Alert>
 
@@ -43,7 +91,9 @@ export default function Minipizzas() {
                   <TableHead className="text-muted-foreground">Nome</TableHead>
                   <TableHead className="text-muted-foreground">Unidades</TableHead>
                   <TableHead className="text-muted-foreground">Preço</TableHead>
+                  <TableHead className="text-muted-foreground">Fornecedor</TableHead>
                   <TableHead className="text-muted-foreground">Status</TableHead>
+                  <TableHead className="text-muted-foreground text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -52,7 +102,25 @@ export default function Minipizzas() {
                     <TableCell className="font-medium">{t.name}</TableCell>
                     <TableCell>{t.units} un.</TableCell>
                     <TableCell className="text-primary font-semibold">{fmt(t.price)}</TableCell>
-                    <TableCell><Badge className={t.active ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-muted text-muted-foreground"}>{t.active ? "Ativo" : "Inativo"}</Badge></TableCell>
+                    <TableCell>
+                      {t.supplierId ? (
+                        <Badge variant="outline" className="text-xs">
+                          {suppliers.find(s => s.id === t.supplierId)?.name || `Fornecedor #${t.supplierId}`}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={t.active ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-muted text-muted-foreground"}>
+                        {t.active ? "Ativo" : "Inativo"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" onClick={() => openEdit(t)}>
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -118,6 +186,41 @@ export default function Minipizzas() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Edit Dialog */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="bg-card border-border max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Minipizza - {editing?.name}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Preço</Label>
+              <Input type="number" step="0.01" min="0" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} className="bg-input" />
+            </div>
+            <div className="space-y-2">
+              <Label>Fornecedor</Label>
+              <Select value={form.supplierId} onValueChange={v => setForm(f => ({ ...f, supplierId: v }))}>
+                <SelectTrigger className="bg-input"><SelectValue placeholder="Selecione o fornecedor (opcional)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem fornecedor</SelectItem>
+                  {suppliers.filter(s => s.active).map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={form.active} onCheckedChange={v => setForm(f => ({ ...f, active: v }))} />
+              <Label>Ativo</Label>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+              <Button type="submit" className="bg-primary text-primary-foreground" disabled={updateMutation.isPending}>
+                Salvar
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
