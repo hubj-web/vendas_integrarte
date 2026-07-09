@@ -105,7 +105,6 @@ export const minipizzaTypes = mysqlTable("minipizza_types", {
   name: varchar("name", { length: 150 }).notNull(),
   units: int("units").notNull(),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
-  maxFlavors: int("maxFlavors").default(1),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

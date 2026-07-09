@@ -107,7 +107,6 @@ const productsRouter = router({
         productTypeId: products.productTypeId,
         categoryId: products.categoryId,
         categoryName: productCategories.name,
-        maxFlavors: products.maxFlavors,
       })
         .from(products)
         .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
@@ -125,7 +124,6 @@ const productsRouter = router({
       name: z.string().min(2), categoryId: z.number(),
       unit: z.string().min(1), price: z.string(),
       description: z.string().optional(), active: z.boolean().default(true),
-      maxFlavors: z.number().default(0),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -139,7 +137,6 @@ const productsRouter = router({
         price: input.price,
         description: input.description,
         active: input.active,
-        maxFlavors: input.maxFlavors,
       });
       return { success: true };
     }),
@@ -149,7 +146,7 @@ const productsRouter = router({
       id: z.number(), name: z.string().min(2).optional(),
       categoryId: z.number().optional(), unit: z.string().optional(),
       price: z.string().optional(), description: z.string().optional(),
-      active: z.boolean().optional(), maxFlavors: z.number().optional(),
+      active: z.boolean().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();

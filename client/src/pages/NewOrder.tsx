@@ -539,29 +539,22 @@ export default function NewOrder() {
           {mpStep === "flavors" && mpSelectedType && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Escolha até {mpTypes.find(t => t.id === mpSelectedType)?.maxFlavors || "ilimitados"} sabores:
+                Escolha os sabores (o preço é fixo pelo pacote):
               </p>
               <div className="flex flex-wrap gap-2 max-h-64 overflow-y-auto p-1">
                 {getCompatibleFlavors(mpSelectedType).map(f => {
                   const selected = mpSelectedFlavors.includes(f.id);
-                  const typeData = mpTypes.find(t => t.id === mpSelectedType);
-                  const canSelect = !selected && mpSelectedFlavors.length >= (typeData?.maxFlavors || 999);
-
                   return (
                     <button 
                       key={f.id} 
                       onClick={() => {
-                        if (canSelect) return toast.error(`Máximo de ${typeData?.maxFlavors} sabores atingido`);
                         setMpSelectedFlavors(prev => 
                           selected ? prev.filter(id => id !== f.id) : [...prev, f.id]
                         );
                       }}
-                      disabled={canSelect}
                       className={`px-4 py-2 rounded-full text-sm font-medium transition-all border ${
                         selected 
                           ? "bg-primary text-primary-foreground border-primary" 
-                          : canSelect
-                          ? "bg-muted/30 text-muted-foreground border-transparent opacity-50 cursor-not-allowed"
                           : "bg-muted text-muted-foreground border-transparent hover:bg-muted/70"
                       }`}
                     >
