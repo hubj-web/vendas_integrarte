@@ -68,7 +68,20 @@ export const sellerRouter = router({
       })
         .from(productTypes)
         .where(eq(productTypes.active, true)),
-      db.select().from(products).where(eq(products.active, true)),
+      db.select({
+        id: products.id,
+        name: products.name,
+        categoryId: products.categoryId,
+        productTypeId: products.productTypeId,
+        supplierId: products.supplierId,
+        unit: products.unit,
+        price: products.price,
+        description: products.description,
+        maxFlavors: products.maxFlavors,
+        active: products.active,
+        createdAt: products.createdAt,
+        updatedAt: products.updatedAt,
+      }).from(products).where(eq(products.active, true)),
       db.select().from(productFlavors).where(eq(productFlavors.active, true)),
       db.select().from(minipizzaTypes).where(eq(minipizzaTypes.active, true)),
       db.select().from(minipizzaFlavors).where(eq(minipizzaFlavors.active, true)),

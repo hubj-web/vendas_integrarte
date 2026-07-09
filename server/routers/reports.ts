@@ -167,6 +167,8 @@ export const reportsRouter = router({
         unit: products.unit,
         supplierId: products.supplierId,
         quantity: orderItems.quantity,
+        unitPrice: orderItems.unitPrice,
+        cost: products.cost,
         orderItemId: orderItems.id,
         orderId: orderItems.orderId,
       })
@@ -198,6 +200,8 @@ export const reportsRouter = router({
         unit: sql<string>`'unidade'`,
         supplierId: minipizzaTypes.supplierId,
         quantity: orderMinipizzas.quantity,
+        unitPrice: orderMinipizzas.unitPrice,
+        cost: minipizzaTypes.price, // For legacy, price is cost? Or use 0
         orderId: orderMinipizzas.orderId,
       })
         .from(orderMinipizzas)
@@ -238,16 +242,32 @@ export const reportsRouter = router({
       // 7. Consolidate all items by supplier
       const consolidation: Record<number, { 
         supplierId: number,
-        items: Record<string, { name: string, quantity: number, unit: string, flavors: Record<string, number> }> 
+        totalCost: number,
+        totalRevenue: number,
+        totalProfit: number,
+        items: Record<string, { name: string, quantity: number, unit: string, revenue: number, cost: number, profit: number, flavors: Record<string, number> }> 
       }> = {};
 
       // Helper to add item to consolidation
-      const addItem = (sId: number, name: string, qty: number, unit: string, flavors: string[] = []) => {
-        if (!consolidation[sId]) consolidation[sId] = { supplierId: sId, items: {} };
+      const addItem = (sId: number, name: string, qty: number, unit: string, unitPrice: number, unitCost: number, flavors: string[] = []) => {
+        if (!consolidation[sId]) consolidation[sId] = { supplierId: sId, totalCost: 0, totalRevenue: 0, totalProfit: 0, items: {} };
         if (!consolidation[sId].items[name]) {
-          consolidation[sId].items[name] = { name, quantity: 0, unit, flavors: {} };
+          consolidation[sId].items[name] = { name, quantity: 0, unit, revenue: 0, cost: 0, profit: 0, flavors: {} };
         }
+        
+        const itemRevenue = qty * unitPrice;
+        const itemCost = qty * unitCost;
+        const itemProfit = itemRevenue - itemCost;
+
         consolidation[sId].items[name].quantity += qty;
+        consolidation[sId].items[name].revenue += itemRevenue;
+        consolidation[sId].items[name].cost += itemCost;
+        consolidation[sId].items[name].profit += itemProfit;
+        
+        consolidation[sId].totalRevenue += itemRevenue;
+        consolidation[sId].totalCost += itemCost;
+        consolidation[sId].totalProfit += itemProfit;
+
         flavors.forEach(fName => {
           consolidation[sId].items[name].flavors[fName] = 
             (consolidation[sId].items[name].flavors[fName] || 0) + qty;
@@ -258,14 +278,14 @@ export const reportsRouter = router({
       items.forEach(item => {
         const sId = item.supplierId || 0;
         const flavors = flavorMap[item.orderItemId] || [];
-        addItem(sId, item.productName || "Produto", item.quantity, item.unit || "un", flavors);
+        addItem(sId, item.productName || "Produto", item.quantity, item.unit || "un", Number(item.unitPrice), Number(item.cost || 0), flavors);
       });
 
       // Process legacy minipizzas
       minipizzaItems.forEach(mp => {
         const sId = mp.supplierId || 0;
         const flavors = minipizzaFlavorMap[mp.orderId] || [];
-        addItem(sId, mp.productName || "Minipizza", mp.quantity, "unidade", flavors);
+        addItem(sId, mp.productName || "Minipizza", mp.quantity, "unidade", Number(mp.unitPrice), Number(mp.cost || 0), flavors);
       });
 
       // Process legacy jellies

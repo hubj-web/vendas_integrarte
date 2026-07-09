@@ -79,6 +79,7 @@ export const products = mysqlTable("products", {
   supplierId: int("supplierId"), // Relacionamento com fornecedor
   unit: varchar("unit", { length: 50 }).notNull(),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  cost: decimal("cost", { precision: 10, scale: 2 }).default("0.00").notNull(),
   description: text("description"),
   maxFlavors: int("maxFlavors").default(0), // 0 = sem sabores, >0 = quantidade máxima de sabores
   active: boolean("active").default(true).notNull(),

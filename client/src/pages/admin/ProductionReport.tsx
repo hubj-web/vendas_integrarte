@@ -38,6 +38,9 @@ export default function ProductionReport() {
       .filter(s => selectedSupplierId === "all" || String(s.supplierId) === selectedSupplierId);
   }, [production, suppliers, selectedSupplierId]);
 
+  const fmt = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+  const fmtPct = (v: number) => new Intl.NumberFormat("pt-BR", { style: "percent", minimumFractionDigits: 1 }).format(v);
+
   const handlePrint = () => {
     window.print();
   };
@@ -105,22 +108,50 @@ export default function ProductionReport() {
         ) : (
           productionData.map(supplier => (
             <Card key={supplier.supplierId} className="bg-card border-border overflow-hidden print:shadow-none print:border-gray-200">
-              <CardHeader className="bg-muted/30 border-b border-border py-3 flex flex-row items-center justify-between">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Truck className="w-5 h-5 text-primary" />
-                  {supplier.supplierName}
-                </CardTitle>
-                <Badge variant="outline" className="print:hidden">
-                  {Object.keys(supplier.items).length} produtos
-                </Badge>
+              <CardHeader className="bg-muted/30 border-b border-border py-3 flex flex-col gap-4">
+                <div className="flex flex-row items-center justify-between w-full">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Truck className="w-5 h-5 text-primary" />
+                    {supplier.supplierName}
+                  </CardTitle>
+                  <div className="flex gap-2">
+                    <Badge variant="outline" className="print:hidden">
+                      {Object.keys(supplier.items).length} produtos
+                    </Badge>
+                    <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30">
+                      Pagar: {fmt(supplier.totalCost)}
+                    </Badge>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-background/50 p-2 rounded-lg border border-border/50">
+                    <div className="text-[10px] text-muted-foreground uppercase">Receita Total</div>
+                    <div className="text-sm font-semibold">{fmt(supplier.totalRevenue)}</div>
+                  </div>
+                  <div className="bg-background/50 p-2 rounded-lg border border-border/50">
+                    <div className="text-[10px] text-muted-foreground uppercase">Custo Total</div>
+                    <div className="text-sm font-semibold text-orange-400">{fmt(supplier.totalCost)}</div>
+                  </div>
+                  <div className="bg-background/50 p-2 rounded-lg border border-border/50">
+                    <div className="text-[10px] text-muted-foreground uppercase">Lucro Estimado</div>
+                    <div className="text-sm font-semibold text-emerald-400">
+                      {fmt(supplier.totalProfit)}
+                      <span className="text-[10px] ml-1 opacity-70">
+                        ({supplier.totalRevenue > 0 ? fmtPct(supplier.totalProfit / supplier.totalRevenue) : "0%"})
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="p-0">
                 <Table>
                   <TableHeader>
                     <TableRow className="border-border hover:bg-transparent bg-muted/10">
-                      <TableHead className="w-[40%]">Produto</TableHead>
+                      <TableHead className="w-[30%]">Produto</TableHead>
                       <TableHead>Sabores / Detalhes</TableHead>
-                      <TableHead className="text-right w-[150px]">Quantidade Total</TableHead>
+                      <TableHead className="text-center">Quantidade</TableHead>
+                      <TableHead className="text-right pr-6">Financeiro (Custo / Lucro)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -128,28 +159,35 @@ export default function ProductionReport() {
                       <TableRow key={id} className="border-border hover:bg-muted/5">
                         <TableCell className="font-medium align-top py-4">
                           {item.name}
+                          <div className="text-[10px] text-muted-foreground font-normal">{item.unit}</div>
                         </TableCell>
                         <TableCell className="py-4">
                           {Object.keys(item.flavors).length > 0 ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+                            <div className="grid grid-cols-1 gap-1">
                               {Object.entries(item.flavors).map(([flavor, qty]: [string, any]) => (
-                                <div key={flavor} className="flex justify-between text-xs border-b border-border/30 pb-1">
+                                <div key={flavor} className="flex justify-between text-[10px] border-b border-border/30 pb-1">
                                   <span className="text-muted-foreground">{flavor}</span>
                                   <span className="font-semibold">{qty} {item.unit}</span>
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <span className="text-xs text-muted-foreground italic">Sem variação de sabores</span>
+                            <span className="text-[10px] text-muted-foreground italic">Sem sabores</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-right align-top py-4">
-                          <span className="text-lg font-bold text-primary">
+                        <TableCell className="text-center align-top py-4">
+                          <span className="text-base font-bold text-primary">
                             {item.quantity}
                           </span>
-                          <span className="text-xs text-muted-foreground ml-1">
-                            {item.unit}
-                          </span>
+                        </TableCell>
+                        <TableCell className="text-right pr-6 align-top py-4">
+                          <div className="text-xs font-medium">{fmt(item.revenue)}</div>
+                          <div className="text-[10px] text-muted-foreground">
+                            Custo: <span className="text-orange-400/80">{fmt(item.cost)}</span>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            Lucro: <span className="text-emerald-400/80">{fmt(item.profit)}</span>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

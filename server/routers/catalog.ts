@@ -102,7 +102,7 @@ const productsRouter = router({
       if (!db) return [];
       const rows = await db.select({
         id: products.id, name: products.name, unit: products.unit,
-        price: products.price, description: products.description,
+        price: products.price, cost: products.cost, description: products.description,
         active: products.active, createdAt: products.createdAt,
         productTypeId: products.productTypeId,
         categoryId: products.categoryId,
@@ -124,6 +124,7 @@ const productsRouter = router({
     .input(z.object({
       name: z.string().min(2), categoryId: z.number(),
       unit: z.string().min(1), price: z.string(),
+      cost: z.string().default("0.00"),
       supplierId: z.number().nullable().optional(),
       description: z.string().optional(), active: z.boolean().default(true),
     }))
@@ -137,6 +138,7 @@ const productsRouter = router({
         productTypeId: 1, // legacy field, kept for backward compat
         unit: input.unit,
         price: input.price,
+        cost: input.cost,
         supplierId: input.supplierId,
         description: input.description,
         active: input.active,
@@ -148,7 +150,8 @@ const productsRouter = router({
     .input(z.object({
       id: z.number(), name: z.string().min(2).optional(),
       categoryId: z.number().optional(), unit: z.string().optional(),
-      price: z.string().optional(), supplierId: z.number().nullable().optional(),
+      price: z.string().optional(), cost: z.string().optional(),
+      supplierId: z.number().nullable().optional(),
       description: z.string().optional(), active: z.boolean().optional(),
     }))
     .mutation(async ({ input, ctx }) => {

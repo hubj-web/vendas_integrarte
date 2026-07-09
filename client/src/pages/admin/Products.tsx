@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Search, Package, Cherry } from "lucide-react";
 
 type Product = {
-  id: number; name: string; unit: string; price: string;
+  id: number; name: string; unit: string; price: string; cost: string;
   description: string | null; active: boolean;
   productTypeId: number;
   categoryId: number | null; categoryName: string | null;
@@ -70,7 +70,7 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
 
-  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", description: "", active: true, maxFlavors: "0", supplierId: "" });
+  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", supplierId: "" });
 
   // Flavor management dialog
   const [showFlavors, setShowFlavors] = useState(false);
@@ -78,7 +78,7 @@ export default function Products() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ name: "", categoryId: "", unit: "unidade", price: "", description: "", active: true, maxFlavors: "0", supplierId: "" });
+    setForm({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", supplierId: "" });
     setOpen(true);
   }
 
@@ -89,6 +89,7 @@ export default function Products() {
       categoryId: p.categoryId ? String(p.categoryId) : "",
       unit: p.unit,
       price: p.price,
+      cost: p.cost,
       description: p.description ?? "",
       active: p.active,
       maxFlavors: String(p.maxFlavors ?? 0),
@@ -111,12 +112,13 @@ export default function Products() {
 
     const supplierId = form.supplierId ? parseInt(form.supplierId) : null;
     if (editing) {
-      updateMutation.mutate({
+        updateMutation.mutate({
         id: editing.id,
         name: form.name,
         categoryId,
         unit: form.unit,
         price: form.price,
+        cost: form.cost,
         supplierId,
         description: form.description,
         active: form.active,
@@ -128,6 +130,7 @@ export default function Products() {
         categoryId,
         unit: form.unit,
         price: form.price,
+        cost: form.cost,
         supplierId,
         description: form.description || undefined,
         active: form.active,
@@ -186,6 +189,7 @@ export default function Products() {
               <TableHead className="text-muted-foreground">Categoria</TableHead>
               <TableHead className="text-muted-foreground">Unidade</TableHead>
               <TableHead className="text-muted-foreground">Preço</TableHead>
+              <TableHead className="text-muted-foreground">Custo</TableHead>
               <TableHead className="text-muted-foreground">Sabores</TableHead>
               <TableHead className="text-muted-foreground">Status</TableHead>
               <TableHead className="text-muted-foreground text-right">Ações</TableHead>
@@ -216,6 +220,7 @@ export default function Products() {
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">{p.unit}</TableCell>
                   <TableCell className="font-semibold text-primary">{fmt(p.price)}</TableCell>
+                  <TableCell className="text-muted-foreground">{fmt(p.cost)}</TableCell>
                   <TableCell>
                     {(p.maxFlavors ?? 0) > 0 ? (
                       <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-xs">
@@ -281,6 +286,10 @@ export default function Products() {
               <div className="space-y-2">
                 <Label>Preço Unitário *</Label>
                 <Input type="number" step="0.01" min="0" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} required className="bg-input" placeholder="0,00" />
+              </div>
+              <div className="space-y-2">
+                <Label>Custo Unitário *</Label>
+                <Input type="number" step="0.01" min="0" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} required className="bg-input" placeholder="0,00" />
               </div>
             </div>
             <div className="space-y-2">
