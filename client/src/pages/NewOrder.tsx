@@ -54,7 +54,7 @@ export default function NewOrder() {
   const [activeTab, setActiveTab] = useState<"products" | "minipizzas" | "jellies">("products");
 
   // Minipizza wizard
-  const [mpStep, setMpStep] = useState<"type" | "flavors" | "qty">("type");
+  const [mpStep, setMpStep] = useState<"type" | "flavors">("type");
   const [mpSelectedType, setMpSelectedType] = useState<number | null>(null);
   const [mpSelectedFlavors, setMpSelectedFlavors] = useState<number[]>([]);
   const [mpQty, setMpQty] = useState(1);
@@ -495,7 +495,7 @@ export default function NewOrder() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pizza className="w-4 h-4 text-primary" />
-              {mpStep === "type" ? "Selecionar Tipo" : mpStep === "flavors" ? "Selecionar Sabores" : "Quantidade"}
+              {mpStep === "type" ? "Selecionar Tipo" : "Selecionar Sabores"}
             </DialogTitle>
           </DialogHeader>
 
@@ -532,24 +532,12 @@ export default function NewOrder() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setMpStep("type")}><ChevronLeft className="w-4 h-4" />Voltar</Button>
-                <Button onClick={() => { if (mpSelectedFlavors.length === 0) return toast.error("Selecione ao menos um sabor."); setMpStep("qty"); }} className="bg-primary text-primary-foreground">Próximo</Button>
+                <Button onClick={() => { if (mpSelectedFlavors.length === 0) return toast.error("Selecione ao menos um sabor."); confirmMinipizza(); }} className="bg-primary text-primary-foreground">Adicionar ao Carrinho</Button>
               </DialogFooter>
             </div>
           )}
 
-          {mpStep === "qty" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-center gap-4">
-                <button onClick={() => setMpQty(q => Math.max(1, q - 1))} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center hover:bg-muted/70"><Minus className="w-4 h-4" /></button>
-                <span className="text-2xl font-bold w-10 text-center">{mpQty}</span>
-                <button onClick={() => setMpQty(q => q + 1)} className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center hover:bg-primary/20"><Plus className="w-4 h-4 text-primary" /></button>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setMpStep("flavors")}><ChevronLeft className="w-4 h-4" />Voltar</Button>
-                <Button onClick={confirmMinipizza} className="bg-primary text-primary-foreground"><Check className="w-4 h-4 mr-1" />Adicionar</Button>
-              </DialogFooter>
-            </div>
-          )}
+
         </DialogContent>
       </Dialog>
     </div>
