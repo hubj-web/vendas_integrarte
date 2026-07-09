@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Eye, ShoppingBag, ChevronLeft, ChevronRight } from "lucide-react";
+import { Eye, ShoppingBag, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import { Link } from "wouter";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -77,12 +77,22 @@ export default function MyOrders() {
                   </div>
                   <div className="text-right shrink-0">
                     <p className="font-semibold text-foreground">{fmt(order.totalAmount)}</p>
-                    <Link href={`/vendedor/pedido/${order.id}`}>
-                      <Button variant="ghost" size="sm" className="mt-1 h-7 text-xs gap-1 text-primary">
-                        <Eye className="w-3.5 h-3.5" />
-                        Ver
-                      </Button>
-                    </Link>
+                    <div className="flex items-center gap-1.5 mt-1 justify-end">
+                      {order.status === "production" && (
+                        <Link href={`/vendedor/pedido/${order.id}/editar`}>
+                          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-primary">
+                            <Pencil className="w-3.5 h-3.5" />
+                            Editar
+                          </Button>
+                        </Link>
+                      )}
+                      <Link href={`/vendedor/pedido/${order.id}`}>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-primary">
+                          <Eye className="w-3.5 h-3.5" />
+                          Ver
+                        </Button>
+                      </Link>
+                    </div>
                   </div>
                 </div>
               </CardContent>

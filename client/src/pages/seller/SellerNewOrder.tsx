@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useSeller } from "@/contexts/SellerContext";
 import { Button } from "@/components/ui/button";
@@ -10,11 +10,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { useLocation } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, User, UserPlus,
-  ChevronRight, Check, Tag, MapPin
+  ChevronRight, Check, Tag, MapPin, ArrowLeft
 } from "lucide-react";
+import { Link } from "wouter";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -33,9 +34,18 @@ interface CartItem {
 
 export default function SellerNewOrder() {
   const { seller } = useSeller();
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
+  const [, params] = useRoute("/vendedor/pedido/:id/editar");
+  const editOrderId = params?.id ? Number(params.id) : null;
+  const isEditMode = !!editOrderId;
 
   const { data: catalog } = trpc.seller.catalog.useQuery();
+
+  // Fetch order detail when in edit mode
+  const { data: existingOrder, isLoading: isLoadingOrder } = trpc.seller.orderDetail.useQuery(
+    { orderId: editOrderId!, sellerId: seller?.id ?? 0 },
+    { enabled: isEditMode && !!seller && !!editOrderId }
+  );
 
   // Customer
   const [customerSearch, setCustomerSearch] = useState("");
@@ -84,6 +94,69 @@ export default function SellerNewOrder() {
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "pix">("pix");
   const [notes, setNotes] = useState("");
+
+  // Pre-populate from existing order when in edit mode
+  useEffect(() => {
+    if (isEditMode && existingOrder && catalog) {
+      // Load customer
+      const customer = existingOrder.customer;
+      if (customer) {
+        setSelectedCustomer({
+          id: customer.id,
+          name: customer.name,
+          phone: customer.phone ?? "",
+          street: customer.street ?? null,
+          number: customer.number ?? null,
+          neighborhood: customer.neighborhood ?? null,
+          city: customer.city ?? null,
+          locationReference: customer.locationReference ?? null,
+        });
+      }
+
+      // Load delivery method
+      if (existingOrder.deliveryMethodId) {
+        setDeliveryMethodId(String(existingOrder.deliveryMethodId));
+      }
+
+      // Load delivery address
+      if (existingOrder.deliveryAddress) {
+        setDeliveryAddressOption("other");
+        setDeliveryAddress(existingOrder.deliveryAddress);
+      } else {
+        setDeliveryAddressOption("customer");
+      }
+
+      // Load payment method
+      if (existingOrder.paymentMethod) {
+        setPaymentMethod(existingOrder.paymentMethod as "cash" | "pix");
+      }
+
+      // Load notes
+      if (existingOrder.notes) {
+        setNotes(existingOrder.notes);
+      }
+
+      // Load cart items from order items
+      const newCart: CartItem[] = existingOrder.items.map((item, index) => {
+        const flavors = (item as any).flavors ?? [];
+        const flavorNames = flavors.map((f: any) => f.flavorName ?? f.name);
+        const flavorIds = flavors.map((f: any) => f.productFlavorId ?? f.id);
+        const flavorSuffix = flavorNames.length > 0 ? ` (${flavorNames.join(", ")})` : "";
+        return {
+          type: "product",
+          id: `edit-${item.id ?? index}-${Date.now()}`,
+          label: `${item.productName ?? `Produto #${item.productId}`}${flavorSuffix}`,
+          quantity: item.quantity,
+          unitPrice: Number(item.unitPrice),
+          subtotal: Number(item.subtotal),
+          productId: item.productId,
+          flavorIds: flavorIds.length > 0 ? flavorIds : undefined,
+          flavorNames: flavorNames.length > 0 ? flavorNames : undefined,
+        };
+      });
+      setCart(newCart);
+    }
+  }, [isEditMode, existingOrder, catalog]);
 
   // Category product dialog
   const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
@@ -240,6 +313,14 @@ export default function SellerNewOrder() {
     onError: (e) => toast.error(e.message),
   });
 
+  const updateOrderMutation = trpc.seller.updateOrder.useMutation({
+    onSuccess: () => {
+      toast.success("Pedido atualizado com sucesso!");
+      navigate(`/vendedor/pedido/${editOrderId}`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const submitOrder = () => {
     if (!selectedCustomer) { toast.error("Selecione um cliente."); return; }
     if (cart.length === 0) { toast.error("Adicione pelo menos um item."); return; }
@@ -253,7 +334,8 @@ export default function SellerNewOrder() {
     }
 
     if (!seller) return;
-    createOrderMutation.mutate({
+
+    const payload = {
       sellerId: seller.id,
       customerId: selectedCustomer.id,
       deliveryMethodId: Number(deliveryMethodId),
@@ -268,10 +350,13 @@ export default function SellerNewOrder() {
         subtotal: c.subtotal.toFixed(2),
         flavorIds: c.flavorIds || [],
       })),
-      // Keep legacy arrays empty for backward compat
-      minipizzas: [],
-      jellies: [],
-    });
+    };
+
+    if (isEditMode && editOrderId) {
+      updateOrderMutation.mutate({ orderId: editOrderId, ...payload });
+    } else {
+      createOrderMutation.mutate({ ...payload, minipizzas: [], jellies: [] });
+    }
   };
 
   // Count items in cart per category (for badge)
@@ -300,9 +385,56 @@ export default function SellerNewOrder() {
     return catalog.productFlavors.filter(f => f.productId === flavorProduct.id && f.active);
   }, [flavorProduct, catalog]);
 
+  // Disable editing if status is not "production"
+  const isDisabled = isEditMode && existingOrder && existingOrder.status !== "production";
+
+  // Loading state for edit mode
+  if (isEditMode && isLoadingOrder) {
+    return (
+      <div className="space-y-5">
+        <h2 className="text-lg font-semibold text-foreground">Carregando pedido...</h2>
+      </div>
+    );
+  }
+
+  // Show error if order not found or not editable
+  if (isEditMode && !isLoadingOrder && !existingOrder) {
+    return (
+      <div className="text-center py-16 text-muted-foreground">
+        <p>Pedido não encontrado ou não pode ser editado.</p>
+        <Link href="/vendedor/meus-pedidos">
+          <Button variant="outline" className="mt-4">Voltar</Button>
+        </Link>
+      </div>
+    );
+  }
+
+  // Show warning if order status is not "production"
+  if (isDisabled) {
+    return (
+      <div className="text-center py-16 text-muted-foreground">
+        <p>Apenas pedidos em produção podem ser editados.</p>
+        <Link href={`/vendedor/pedido/${editOrderId}`}>
+          <Button variant="outline" className="mt-4">Ver Pedido</Button>
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5 pb-10">
-      <h2 className="text-lg font-semibold text-foreground">Novo Pedido</h2>
+      <div className="flex items-center gap-3">
+        {isEditMode && (
+          <Link href={`/vendedor/pedido/${editOrderId}`}>
+            <button className="text-muted-foreground hover:text-foreground transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          </Link>
+        )}
+        <h2 className="text-lg font-semibold text-foreground">
+          {isEditMode ? `Editar Pedido #${editOrderId}` : "Novo Pedido"}
+        </h2>
+      </div>
 
       {/* ── CUSTOMER ── */}
       <Card className="bg-card border-border">
@@ -538,10 +670,15 @@ export default function SellerNewOrder() {
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-md border-t border-border z-10 max-w-md mx-auto">
         <Button
           className="w-full h-12 text-lg font-bold shadow-lg shadow-primary/20"
-          disabled={cart.length === 0 || createOrderMutation.isPending}
+          disabled={cart.length === 0 || createOrderMutation.isPending || updateOrderMutation.isPending}
           onClick={submitOrder}
         >
-          {createOrderMutation.isPending ? "Processando..." : `Confirmar Pedido — ${fmt(totalAmount)}`}
+          {createOrderMutation.isPending || updateOrderMutation.isPending
+            ? "Processando..."
+            : isEditMode
+              ? `Atualizar Pedido — ${fmt(totalAmount)}`
+              : `Confirmar Pedido — ${fmt(totalAmount)}`
+          }
         </Button>
       </div>
 

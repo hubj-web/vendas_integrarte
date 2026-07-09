@@ -50,6 +50,7 @@ function SellerArea() {
         <Route path="/vendedor/novo-pedido" component={SellerNewOrder} />
         <Route path="/vendedor/meus-pedidos" component={MyOrders} />
         <Route path="/vendedor/pedido/:id" component={SellerOrderDetail} />
+        <Route path="/vendedor/pedido/:id/editar" component={SellerNewOrder} />
         <Route path="/">
           <Redirect to="/vendedor/novo-pedido" />
         </Route>
@@ -160,6 +161,9 @@ function Router() {
       </Route>
       <Route path="/vendedor/pedido/:id">
         <SellerProvider><SellerLayout><SellerOrderDetail /></SellerLayout></SellerProvider>
+      </Route>
+      <Route path="/vendedor/pedido/:id/editar">
+        <SellerProvider><SellerLayout><SellerNewOrder /></SellerLayout></SellerProvider>
       </Route>
       <Route path="/">
         <SellerProvider><SellerArea /></SellerProvider>
