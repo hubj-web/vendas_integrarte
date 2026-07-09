@@ -169,7 +169,7 @@ export default function SellerNewOrder() {
     id: number; name: string; price: number; maxFlavors: number;
   } | null>(null);
   const [selectedFlavorIds, setSelectedFlavorIds] = useState<number[]>([]);
-  const [flavorQuantities, setFlavorQuantities] = useState<Record<number, number>>({});
+
 
   const totalAmount = useMemo(() => cart.reduce((s, i) => s + i.subtotal, 0), [cart]);
 
@@ -221,7 +221,7 @@ export default function SellerNewOrder() {
   const openFlavorDialog = (product: { id: number; name: string; price: string; maxFlavors: number }) => {
     setFlavorProduct({ id: product.id, name: product.name, price: Number(product.price), maxFlavors: product.maxFlavors });
     setSelectedFlavorIds([]);
-    setFlavorQuantities({});
+
   };
 
   const toggleFlavor = (flavorId: number) => {
@@ -235,23 +235,7 @@ export default function SellerNewOrder() {
       const next = has ? prev.filter(id => id !== flavorId) : [...prev, flavorId];
       return next;
     });
-    // Initialize quantity to 1 when selecting, remove when deselecting
-    setFlavorQuantities(prev => {
-      const next = { ...prev };
-      if (!has) {
-        next[flavorId] = 1;
-      } else {
-        delete next[flavorId];
-      }
-      return next;
-    });
-  };
 
-  const changeFlavorQty = (flavorId: number, delta: number) => {
-    setFlavorQuantities(prev => ({
-      ...prev,
-      [flavorId]: Math.max(1, (prev[flavorId] || 1) + delta),
-    }));
   };
 
   const confirmFlavorProduct = () => {
@@ -261,37 +245,26 @@ export default function SellerNewOrder() {
       return;
     }
 
-    // Check that all selected flavors have a quantity
-    const itemsToAdd: CartItem[] = [];
-    for (const fId of selectedFlavorIds) {
-      const qty = flavorQuantities[fId] || 0;
-      if (qty <= 0) {
-        toast.error(`Informe a quantidade do sabor "${catalog?.productFlavors?.find(f => f.id === fId)?.name}".`);
-        return;
-      }
-      const flavorName = catalog?.productFlavors?.find(f => f.id === fId)?.name ?? "";
-      const flavorAdditionalPrice = catalog?.productFlavors?.find(f => f.id === fId)?.additionalPrice
-        ? parseFloat(catalog.productFlavors.find(f => f.id === fId)!.additionalPrice)
-        : 0;
-      const unitPrice = flavorProduct.price + flavorAdditionalPrice;
-      itemsToAdd.push({
-        type: "product",
-        id: `p-${flavorProduct.id}-${fId}-${Date.now()}`,
-        label: `${flavorProduct.name} (${flavorName})`,
-        quantity: qty,
-        unitPrice,
-        subtotal: qty * unitPrice,
-        productId: flavorProduct.id,
-        flavorIds: [fId],
-        flavorNames: [flavorName],
-      });
-    }
+    const selectedFlavors = catalog?.productFlavors?.filter(f => selectedFlavorIds.includes(f.id)) || [];
+    const flavorNames = selectedFlavors.map(f => f.name);
+    const flavorSuffix = flavorNames.length > 0 ? ` (${flavorNames.join(", ")})` : "";
+    
+    // Adiciona apenas UM item com o preço do produto principal, independente de quantos sabores
+    setCart(prev => [...prev, {
+      type: "product",
+      id: `p-${flavorProduct.id}-${Date.now()}`,
+      label: `${flavorProduct.name}${flavorSuffix}`,
+      quantity: 1,
+      unitPrice: flavorProduct.price,
+      subtotal: flavorProduct.price,
+      productId: flavorProduct.id,
+      flavorIds: selectedFlavorIds,
+      flavorNames: flavorNames,
+    }]);
 
-    setCart(prev => [...prev, ...itemsToAdd]);
     setFlavorProduct(null);
     setSelectedFlavorIds([]);
-    setFlavorQuantities({});
-    toast.success(`${itemsToAdd.length} item(ns) adicionado(s) ao pedido!`);
+    toast.success(`Produto adicionado ao pedido!`);
   };
 
   const confirmCategoryProducts = () => {
@@ -813,47 +786,13 @@ export default function SellerNewOrder() {
                         )}
                       </div>
                     </div>
-                    {/* Per-flavor quantity controls */}
-                    {selected && (
-                      <div className="flex items-center gap-1.5 bg-background rounded-lg p-1 border border-border/50 shrink-0">
-                        <Button variant="ghost" size="icon" className="w-7 h-7 rounded-md" onClick={() => changeFlavorQty(f.id, -1)}>
-                          <Minus className="w-3 h-3" />
-                        </Button>
-                        <span className="text-sm font-bold min-w-[1.5rem] text-center">{flavorQuantities[f.id] || 1}</span>
-                        <Button variant="ghost" size="icon" className="w-7 h-7 rounded-md" onClick={() => changeFlavorQty(f.id, 1)}>
-                          <Plus className="w-3 h-3" />
-                        </Button>
-                      </div>
-                    )}
                   </div>
                 );
               })}
             </div>
 
             {selectedFlavorIds.length > 0 && (
-              <div className="space-y-3 pt-2 flex flex-col items-center">
-                <Separator className="bg-border/50" />
-                <div className="w-full bg-accent/20 rounded-xl p-3 border border-border/50">
-                  <p className="text-xs text-muted-foreground mb-2">Resumo da seleção:</p>
-                  <div className="space-y-1.5">
-                    {selectedFlavorIds.map(fId => {
-                      const flavor = catalog?.productFlavors?.find(f => f.id === fId);
-                      const qty = flavorQuantities[fId] || 1;
-                      return (
-                        <div key={fId} className="flex justify-between text-sm">
-                          <span className="text-foreground">{flavor?.name ?? "—"}</span>
-                          <span className="font-semibold text-primary">{qty} un.</span>
-                        </div>
-                      );
-                    })}
-                    <div className="border-t border-border/50 pt-1.5 mt-1">
-                      <div className="flex justify-between text-sm font-semibold">
-                        <span className="text-foreground">Total de unidades</span>
-                        <span className="text-foreground">{totalFlavorQty}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              <div className="pt-4">
                 <Button className="w-full font-bold h-12" onClick={confirmFlavorProduct}>
                   Confirmar e Adicionar
                 </Button>
