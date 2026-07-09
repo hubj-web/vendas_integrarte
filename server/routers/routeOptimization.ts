@@ -36,7 +36,7 @@ function buildFullAddress(o: OrderWithLocation): string {
   return parts.filter(Boolean).join(", ");
 }
 
-// Coordenadas aproximadas dos bairros de Uberlândia para fallback imediato
+// Coordenadas aproximadas dos bairros de Uberlândia para fallback
 const NEIGHBORHOOD_COORDS: Record<string, { lat: number; lng: number }> = {
   "centro": { lat: -18.9186, lng: -48.2772 },
   "fundinho": { lat: -18.9220, lng: -48.2790 },
@@ -73,6 +73,103 @@ const NEIGHBORHOOD_COORDS: Record<string, { lat: number; lng: number }> = {
   "gávea": { lat: -18.9550, lng: -48.2600 },
   "shopping park": { lat: -18.9800, lng: -48.2800 },
 };
+
+// ─── FUNÇÕES AUXILIARES ─────────────────────────────────────────────────────
+
+/**
+ * Algoritmo de agrupamento por proximidade geográfica (fallback local)
+ * Agrupa os shipments em N rotas baseadas em distância euclidiana da origem
+ */
+function clusterOrdersByProximity(
+  ordersToProcess: OrderWithLocation[],
+  originCoords: { latitude: number; longitude: number },
+  numRoutes: number
+): number[][] {
+  // Calcular distância de cada pedido à origem
+  const ordersWithDistance = ordersToProcess.map((o) => ({
+    index: ordersToProcess.indexOf(o),
+    dist: Math.sqrt(
+      Math.pow(o.latitude! - originCoords.latitude, 2) +
+      Math.pow(o.longitude! - originCoords.longitude, 2)
+    ),
+  }));
+
+  // Ordenar por distância
+  ordersWithDistance.sort((a, b) => a.dist - b.dist);
+
+  // Distribuir em rotas usando round-robin a partir do mais distante
+  // Isso ajuda a balancear as rotas por distância total
+  const clusters: number[][] = Array.from({ length: numRoutes }, () => []);
+
+  // Distribuir em ordem decrescente de distância para melhor balanceamento
+  const sorted = [...ordersWithDistance].sort((a, b) => b.dist - a.dist);
+
+  for (let i = 0; i < sorted.length; i++) {
+    // Adicionar ao cluster com menor soma de distâncias
+    let bestCluster = 0;
+    let bestDist = Infinity;
+    for (let c = 0; c < numRoutes; c++) {
+      const orderIdx = sorted[i].index;
+      const order = ordersToProcess[orderIdx];
+      // Calcular a distância média do cluster atual
+      const clusterDist = clusters[c].reduce((sum, idx) => {
+        const prev = ordersToProcess[idx];
+        return sum + Math.sqrt(
+          Math.pow(prev.latitude! - order.latitude!, 2) +
+          Math.pow(prev.longitude! - order.longitude!, 2)
+        );
+      }, 0);
+      if (clusterDist < bestDist) {
+        bestDist = clusterDist;
+        bestCluster = c;
+      }
+    }
+    clusters[bestCluster].push(sorted[i].index);
+  }
+
+  return clusters;
+}
+
+/**
+ * Ordena os pedidos dentro de uma rota usando o algoritmo do vizinho mais próximo
+ */
+function orderStopsByNearestNeighbor(
+  ordersInRoute: number[],
+  ordersToProcess: OrderWithLocation[],
+  originCoords: { latitude: number; longitude: number }
+): number[] {
+  if (ordersInRoute.length <= 1) return ordersInRoute;
+
+  const remaining = [...ordersInRoute];
+  const ordered: number[] = [];
+  let current = originCoords;
+
+  while (remaining.length > 0) {
+    let nearestIdx = 0;
+    let nearestDist = Infinity;
+
+    for (let i = 0; i < remaining.length; i++) {
+      const order = ordersToProcess[remaining[i]];
+      const dist = Math.sqrt(
+        Math.pow(order.latitude! - current.latitude, 2) +
+        Math.pow(order.longitude! - current.longitude, 2)
+      );
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestIdx = i;
+      }
+    }
+
+    const chosen = remaining.splice(nearestIdx, 1)[0];
+    ordered.push(chosen);
+    current = {
+      latitude: ordersToProcess[chosen].latitude!,
+      longitude: ordersToProcess[chosen].longitude!,
+    };
+  }
+
+  return ordered;
+}
 
 // ─── ROUTER ──────────────────────────────────────────────────────────────────
 
@@ -137,13 +234,6 @@ export const routeOptimizationRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      if (!googleMapsClient.isConfigured()) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Google Maps API não configurada no servidor.",
-        });
-      }
-
       // 1. Busca dados dos pedidos
       const orderRows = await db
         .select({
@@ -170,16 +260,17 @@ export const routeOptimizationRouter = router({
       if (orderRows.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum pedido encontrado." });
 
       const ordersToProcess = orderRows as OrderWithLocation[];
-      
+
       // 2. Geocodificação dos pedidos e da origem
       console.log(`[Roteirização] Iniciando geocodificação de ${ordersToProcess.length} pedidos...`);
-      
+
       const originCoords = await googleMapsClient.geocode(input.startingAddress) || { latitude: -18.9186, longitude: -48.2772 };
+      console.log(`[Roteirização] Coordenadas da origem: ${originCoords.latitude}, ${originCoords.longitude}`);
 
       const shipments = await Promise.all(ordersToProcess.map(async (o) => {
         const fullAddress = buildFullAddress(o);
         let coords = await googleMapsClient.geocode(fullAddress);
-        
+
         // Fallback para bairro se a geocodificação falhar
         if (!coords && o.customerNeighborhood) {
           const neighborhood = o.customerNeighborhood.toLowerCase().trim();
@@ -188,14 +279,19 @@ export const routeOptimizationRouter = router({
             coords = { latitude: fallback.lat, longitude: fallback.lng };
           }
         }
-        
+
         // Fallback final (centro) com um pequeno offset para não ficarem no mesmo ponto exato
         if (!coords) {
-          coords = { 
-            latitude: -18.9186 + (Math.random() - 0.5) * 0.01, 
-            longitude: -48.2772 + (Math.random() - 0.5) * 0.01 
+          coords = {
+            latitude: -18.9186 + (Math.random() - 0.5) * 0.01,
+            longitude: -48.2772 + (Math.random() - 0.5) * 0.01
           };
+          console.warn(`[Roteirização] Geocodificação falhou para pedido #${o.id}. Usando coordenadas aproximadas.`);
         }
+
+        // Salvar coordenadas no objeto para uso posterior
+        o.latitude = coords.latitude;
+        o.longitude = coords.longitude;
 
         return {
           id: o.id,
@@ -212,44 +308,99 @@ export const routeOptimizationRouter = router({
         endLocation: originCoords,
       }));
 
-      // 3. Chama a API do Google Maps
-      let optimizationResult;
-      try {
-        optimizationResult = await googleMapsClient.optimizeRoutes(shipments, vehicles, {
-          routeStrategy: "DEFAULT_ROUTE_STRATEGY",
-          trafficAware: true,
-        });
-      } catch (error: any) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: error.message || "Erro na comunicação com Google Maps.",
-        });
+      // 3. Tenta otimização via Google Maps API
+      let optimizationResult: any = null;
+      let useGoogleApi = false;
+
+      if (googleMapsClient.isConfigured()) {
+        try {
+          console.log(`[Roteirização] Chamando Google Maps Route Optimization API para ${shipments.length} shipments e ${vehicles.length} vehicles...`);
+          optimizationResult = await googleMapsClient.optimizeRoutes(shipments, vehicles, {
+            trafficAware: true,
+          });
+          if (optimizationResult && optimizationResult.routes && optimizationResult.routes.length > 0) {
+            useGoogleApi = true;
+            console.log(`[Roteirização] Google Maps retornou ${optimizationResult.routes.length} rotas otimizadas.`);
+          } else if (optimizationResult && optimizationResult.routes && optimizationResult.routes.length === 0) {
+            console.warn("[Roteirização] Google Maps retornou 0 rotas. Usando fallback local.");
+          }
+        } catch (error: any) {
+          console.error(`[Roteirização] Google Maps API falhou: ${error.message || error}. Usando fallback local.`);
+        }
+      } else {
+        console.warn("[Roteirização] Google Maps API não configurada. Usando fallback local.");
       }
 
-      if (!optimizationResult || !optimizationResult.routes) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "O Google Maps não conseguiu gerar rotas válidas para estes endereços.",
+      // 4. Se a API do Google falhou ou não foi usada, aplica fallback local
+      let routeClusters: number[][];
+      let routeMetrics: { totalDistanceMeters: number; visits: any[] }[];
+
+      if (useGoogleApi && optimizationResult?.routes) {
+        // Usar rotas do Google Maps
+        routeClusters = optimizationResult.routes.map((route: any) =>
+          route.visits.map((visit: any) => visit.shipmentIndex)
+        );
+        routeMetrics = optimizationResult.routes.map((route: any) => ({
+          totalDistanceMeters: route.metrics?.travelDistanceMeters || route.distanceMeters || 0,
+          visits: route.visits || [],
+        }));
+      } else {
+        // Fallback: agrupamento por proximidade geográfica
+        console.log(`[Roteirização] Usando algoritmo local de agrupamento por proximidade para ${numRoutes} rotas.`);
+        routeClusters = clusterOrdersByProximity(ordersToProcess, originCoords, numRoutes);
+
+        // Ordenar paradas dentro de cada rota usando vizinho mais próximo
+        routeClusters = routeClusters.map((cluster) =>
+          orderStopsByNearestNeighbor(cluster, ordersToProcess, originCoords)
+        );
+
+        // Calcular métricas aproximadas (distância euclidiana)
+        routeMetrics = routeClusters.map((cluster) => {
+          let totalDist = 0;
+          const visits = cluster.map((orderIdx, i) => {
+            const order = ordersToProcess[orderIdx];
+            let distFromPrev = 0;
+            if (i > 0) {
+              const prev = ordersToProcess[cluster[i - 1]];
+              distFromPrev = Math.sqrt(
+                Math.pow(order.latitude! - prev.latitude!, 2) +
+                Math.pow(order.longitude! - prev.longitude!, 2)
+              ) * 111000; // Converter graus para metros (aproximado)
+            } else {
+              distFromPrev = Math.sqrt(
+                Math.pow(order.latitude! - originCoords.latitude, 2) +
+                Math.pow(order.longitude! - originCoords.longitude, 2)
+              ) * 111000;
+            }
+            totalDist += distFromPrev;
+            return {
+              shipmentIndex: orderIdx,
+              distanceMeters: Math.round(distFromPrev),
+            };
+          });
+          return {
+            totalDistanceMeters: Math.round(totalDist),
+            visits,
+          };
         });
+
+        console.log(`[Roteirização] Fallback local gerou ${routeClusters.length} rotas.`);
       }
 
-      // 4. Salva as rotas
+      // 5. Salva as rotas no banco
       const createdRouteIds: number[] = [];
       const now = new Date();
 
-      for (const route of optimizationResult.routes) {
-        if (!route.visits || route.visits.length === 0) continue;
+      for (let i = 0; i < routeClusters.length; i++) {
+        const cluster = routeClusters[i];
+        if (cluster.length === 0) continue;
 
-        const ordersInRoute = route.visits
-          .map((visit) => ordersToProcess[visit.shipmentIndex])
-          .filter((o): o is OrderWithLocation => !!o);
-
-        if (ordersInRoute.length === 0) continue;
-
-        const totalDistance = route.metrics.travelDistanceMeters / 1000;
+        const ordersInRoute = cluster.map((idx) => ordersToProcess[idx]);
+        const metrics = routeMetrics[i];
+        const totalDistance = metrics.totalDistanceMeters / 1000;
 
         const [newRoute] = await db.insert(deliveryRoutes).values({
-          name: vehicles[route.vehicleIndex]?.displayName || `${input.routeNamePrefix} #${route.vehicleIndex + 1}`,
+          name: vehicles[i]?.displayName || `${input.routeNamePrefix} #${i + 1}`,
           deliveryDate: now,
           deliveryUserId: 0,
           startingAddress: input.startingAddress,
@@ -263,7 +414,7 @@ export const routeOptimizationRouter = router({
 
         for (let j = 0; j < ordersInRoute.length; j++) {
           const order = ordersInRoute[j];
-          const visit = route.visits[j];
+          const visit = metrics.visits[j];
           const distFromPrev = visit?.distanceMeters ? visit.distanceMeters / 1000 : 0;
 
           await db.insert(routeOrders).values({
@@ -281,7 +432,7 @@ export const routeOptimizationRouter = router({
         totalRoutes: createdRouteIds.length,
         totalOrders: input.selectedOrderIds.length,
         routeIds: createdRouteIds,
-        message: `${createdRouteIds.length} rota(s) otimizada(s) com Google Maps!`,
+        message: `${createdRouteIds.length} rota(s) criada(s) com sucesso!${useGoogleApi ? " (otimizadas pelo Google Maps)" : " (agrupadas por proximidade)"}`,
       };
     }),
 

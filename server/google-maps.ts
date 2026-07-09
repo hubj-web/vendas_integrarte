@@ -3,6 +3,9 @@ import { ENV } from "./_core/env";
 /**
  * Cliente para a Google Maps Route Optimization API
  * Resolve o Vehicle Routing Problem (VRP) para múltiplos entregadores
+ * 
+ * Estrutura do request baseada na documentação oficial:
+ * https://developers.google.com/maps/documentation/route-optimization/reference/rest/v1/projects/optimizeTours
  */
 
 interface Location {
@@ -11,66 +14,78 @@ interface Location {
 }
 
 interface Shipment {
-  pickups?: Array<{
-    location: Location;
-    timeWindows?: Array<{ startTime: string; endTime: string }>;
-  }>;
-  deliveries?: Array<{
-    location: Location;
+  label: string;
+  deliveries: Array<{
+    arrivalWaypoint: {
+      location: {
+        latLng: {
+          latitude: number;
+          longitude: number;
+        };
+      };
+    };
     timeWindows?: Array<{ startTime: string; endTime: string }>;
   }>;
 }
 
 interface Vehicle {
   displayName: string;
-  startLocation: Location;
-  endLocation?: Location;
-  costPerKilometer?: number;
-  costPerHour?: number;
-  startTime?: string;
-  endTime?: string;
-}
-
-interface OptimizationRequest {
-  parent: string;
-  body: {
-    model: {
-      shipments: Array<Shipment & { label: string }>;
-      vehicles: Array<Vehicle & { displayName: string }>;
-      routeModifiers?: {
-        routeStrategy?: "DEFAULT_ROUTE_STRATEGY" | "MINIMIZE_ROUTE_COUNT";
+  startWaypoint: {
+    location: {
+      latLng: {
+        latitude: number;
+        longitude: number;
       };
     };
-    routingPreference?: "TRAFFIC_UNAWARE" | "TRAFFIC_AWARE";
   };
+  endWaypoint: {
+    location: {
+      latLng: {
+        latitude: number;
+        longitude: number;
+      };
+    };
+  };
+  costPerHour?: number;
+  startTimeWindows?: Array<{ startTime: string; endTime: string }>;
+  endTimeWindows?: Array<{ startTime: string; endTime: string }>;
 }
 
-interface OptimizedRoute {
+interface OptimizeToursRequest {
+  timeout: string;
+  model: {
+    shipments: Array<Shipment>;
+    vehicles: Array<Vehicle>;
+    globalStartTime?: string;
+    globalEndTime?: string;
+  };
+  considerRoadTraffic?: boolean;
+  populatePolylines?: boolean;
+}
+
+interface Visit {
+  shipmentIndex: number;
+  isPickup: boolean;
+  startTime: string;
+  detourTime: string;
+  distanceMeters: number;
+}
+
+interface ShipmentRoute {
   vehicleIndex: number;
-  visits: Array<{
-    shipmentIndex: number;
-    isPickup: boolean;
-    startTime: string;
-    detourTime: string;
+  visits: Array<Visit>;
+  transitions: Array<{
+    travelDuration: string;
     distanceMeters: number;
   }>;
-  metrics: {
-    usedCapacity: Record<string, number>;
-    breakDuration: string;
-    travelDuration: string;
-    waitDuration: string;
-    serviceTime: string;
-    totalTime: string;
-    travelDistanceMeters: number;
-  };
+  travelDuration: string;
+  totalDuration: string;
+  distanceMeters: number;
 }
 
-interface OptimizationResponse {
-  routes: OptimizedRoute[];
-  routeModifiers?: {
-    routeStrategy?: string;
-  };
-  skippedShipments: Array<{ index: number; reasons: string[] }>;
+interface OptimizeToursResponse {
+  routes: Array<ShipmentRoute>;
+  skippedShipments?: Array<{ index: number; label?: string; reasons: string[] }>;
 }
 
 export const googleMapsClient = {
@@ -115,6 +130,7 @@ export const googleMapsClient = {
           longitude: loc.lng
         };
       }
+      console.warn(`[Google Maps] Geocodificação falhou para: "${address}". Status: ${data.status}`);
       return null;
     } catch (error) {
       console.error("[Google Maps] Erro na geocodificação:", error);
@@ -124,6 +140,13 @@ export const googleMapsClient = {
 
   /**
    * Otimiza rotas para múltiplos entregadores usando a Google Maps Route Optimization API
+   * 
+   * A estrutura do request segue a documentação oficial:
+   * - Shipments usam `arrivalWaypoint.location.latLng` para as coordenadas
+   * - Vehicles usam `startWaypoint` e `endWaypoint` com estrutura `location.latLng`
+   * - `considerRoadTraffic` (boolean) ao invés de `routingPreference`
+   * - `globalStartTime`/`globalEndTime` definem o timeframe global
+   * - `timeout` controla o tempo máximo de espera
    */
   async optimizeRoutes(
     shipments: Array<{
@@ -141,49 +164,83 @@ export const googleMapsClient = {
       routeStrategy?: "DEFAULT_ROUTE_STRATEGY" | "MINIMIZE_ROUTE_COUNT";
       trafficAware?: boolean;
     }
-  ): Promise<OptimizationResponse | null> {
+  ): Promise<OptimizeToursResponse | null> {
     if (!this.isConfigured()) {
       console.warn("[Google Maps] API não configurada. Configure GOOGLE_MAPS_API_KEY e GOOGLE_CLOUD_PROJECT_ID.");
       return null;
     }
 
+    // Gerar timestamp para hoje com a data atual
+    const today = new Date();
+    const todayStr = today.toISOString().split("T")[0];
+    const globalStartTime = `${todayStr}T06:00:00Z`;
+    const globalEndTime = `${todayStr}T23:00:00Z`;
+
     try {
-      const request: OptimizationRequest = {
-        parent: `projects/${ENV.googleCloudProjectId}`,
-        body: {
-          model: {
-            shipments: shipments.map((s) => ({
-              label: s.label,
-              deliveries: [
-                {
-                  location: s.location,
-                  timeWindows: [
-                    {
-                      startTime: "2026-01-01T08:00:00Z",
-                      endTime: "2026-01-01T20:00:00Z",
+      const request: OptimizeToursRequest = {
+        timeout: "60s",
+        model: {
+          shipments: shipments.map((s) => ({
+            label: s.label,
+            deliveries: [
+              {
+                arrivalWaypoint: {
+                  location: {
+                    latLng: {
+                      latitude: s.location.latitude,
+                      longitude: s.location.longitude,
                     },
-                  ],
+                  },
                 },
-              ],
-            })),
-            vehicles: vehicles.map((v) => ({
-              displayName: v.displayName,
-              startLocation: v.startLocation,
-              endLocation: v.endLocation || v.startLocation,
-              costPerKilometer: 1,
-              costPerHour: 10,
-              startTime: "2026-01-01T08:00:00Z",
-              endTime: "2026-01-01T20:00:00Z",
-            })),
-            routeModifiers: {
-              routeStrategy: options?.routeStrategy || "DEFAULT_ROUTE_STRATEGY",
+                timeWindows: [
+                  {
+                    startTime: `${todayStr}T08:00:00Z`,
+                    endTime: `${todayStr}T20:00:00Z`,
+                  },
+                ],
+              },
+            ],
+          })),
+          vehicles: vehicles.map((v) => ({
+            displayName: v.displayName,
+            startWaypoint: {
+              location: {
+                latLng: {
+                  latitude: v.startLocation.latitude,
+                  longitude: v.startLocation.longitude,
+                },
+              },
             },
-          },
-          routingPreference: options?.trafficAware ? "TRAFFIC_AWARE" : "TRAFFIC_UNAWARE",
+            endWaypoint: {
+              location: {
+                latLng: {
+                  latitude: (v.endLocation || v.startLocation).latitude,
+                  longitude: (v.endLocation || v.startLocation).longitude,
+                },
+              },
+            },
+            costPerHour: 10,
+            startTimeWindows: [
+              {
+                startTime: `${todayStr}T06:00:00Z`,
+                endTime: `${todayStr}T10:00:00Z`,
+              },
+            ],
+            endTimeWindows: [
+              {
+                startTime: `${todayStr}T18:00:00Z`,
+                endTime: `${todayStr}T23:00:00Z`,
+              },
+            ],
+          })),
+          globalStartTime,
+          globalEndTime,
         },
+        considerRoadTraffic: options?.trafficAware ?? false,
+        populatePolylines: false,
       };
 
-      const url = `https://routeoptimization.googleapis.com/v1/${request.parent}:optimizeTours`;
+      const url = `https://routeoptimization.googleapis.com/v1/projects/${ENV.googleCloudProjectId}:optimizeTours`;
 
       const response = await fetch(url, {
         method: "POST",
@@ -191,27 +248,50 @@ export const googleMapsClient = {
           "Content-Type": "application/json",
           "X-Goog-Api-Key": ENV.googleMapsApiKey,
         },
-        body: JSON.stringify(request.body),
+        body: JSON.stringify(request),
       });
 
+      const errorText = await response.text();
+
       if (!response.ok) {
-        const errorText = await response.text();
         let errorMessage = errorText;
         try {
           const errorJson = JSON.parse(errorText);
           errorMessage = errorJson.error?.message || errorJson.message || errorText;
+          console.error("[Google Maps] Erro da API - Detalhes:", {
+            status: response.status,
+            message: errorMessage,
+            details: errorJson.error?.details || "Nenhum detalhe",
+          });
         } catch (e) {}
         
-        console.error("[Google Maps] Erro na otimização:", errorMessage);
-        // Retornamos o erro para ser capturado no router
-        throw new Error(`Google Maps API Error: ${errorMessage}`);
+        throw new Error(`Google Maps API Error (${response.status}): ${errorMessage}`);
       }
 
-      const data = (await response.json()) as OptimizationResponse;
-      return data;
+      try {
+        const data = JSON.parse(errorText) as OptimizeToursResponse;
+        
+        // Logar informações úteis para debugging
+        if (data.skippedShipments && data.skippedShipments.length > 0) {
+          console.warn(
+            `[Google Maps] ${data.skippedShipments.length} shipment(s) foram ignorados:`,
+            data.skippedShipments.map((s) => `#${s.index} (${s.label || "sem label"}): ${s.reasons?.join(", ") || "sem motivo"}`).join("; ")
+          );
+        }
+        
+        console.log(
+          `[Google Maps] Otimização concluída: ${data.routes?.length || 0} rota(s) gerada(s)`
+        );
+        
+        return data;
+      } catch (parseError) {
+        console.error("[Google Maps] Erro ao parsear resposta da API:", parseError);
+        console.error("[Google Maps] Resposta recebida:", errorText.substring(0, 500));
+        return null;
+      }
     } catch (error) {
-      console.error("[Google Maps] Erro ao chamar API:", error);
-      return null;
+      console.error("[Google Maps] Erro ao chamar API de otimização:", error);
+      throw error;
     }
   },
 
@@ -225,29 +305,21 @@ export const googleMapsClient = {
     if (!this.isConfigured()) return null;
 
     try {
-      const url = new URL("https://routes.googleapis.com/distancematrix/v2:computeRouteMatrix");
+      const url = new URL("https://maps.googleapis.com/maps/api/distancematrix/json");
+      url.searchParams.append("origins", `${origin.latitude},${origin.longitude}`);
+      url.searchParams.append("destinations", `${destination.latitude},${destination.longitude}`);
       url.searchParams.append("key", ENV.googleMapsApiKey);
+      url.searchParams.append("mode", "driving");
 
-      const body = {
-        origins: [{ latitude: origin.latitude, longitude: origin.longitude }],
-        destinations: [{ latitude: destination.latitude, longitude: destination.longitude }],
-        travelMode: "DRIVE",
-      };
-
-      const response = await fetch(url.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
+      const response = await fetch(url.toString());
       if (!response.ok) return null;
 
-      const data = (await response.json()) as any;
-      if (data.rows?.[0]?.elements?.[0]) {
+      const data = await response.json();
+      if (data.rows?.[0]?.elements?.[0]?.status === "OK") {
         const element = data.rows[0].elements[0];
         return {
-          distanceMeters: element.distanceMeters || 0,
-          durationSeconds: element.duration?.seconds || 0,
+          distanceMeters: element.distance?.value || 0,
+          durationSeconds: element.duration?.value || 0,
         };
       }
       return null;
