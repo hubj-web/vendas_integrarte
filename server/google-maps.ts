@@ -296,6 +296,52 @@ export const googleMapsClient = {
   },
 
   /**
+   * Calcula a matriz de distância entre múltiplos pares de origens e destinos
+   * usando a Distance Matrix API.
+   * 
+   * @param origins - String de origens no formato "lat,lng|lat,lng|..."
+   * @param destinations - String de destinos no formato "lat,lng|lat,lng|..."
+   * @returns Objeto com rows contendo elementos de distância para cada par origem-destino
+   */
+  async getDistanceMatrix(
+    origins: string,
+    destinations: string
+  ): Promise<{
+    rows: Array<{
+      elements: Array<{
+        status: string;
+        distance?: { value: number; text: string };
+        duration?: { value: number; text: string };
+      }>;
+    }>;
+  } | null> {
+    if (!this.isConfigured()) return null;
+
+    try {
+      const url = new URL("https://maps.googleapis.com/maps/api/distancematrix/json");
+      url.searchParams.append("origins", origins);
+      url.searchParams.append("destinations", destinations);
+      url.searchParams.append("key", ENV.googleMapsApiKey);
+      url.searchParams.append("mode", "driving");
+
+      const response = await fetch(url.toString());
+      if (!response.ok) return null;
+
+      const data = await response.json();
+      
+      if (data.status === "OK" && data.rows?.length > 0) {
+        return data;
+      }
+      
+      console.warn(`[DistanceMatrix] Status da API: ${data.status}, error: ${data.error_message}`);
+      return null;
+    } catch (error) {
+      console.error("[DistanceMatrix] Erro ao calcular matriz:", error);
+      return null;
+    }
+  },
+
+  /**
    * Calcula a distância e tempo entre dois pontos usando a Distance Matrix API
    */
   async getDistance(
