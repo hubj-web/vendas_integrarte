@@ -515,14 +515,17 @@ export default function NewOrder() {
 
           {mpStep === "flavors" && mpSelectedType && (
             <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">Selecione os sabores desejados para o pacote:</p>
-              <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+              <p className="text-sm text-muted-foreground">Escolha os sabores (não há limite, o preço é fixo pelo pacote):</p>
+              <div className="flex flex-wrap gap-2 max-h-64 overflow-y-auto p-1">
                 {getCompatibleFlavors(mpSelectedType).map(f => {
                   const selected = mpSelectedFlavors.includes(f.id);
                   return (
-                    <button key={f.id} onClick={() => setMpSelectedFlavors(prev => selected ? prev.filter(id => id !== f.id) : [...prev, f.id])} className={`p-3 rounded-xl text-left text-sm transition-all border ${selected ? "bg-primary/15 border-primary/30 text-primary" : "bg-muted/30 border-transparent hover:border-primary/20"}`}>
-                      <p className="font-medium">{f.name}</p>
-                      {selected && <Check className="w-3 h-3 mt-1" />}
+                    <button 
+                      key={f.id} 
+                      onClick={() => setMpSelectedFlavors(prev => selected ? prev.filter(id => id !== f.id) : [...prev, f.id])} 
+                      className={`px-4 py-2 rounded-full text-sm font-medium transition-all border ${selected ? "bg-primary text-primary-foreground border-primary" : "bg-muted text-muted-foreground border-transparent hover:bg-muted/70"}`}
+                    >
+                      {f.name}
                     </button>
                   );
                 })}
