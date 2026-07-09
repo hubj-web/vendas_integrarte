@@ -211,18 +211,20 @@ export const reportsRouter = router({
       // 5. Fetch minipizza flavors per order
       const minipizzaFlavorMap: Record<number, string[]> = {};
       if (minipizzaItems.length > 0) {
+        // Correct approach: orderMinipizzas has orderId, and orderMinipizzaFlavors links to orderMinipizzas
         const mpFlavorRows = await db.select({
-          orderMinipizzaId: orderMinipizzaFlavors.orderMinipizzaId,
+          orderId: orderMinipizzas.orderId,
           flavorName: minipizzaFlavors.name,
         })
           .from(orderMinipizzaFlavors)
           .leftJoin(minipizzaFlavors, eq(orderMinipizzaFlavors.minipizzaFlavorId, minipizzaFlavors.id))
-          .where(inArray(orderMinipizzaFlavors.orderMinipizzaId, minipizzaItems.map(m => m.productId as unknown as number)));
+          .leftJoin(orderMinipizzas, eq(orderMinipizzaFlavors.orderMinipizzaId, orderMinipizzas.id))
+          .where(inArray(orderMinipizzas.orderId, orderIds));
 
         mpFlavorRows.forEach(f => {
-          if (!f.flavorName) return;
-          if (!minipizzaFlavorMap[f.orderMinipizzaId]) minipizzaFlavorMap[f.orderMinipizzaId] = [];
-          minipizzaFlavorMap[f.orderMinipizzaId].push(f.flavorName);
+          if (!f.flavorName || !f.orderId) return;
+          if (!minipizzaFlavorMap[f.orderId]) minipizzaFlavorMap[f.orderId] = [];
+          minipizzaFlavorMap[f.orderId].push(f.flavorName);
         });
       }
 
@@ -233,6 +235,7 @@ export const reportsRouter = router({
         unit: sql<string>`'unidade'`,
         supplierId: sql<number>`NULL`,
         quantity: orderJellies.quantity,
+        unitPrice: orderJellies.unitPrice,
         orderId: orderJellies.orderId,
       })
         .from(orderJellies)
@@ -290,7 +293,7 @@ export const reportsRouter = router({
 
       // Process legacy jellies
       jellyItems.forEach(jelly => {
-        addItem(0, jelly.productName || "Geleia", jelly.quantity, "unidade");
+        addItem(0, jelly.productName || "Geleia", jelly.quantity, "unidade", Number(jelly.unitPrice), 0);
       });
 
       return Object.values(consolidation);

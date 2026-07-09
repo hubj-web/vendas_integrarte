@@ -121,6 +121,7 @@ export function registerDbSetupRoute(app: Express) {
         \`productTypeId\` int NOT NULL DEFAULT 1,
         \`unit\` varchar(50) NOT NULL,
         \`price\` decimal(10,2) NOT NULL,
+        \`cost\` decimal(10,2) NOT NULL DEFAULT 0.00,
         \`description\` text,
         \`maxFlavors\` int DEFAULT 0,
         \`active\` boolean NOT NULL DEFAULT true,
@@ -528,6 +529,10 @@ export function registerDbSetupRoute(app: Express) {
 
     await run("Migration: add supplierId to minipizza_types", `
       ALTER TABLE \`minipizza_types\` ADD COLUMN \`supplierId\` int NULL
+    `);
+
+    await run("Migration: add cost to products", `
+      ALTER TABLE \`products\` ADD COLUMN \`cost\` decimal(10,2) NOT NULL DEFAULT 0.00
     `);
 
     const allOk = errors.length === 0;
