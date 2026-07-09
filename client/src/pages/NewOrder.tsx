@@ -79,7 +79,7 @@ export default function NewOrder() {
   const cartTotal = cart.reduce((acc, item) => {
     if (item.type === "minipizza") {
       const mp = item as CartMinipizza;
-      return acc + (mp.price + mp.additionalPrice) * mp.quantity;
+      return acc + mp.price * mp.quantity;
     }
     return acc + item.price * item.quantity;
   }, 0);
@@ -135,13 +135,12 @@ export default function NewOrder() {
       toast.error(`A distribuição deve totalizar ${t.units} unidades. Atual: ${totalQty}`);
       return;
     }
-    const additionalPrice = mpFlavorDistribution.reduce((acc, f) => acc + f.additionalPrice * f.quantity, 0) / t.units;
     const price = parseFloat(t.price);
     const tempId = `mp_${Date.now()}`;
     setCart(prev => [...prev, {
       type: "minipizza", tempId, typeId: t.id, typeName: t.name, typeUnits: t.units,
       flavorDistribution: mpFlavorDistribution,
-      price, additionalPrice, quantity: mpQty,
+      price, additionalPrice: 0, quantity: mpQty,
     }]);
     setMpDialogOpen(false);
   }
@@ -157,7 +156,7 @@ export default function NewOrder() {
     });
     const minipizzas = cart.filter(i => i.type === "minipizza").map(i => {
       const mp = i as CartMinipizza;
-      const unitPrice = mp.price + mp.additionalPrice;
+      const unitPrice = mp.price;
       const flavorIds = mp.flavorDistribution.map(f => f.flavorId);
       return { minipizzaTypeId: mp.typeId, flavorIds, quantity: mp.quantity, unitPrice: String(unitPrice.toFixed(2)), subtotal: String((unitPrice * mp.quantity).toFixed(2)) };
     });
@@ -409,7 +408,7 @@ export default function NewOrder() {
                         )}
                         <span className="text-muted-foreground"> × {item.quantity}</span>
                       </div>
-                      <span className="font-semibold text-primary">{fmt(item.type === "minipizza" ? ((item as CartMinipizza).price + (item as CartMinipizza).additionalPrice) * item.quantity : item.price * item.quantity)}</span>
+                      <span className="font-semibold text-primary">{fmt(item.type === "minipizza" ? (item as CartMinipizza).price * item.quantity : item.price * item.quantity)}</span>
                     </div>
                   ))}
                 </div>
@@ -454,7 +453,7 @@ export default function NewOrder() {
                         {item.type === "minipizza" && (item as CartMinipizza).flavorDistribution.length > 0 && (
                           <p className="text-xs text-muted-foreground truncate">{(item as CartMinipizza).flavorDistribution.map(f => `${f.quantity}x ${f.flavorName}`).join(", ")}</p>
                         )}
-                        <p className="text-xs text-primary font-semibold">{fmt(item.type === "minipizza" ? ((item as CartMinipizza).price + (item as CartMinipizza).additionalPrice) * item.quantity : item.price * item.quantity)}</p>
+                        <p className="text-xs text-primary font-semibold">{fmt(item.type === "minipizza" ? (item as CartMinipizza).price * item.quantity : item.price * item.quantity)}</p>
                       </div>
                       <div className="flex items-center gap-1">
                         <button onClick={() => updateQty(idx, -1)} className="w-5 h-5 rounded-full bg-muted flex items-center justify-center hover:bg-muted/70"><Minus className="w-2.5 h-2.5" /></button>
