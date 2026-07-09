@@ -1,10 +1,11 @@
 import { TRPCError } from "@trpc/server";
-import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
+import { eq, and, gte, lte, desc, sql, count, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   orders, orderItems, orderMinipizzas, orderJellies,
   customers, users, deliveryRecords, paymentRecords,
-  products, minipizzaTypes, jellyFlavors,
+  products, minipizzaTypes, minipizzaFlavors, jellyFlavors,
+  orderItemFlavors, orderMinipizzaFlavors,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -38,202 +39,89 @@ export const reportsRouter = router({
       .filter(o => o.status !== "cancelled")
       .reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
 
-    const pendingAmount = pendingPayments.reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
+    const totalRevenue = allOrders
+      .filter(o => o.status !== "cancelled")
+      .reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
 
-    // Recent orders
-    const recentOrders = await db.select({
-      id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
-      totalAmount: orders.totalAmount, createdAt: orders.createdAt,
-      customerName: customers.name,
-    })
-      .from(orders)
-      .leftJoin(customers, eq(orders.customerId, customers.id))
-      .orderBy(desc(orders.createdAt))
-      .limit(5);
+    const totalOrders = allOrders.filter(o => o.status !== "cancelled").length;
+
+    const revenueByStatus: Record<string, number> = {};
+    allOrders.forEach(o => {
+      if (o.status === "cancelled") return;
+      revenueByStatus[o.status] = (revenueByStatus[o.status] || 0) + parseFloat(o.totalAmount);
+    });
+
+    const deliveryUsers = await db.select().from(users).where(eq(users.role, "delivery"));
 
     return {
-      todayOrdersCount: todayOrders.length,
+      todayOrders: todayOrders.length,
       todayRevenue,
-      pendingPaymentsCount: pendingPayments.length,
-      pendingAmount,
-      inProductionCount: inProduction.length,
-      inRouteCount: inRoute.length,
-      recentOrders,
+      totalOrders,
+      totalRevenue,
+      pendingPayments: pendingPayments.length,
+      inProduction: inProduction.length,
+      inRoute: inRoute.length,
+      revenueByStatus,
+      deliveryUsers: deliveryUsers.length,
     };
   }),
 
-  sales: adminOrLauncherProcedure
+  // ─── ORDERS LIST (for reports table) ────────────────────────────────────────
+  ordersList: adminOrLauncherProcedure
     .input(z.object({
       dateFrom: z.string(),
       dateTo: z.string(),
+      status: z.string().optional(),
+      page: z.number().default(1),
+      limit: z.number().default(20),
     }))
     .query(async ({ input }) => {
       const db = await getDb();
-      if (!db) return null;
+      if (!db) return { orders: [], total: 0 };
 
       const from = new Date(input.dateFrom);
       const to = new Date(input.dateTo);
       to.setHours(23, 59, 59);
 
-      const allOrders = await db.select({
-        id: orders.id, totalAmount: orders.totalAmount,
-        status: orders.status, createdAt: orders.createdAt,
-        launcherId: orders.launcherId, launcherName: users.name,
-      })
-        .from(orders)
-        .leftJoin(users, eq(orders.launcherId, users.id))
-        .where(and(gte(orders.createdAt, from), lte(orders.createdAt, to)));
-
-      const validOrders = allOrders.filter(o => o.status !== "cancelled");
-      const totalRevenue = validOrders.reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
-      const avgTicket = validOrders.length > 0 ? totalRevenue / validOrders.length : 0;
-
-      // By launcher
-      const byLauncher: Record<string, { name: string; count: number; total: number }> = {};
-      for (const o of validOrders) {
-        const key = String(o.launcherId);
-        if (!byLauncher[key]) byLauncher[key] = { name: o.launcherName ?? "Desconhecido", count: 0, total: 0 };
-        byLauncher[key].count++;
-        byLauncher[key].total += parseFloat(o.totalAmount);
+      const conditions = [
+        gte(orders.deliveryDate, from),
+        lte(orders.deliveryDate, to),
+      ];
+      if (input.status && input.status !== "all") {
+        conditions.push(eq(orders.status, input.status as any));
       }
 
-      // Top products
-      const itemRows = await db.select({
-        productId: orderItems.productId, productName: products.name,
-        quantity: orderItems.quantity, subtotal: orderItems.subtotal,
-        orderId: orderItems.orderId,
-      })
-        .from(orderItems)
-        .leftJoin(products, eq(orderItems.productId, products.id))
-        .leftJoin(orders, eq(orderItems.orderId, orders.id))
-        .where(and(gte(orders.createdAt, from), lte(orders.createdAt, to)));
-
-      const productMap: Record<string, { name: string; qty: number; revenue: number }> = {};
-      for (const r of itemRows) {
-        const key = String(r.productId);
-        if (!productMap[key]) productMap[key] = { name: r.productName ?? "?", qty: 0, revenue: 0 };
-        productMap[key].qty += r.quantity;
-        productMap[key].revenue += parseFloat(r.subtotal);
-      }
-      const topProducts = Object.values(productMap).sort((a, b) => b.qty - a.qty).slice(0, 10);
-
-      return {
-        totalOrders: validOrders.length,
-        totalRevenue,
-        avgTicket,
-        byLauncher: Object.values(byLauncher),
-        topProducts,
-      };
-    }),
-
-  financial: adminOrLauncherProcedure
-    .input(z.object({ dateFrom: z.string(), dateTo: z.string() }))
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return null;
-
-      const from = new Date(input.dateFrom);
-      const to = new Date(input.dateTo);
-      to.setHours(23, 59, 59);
-
       const allOrders = await db.select({
-        id: orders.id, totalAmount: orders.totalAmount,
-        paymentStatus: orders.paymentStatus, status: orders.status,
-        customerName: customers.name, customerPhone: customers.phone,
+        id: orders.id,
+        status: orders.status,
+        paymentStatus: orders.paymentStatus,
+        deliveryDate: orders.deliveryDate,
+        totalAmount: orders.totalAmount,
         createdAt: orders.createdAt,
+        customerId: orders.customerId,
+        customerName: customers.name,
       })
         .from(orders)
         .leftJoin(customers, eq(orders.customerId, customers.id))
-        .where(and(gte(orders.createdAt, from), lte(orders.createdAt, to)));
+        .where(and(...conditions))
+        .orderBy(desc(orders.deliveryDate))
+        .limit(input.limit)
+        .offset((input.page - 1) * input.limit);
 
-      const payments = await db.select({
-        amount: paymentRecords.amount,
-        paymentMethod: paymentRecords.paymentMethod,
-        paidAt: paymentRecords.paidAt,
-      })
-        .from(paymentRecords)
-        .where(and(gte(paymentRecords.paidAt, from), lte(paymentRecords.paidAt, to)));
-
-      const totalReceived = payments.reduce((acc, p) => acc + parseFloat(p.amount), 0);
-      const cashReceived = payments.filter(p => p.paymentMethod === "cash").reduce((acc, p) => acc + parseFloat(p.amount), 0);
-      const pixReceived = payments.filter(p => p.paymentMethod === "pix").reduce((acc, p) => acc + parseFloat(p.amount), 0);
-
-      const pendingOrders = allOrders.filter(o => o.paymentStatus === "pending" && o.status !== "cancelled");
-      const totalPending = pendingOrders.reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
+      const totalQuery = await db.select({ count: count() }).from(orders)
+        .where(and(...conditions));
 
       return {
-        totalReceived, cashReceived, pixReceived, totalPending,
-        pendingOrders: pendingOrders.slice(0, 20),
+        orders: allOrders.map(o => ({
+          ...o,
+          deliveryDate: o.deliveryDate ? new Date(o.deliveryDate).toLocaleDateString("pt-BR") : "",
+          customerName: o.customerName || "Cliente desconhecido",
+        })),
+        total: totalQuery[0]?.count || 0,
       };
     }),
 
-  deliveries: adminOrLauncherProcedure
-    .input(z.object({ dateFrom: z.string(), dateTo: z.string() }))
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return null;
-
-      const from = new Date(input.dateFrom);
-      const to = new Date(input.dateTo);
-      to.setHours(23, 59, 59);
-
-      const allOrders = await db.select({
-        id: orders.id, status: orders.status,
-      })
-        .from(orders)
-        .where(and(gte(orders.createdAt, from), lte(orders.createdAt, to)));
-
-      const delivered = allOrders.filter(o => ["delivered", "paid"].includes(o.status));
-      const deliveryRate = allOrders.length > 0 ? (delivered.length / allOrders.length) * 100 : 0;
-
-      const deliveryRows = await db.select({
-        deliveryUserId: deliveryRecords.deliveryUserId,
-        deliveryUserName: users.name,
-        deliveredAt: deliveryRecords.deliveredAt,
-      })
-        .from(deliveryRecords)
-        .leftJoin(users, eq(deliveryRecords.deliveryUserId, users.id))
-        .where(and(gte(deliveryRecords.deliveredAt, from), lte(deliveryRecords.deliveredAt, to)));
-
-      const byDeliverer: Record<string, { name: string; count: number }> = {};
-      for (const r of deliveryRows) {
-        const key = String(r.deliveryUserId);
-        if (!byDeliverer[key]) byDeliverer[key] = { name: r.deliveryUserName ?? "?", count: 0 };
-        byDeliverer[key].count++;
-      }
-
-      return {
-        totalOrders: allOrders.length,
-        deliveredCount: delivered.length,
-        deliveryRate,
-        byDeliverer: Object.values(byDeliverer),
-      };
-    }),
-
-  overduePayments: protectedProcedure
-    .input(z.object({ daysThreshold: z.number().default(3) }))
-    .query(async ({ input }) => {
-      const db = await getDb();
-      if (!db) return [];
-
-      const threshold = new Date();
-      threshold.setDate(threshold.getDate() - input.daysThreshold);
-
-      const rows = await db.select({
-        id: orders.id, totalAmount: orders.totalAmount,
-        deliveryDate: orders.deliveryDate, updatedAt: orders.updatedAt,
-        customerName: customers.name, customerPhone: customers.phone,
-      })
-        .from(orders)
-        .leftJoin(customers, eq(orders.customerId, customers.id))
-        .where(and(eq(orders.status, "delivered"), eq(orders.paymentStatus, "pending")));
-
-      return rows.filter(o => {
-        const refDate = o.deliveryDate ?? o.updatedAt;
-        return refDate <= threshold;
-      });
-    }),
-
+  // ─── PRODUCTION REPORT (consolidated by supplier for production planning) ───
   production: adminOrLauncherProcedure
     .input(z.object({
       dateFrom: z.string(),
@@ -247,19 +135,19 @@ export const reportsRouter = router({
       const to = new Date(input.dateTo);
       to.setHours(23, 59, 59);
 
-      // 1. Fetch orders in the period
-      const orderRows = await db.select({ id: orders.id })
+      // 1. Fetch orders in the period by deliveryDate (not createdAt!)
+      const orderRows = await db.select({ id: orders.id, deliveryDate: orders.deliveryDate })
         .from(orders)
         .where(and(
-          gte(orders.createdAt, from),
-          lte(orders.createdAt, to),
+          gte(orders.deliveryDate, from),
+          lte(orders.deliveryDate, to),
           sql`${orders.status} != 'cancelled'`
         ));
 
       if (orderRows.length === 0) return [];
       const orderIds = orderRows.map(o => o.id);
 
-      // 2. Fetch all items for these orders
+      // 2. Fetch regular products with flavors
       const items = await db.select({
         productId: orderItems.productId,
         productName: products.name,
@@ -267,13 +155,15 @@ export const reportsRouter = router({
         supplierId: products.supplierId,
         quantity: orderItems.quantity,
         orderItemId: orderItems.id,
+        orderId: orderItems.orderId,
+        type: sql<"product">`'product'`,
       })
         .from(orderItems)
         .leftJoin(products, eq(orderItems.productId, products.id))
         .where(inArray(orderItems.orderId, orderIds));
 
       // 3. Fetch flavors for these items
-      const itemIds = items.map(i => i.orderItemId);
+      const itemIds = items.filter(i => i.type === "product").map(i => i.orderItemId);
       const flavorMap: Record<number, string[]> = {};
       if (itemIds.length > 0) {
         const flavorRows = await db.select({
@@ -289,33 +179,98 @@ export const reportsRouter = router({
         });
       }
 
-      // 4. Consolidate
+      // 4. Fetch legacy minipizzas (with supplierId from minipizzaTypes)
+      const minipizzaItems = await db.select({
+        productId: sql<number>`-1`,
+        productName: minipizzaTypes.name,
+        unit: sql<string>`'unidade'`,
+        supplierId: minipizzaTypes.supplierId,
+        quantity: orderMinipizzas.quantity,
+        orderItemId: sql<number>`-1`,
+        orderId: orderMinipizzas.orderId,
+        type: sql<"minipizza">`'minipizza'`,
+      })
+        .from(orderMinipizzas)
+        .leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
+        .where(inArray(orderMinipizzas.orderId, orderIds));
+
+      // 5. Fetch minipizza flavors
+      const minipizzaOrderIds = minipizzaItems.map(m => m.orderId);
+      const minipizzaFlavorMap: Record<number, string[]> = {};
+      if (minipizzaOrderIds.length > 0) {
+        const mpFlavorRows = await db.select({
+          orderMinipizzaId: orderMinipizzaFlavors.orderMinipizzaId,
+          flavorName: minipizzaFlavors.name,
+        })
+          .from(orderMinipizzaFlavors)
+          .leftJoin(minipizzaFlavors, eq(orderMinipizzaFlavors.minipizzaFlavorId, minipizzaFlavors.id))
+          .where(inArray(orderMinipizzaFlavors.orderMinipizzaId, minipizzaOrderIds));
+
+        mpFlavorRows.forEach(f => {
+          if (!f.flavorName) return;
+          if (!minipizzaFlavorMap[f.orderMinipizzaId]) minipizzaFlavorMap[f.orderMinipizzaId] = [];
+          minipizzaFlavorMap[f.orderMinipizzaId].push(f.flavorName);
+        });
+      }
+
+      // 6. Fetch legacy jellies (no supplier)
+      const jellyItems = await db.select({
+        productId: sql<number>`-2`,
+        productName: jellyFlavors.name,
+        unit: sql<string>`'unidade'`,
+        supplierId: sql<number>`null`,
+        quantity: orderJellies.quantity,
+        orderItemId: sql<number>`-1`,
+        orderId: orderJellies.orderId,
+        type: sql<"jelly">`'jelly'`,
+      })
+        .from(orderJellies)
+        .leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
+        .where(inArray(orderJellies.orderId, orderIds));
+
+      // 7. Consolidate all items by supplier
       const consolidation: Record<number, { 
         supplierId: number,
-        items: Record<number, { name: string, quantity: number, unit: string, flavors: Record<string, number> }> 
+        items: Record<string, { name: string, quantity: number, unit: string, flavors: Record<string, number> }> 
       }> = {};
 
+      // Helper to add item to consolidation
+      const addItem = (sId: number, name: string, qty: number, unit: string, flavors: string[] = []) => {
+        if (!consolidation[sId]) consolidation[sId] = { supplierId: sId, items: {} };
+        if (!consolidation[sId].items[name]) {
+          consolidation[sId].items[name] = { name, quantity: 0, unit, flavors: {} };
+        }
+        consolidation[sId].items[name].quantity += qty;
+        flavors.forEach(fName => {
+          consolidation[sId].items[name].flavors[fName] = 
+            (consolidation[sId].items[name].flavors[fName] || 0) + qty;
+        });
+      };
+
+      // Process regular products
       items.forEach(item => {
         const sId = item.supplierId || 0;
-        if (!consolidation[sId]) consolidation[sId] = { supplierId: sId, items: {} };
-        
-        if (!consolidation[sId].items[item.productId!]) {
-          consolidation[sId].items[item.productId!] = {
-            name: item.productName || "Produto",
-            quantity: 0,
-            unit: item.unit || "un",
-            flavors: {}
-          };
-        }
-
-        const qty = item.quantity;
-        consolidation[sId].items[item.productId!].quantity += qty;
-
         const flavors = flavorMap[item.orderItemId] || [];
-        flavors.forEach(fName => {
-          consolidation[sId].items[item.productId!].flavors[fName] = 
-            (consolidation[sId].items[item.productId!].flavors[fName] || 0) + qty;
+        addItem(sId, item.productName || "Produto", item.quantity, item.unit || "un", flavors);
+      });
+
+      // Process legacy minipizzas
+      minipizzaItems.forEach(mp => {
+        const sId = mp.supplierId || 0;
+        // Minipizza flavors are per order, not per type — collect all flavors for this type in these orders
+        const mpFlavors: string[] = [];
+        minipizzaOrderIds.forEach((oid, idx) => {
+          if (oid === mp.orderId) {
+            const mpFl = minipizzaFlavorMap[oid] || [];
+            mpFl.forEach(f => mpFlavors.push(f));
+          }
         });
+        addItem(sId, mp.productName || "Minipizza", mp.quantity, "unidade", mpFlavors);
+      });
+
+      // Process legacy jellies
+      jellyItems.forEach(jelly => {
+        addItem(0, jelly.productName || "Geleia", jelly.quantity, "unidade");
       });
 
       return Object.values(consolidation);
