@@ -9,9 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Calendar as CalendarIcon, Package, Truck, Download, Printer, Filter } from "lucide-react";
-import { format, startOfDay, endOfDay, subDays } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { Package, Truck, Download, Printer, Filter } from "lucide-react";
+import { format, subDays } from "date-fns";
 
 export default function ProductionReport() {
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), "yyyy-MM-dd"));
@@ -19,68 +18,25 @@ export default function ProductionReport() {
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>("all");
 
   const { data: suppliers = [] } = trpc.suppliers.list.useQuery();
-  const { data: orders = [], isLoading } = trpc.orders.list.useQuery({
-    startDate: startOfDay(new Date(startDate)).toISOString(),
-    endDate: endOfDay(new Date(endDate)).toISOString(),
+  const { data: production = [], isLoading } = trpc.reports.production.useQuery({
+    dateFrom: startDate,
+    dateTo: endDate,
   });
-  const { data: products = [] } = trpc.catalog.products.list.useQuery();
 
-  // Consolidate production data
+  // Consolidate and filter production data for display
   const productionData = useMemo(() => {
-    if (!orders || !products) return [];
+    if (!production || !Array.isArray(production)) return [];
 
-    const consolidation: Record<number, { 
-      supplierName: string, 
-      items: Record<number, { name: string, quantity: number, unit: string, flavors: Record<string, number> }> 
-    }> = {};
-
-    // Initialize suppliers
-    suppliers.forEach(s => {
-      consolidation[s.id] = { supplierName: s.name, items: {} };
-    });
-    // Add "Sem Fornecedor" entry
-    consolidation[0] = { supplierName: "Sem Fornecedor", items: {} };
-
-    orders.forEach(order => {
-      // Only process orders that are not cancelled
-      if (order.status === "cancelled") return;
-
-      order.items.forEach(item => {
-        const product = products.find(p => p.id === item.productId);
-        const supplierId = product?.supplierId || 0;
-        
-        if (!consolidation[supplierId]) {
-          consolidation[supplierId] = { supplierName: "Desconhecido", items: {} };
-        }
-
-        if (!consolidation[supplierId].items[item.productId]) {
-          consolidation[supplierId].items[item.productId] = {
-            name: item.productName || "Produto",
-            quantity: 0,
-            unit: product?.unit || "un",
-            flavors: {}
-          };
-        }
-
-        const qty = Number(item.quantity);
-        consolidation[supplierId].items[item.productId].quantity += qty;
-
-        // Process flavors if any
-        if (item.flavors && item.flavors.length > 0) {
-          item.flavors.forEach(f => {
-            const fName = f.flavorName || "Sabor";
-            consolidation[supplierId].items[item.productId].flavors[fName] = 
-              (consolidation[supplierId].items[item.productId].flavors[fName] || 0) + qty;
-          });
-        }
-      });
-    });
-
-    return Object.entries(consolidation)
-      .map(([id, data]) => ({ id: Number(id), ...data }))
-      .filter(s => Object.keys(s.items).length > 0)
-      .filter(s => selectedSupplierId === "all" || String(s.id) === selectedSupplierId);
-  }, [orders, products, suppliers, selectedSupplierId]);
+    return production
+      .map(s => {
+        const supplierInfo = suppliers.find(sup => sup.id === s.supplierId);
+        return {
+          ...s,
+          supplierName: s.supplierId === 0 ? "Sem Fornecedor" : (supplierInfo?.name || "Desconhecido")
+        };
+      })
+      .filter(s => selectedSupplierId === "all" || String(s.supplierId) === selectedSupplierId);
+  }, [production, suppliers, selectedSupplierId]);
 
   const handlePrint = () => {
     window.print();
@@ -148,7 +104,7 @@ export default function ProductionReport() {
           </div>
         ) : (
           productionData.map(supplier => (
-            <Card key={supplier.id} className="bg-card border-border overflow-hidden print:shadow-none print:border-gray-200">
+            <Card key={supplier.supplierId} className="bg-card border-border overflow-hidden print:shadow-none print:border-gray-200">
               <CardHeader className="bg-muted/30 border-b border-border py-3 flex flex-row items-center justify-between">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Truck className="w-5 h-5 text-primary" />
@@ -168,7 +124,7 @@ export default function ProductionReport() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {Object.entries(supplier.items).map(([id, item]) => (
+                    {Object.entries(supplier.items).map(([id, item]: [string, any]) => (
                       <TableRow key={id} className="border-border hover:bg-muted/5">
                         <TableCell className="font-medium align-top py-4">
                           {item.name}
@@ -176,7 +132,7 @@ export default function ProductionReport() {
                         <TableCell className="py-4">
                           {Object.keys(item.flavors).length > 0 ? (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
-                              {Object.entries(item.flavors).map(([flavor, qty]) => (
+                              {Object.entries(item.flavors).map(([flavor, qty]: [string, any]) => (
                                 <div key={flavor} className="flex justify-between text-xs border-b border-border/30 pb-1">
                                   <span className="text-muted-foreground">{flavor}</span>
                                   <span className="font-semibold">{qty} {item.unit}</span>

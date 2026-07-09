@@ -233,4 +233,91 @@ export const reportsRouter = router({
         return refDate <= threshold;
       });
     }),
+
+  production: adminOrLauncherProcedure
+    .input(z.object({
+      dateFrom: z.string(),
+      dateTo: z.string(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+
+      const from = new Date(input.dateFrom);
+      const to = new Date(input.dateTo);
+      to.setHours(23, 59, 59);
+
+      // 1. Fetch orders in the period
+      const orderRows = await db.select({ id: orders.id })
+        .from(orders)
+        .where(and(
+          gte(orders.createdAt, from),
+          lte(orders.createdAt, to),
+          sql`${orders.status} != 'cancelled'`
+        ));
+
+      if (orderRows.length === 0) return [];
+      const orderIds = orderRows.map(o => o.id);
+
+      // 2. Fetch all items for these orders
+      const items = await db.select({
+        productId: orderItems.productId,
+        productName: products.name,
+        unit: products.unit,
+        supplierId: products.supplierId,
+        quantity: orderItems.quantity,
+        orderItemId: orderItems.id,
+      })
+        .from(orderItems)
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .where(inArray(orderItems.orderId, orderIds));
+
+      // 3. Fetch flavors for these items
+      const itemIds = items.map(i => i.orderItemId);
+      const flavorMap: Record<number, string[]> = {};
+      if (itemIds.length > 0) {
+        const flavorRows = await db.select({
+          orderItemId: orderItemFlavors.orderItemId,
+          flavorName: orderItemFlavors.flavorName,
+        })
+          .from(orderItemFlavors)
+          .where(inArray(orderItemFlavors.orderItemId, itemIds));
+        
+        flavorRows.forEach(f => {
+          if (!flavorMap[f.orderItemId]) flavorMap[f.orderItemId] = [];
+          flavorMap[f.orderItemId].push(f.flavorName);
+        });
+      }
+
+      // 4. Consolidate
+      const consolidation: Record<number, { 
+        supplierId: number,
+        items: Record<number, { name: string, quantity: number, unit: string, flavors: Record<string, number> }> 
+      }> = {};
+
+      items.forEach(item => {
+        const sId = item.supplierId || 0;
+        if (!consolidation[sId]) consolidation[sId] = { supplierId: sId, items: {} };
+        
+        if (!consolidation[sId].items[item.productId!]) {
+          consolidation[sId].items[item.productId!] = {
+            name: item.productName || "Produto",
+            quantity: 0,
+            unit: item.unit || "un",
+            flavors: {}
+          };
+        }
+
+        const qty = item.quantity;
+        consolidation[sId].items[item.productId!].quantity += qty;
+
+        const flavors = flavorMap[item.orderItemId] || [];
+        flavors.forEach(fName => {
+          consolidation[sId].items[item.productId!].flavors[fName] = 
+            (consolidation[sId].items[item.productId!].flavors[fName] || 0) + qty;
+        });
+      });
+
+      return Object.values(consolidation);
+    }),
 });
