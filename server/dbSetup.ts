@@ -507,6 +507,29 @@ export function registerDbSetupRoute(app: Express) {
       ALTER TABLE \`route_orders\` ADD COLUMN \`distanceFromPrevious\` decimal(10, 2) DEFAULT '0.00' AFTER \`position\`
     `);
 
+    // ── SUPPLIERS MIGRATION ───────────────────────────────────────────────
+    await run("Table: suppliers", `
+      CREATE TABLE IF NOT EXISTS \`suppliers\` (
+        \`id\` int AUTO_INCREMENT NOT NULL,
+        \`name\` varchar(150) NOT NULL,
+        \`contactName\` varchar(150),
+        \`phone\` varchar(50),
+        \`email\` varchar(150) DEFAULT '',
+        \`active\` boolean NOT NULL DEFAULT true,
+        \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+        \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+        CONSTRAINT \`suppliers_id\` PRIMARY KEY(\`id\`)
+      )
+    `);
+
+    await run("Migration: add supplierId to products", `
+      ALTER TABLE \`products\` ADD COLUMN \`supplierId\` int NULL
+    `);
+
+    await run("Migration: add supplierId to minipizza_types", `
+      ALTER TABLE \`minipizza_types\` ADD COLUMN \`supplierId\` int NULL
+    `);
+
     const allOk = errors.length === 0;
     return res.status(allOk ? 200 : 207).json({
       success: allOk,
