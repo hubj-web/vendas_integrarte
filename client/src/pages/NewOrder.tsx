@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 
 type CartItem = { type: "product"; productId: number; name: string; unit: string; price: number; quantity: number };
-type CartMinipizza = { type: "minipizza"; tempId: string; typeId: number; typeName: string; typeUnits: number; flavorDescription: string; flavorIds: number[]; price: number; quantity: number };
+type CartMinipizza = { type: "minipizza"; tempId: string; typeId: number; typeName: string; flavorNames: string[]; flavorIds: number[]; price: number; quantity: number };
 type CartJelly = { type: "jelly"; flavorId: number; name: string; price: number; quantity: number };
 type CartEntry = CartItem | CartMinipizza | CartJelly;
 
@@ -56,7 +56,7 @@ export default function NewOrder() {
   // Minipizza wizard
   const [mpStep, setMpStep] = useState<"type" | "flavors" | "qty">("type");
   const [mpSelectedType, setMpSelectedType] = useState<number | null>(null);
-  const [mpFlavorDistribution, setMpFlavorDistribution] = useState<{ flavorId: number; flavorName: string; quantity: number }[]>([]);
+  const [mpSelectedFlavors, setMpSelectedFlavors] = useState<number[]>([]);
   const [mpQty, setMpQty] = useState(1);
   const [mpDialogOpen, setMpDialogOpen] = useState(false);
 
@@ -111,7 +111,7 @@ export default function NewOrder() {
   function startMpWizard() {
     setMpStep("type");
     setMpSelectedType(null);
-    setMpFlavorDistribution([]);
+    setMpSelectedFlavors([]);
     setMpQty(1);
     setMpDialogOpen(true);
   }
@@ -122,26 +122,17 @@ export default function NewOrder() {
   }
 
   function confirmMinipizza() {
-    if (!mpSelectedType) return;
+    if (!mpSelectedType || mpSelectedFlavors.length === 0) return;
     const t = mpTypes.find(t => t.id === mpSelectedType)!;
+    const selectedFlavors = mpFlavors.filter(f => mpSelectedFlavors.includes(f.id));
     
-    // Filtra apenas sabores com quantidade > 0
-    const selectedFlavors = mpFlavorDistribution.filter(f => f.quantity > 0);
-    const totalSelected = selectedFlavors.reduce((acc, f) => acc + f.quantity, 0);
-    
-    if (totalSelected !== t.units) {
-      toast.error(`A distribuição deve totalizar ${t.units} unidades. Atual: ${totalSelected}`);
-      return;
-    }
-
-    const flavorDescription = selectedFlavors.map(f => `${f.quantity}x ${f.flavorName}`).join(", ");
-    const flavorIds = selectedFlavors.map(f => f.flavorId);
     const price = parseFloat(t.price);
     const tempId = `mp_${Date.now()}`;
 
     setCart(prev => [...prev, {
-      type: "minipizza", tempId, typeId: t.id, typeName: t.name, typeUnits: t.units,
-      flavorDescription, flavorIds,
+      type: "minipizza", tempId, typeId: t.id, typeName: t.name,
+      flavorNames: selectedFlavors.map(f => f.name),
+      flavorIds: mpSelectedFlavors,
       price, quantity: mpQty,
     }]);
     setMpDialogOpen(false);
@@ -403,8 +394,8 @@ export default function NewOrder() {
                     <div key={idx} className="flex items-center justify-between text-sm">
                       <div>
                         <span className="font-medium">{item.type === "minipizza" ? (item as CartMinipizza).typeName : item.type === "jelly" ? (item as CartJelly).name : (item as CartItem).name}</span>
-                        {item.type === "minipizza" && (item as CartMinipizza).flavorDescription && (
-                          <p className="text-xs text-muted-foreground">{(item as CartMinipizza).flavorDescription}</p>
+                        {item.type === "minipizza" && (item as CartMinipizza).flavorNames.length > 0 && (
+                          <p className="text-xs text-muted-foreground">{(item as CartMinipizza).flavorNames.join(", ")}</p>
                         )}
                         <span className="text-muted-foreground"> × {item.quantity}</span>
                       </div>
@@ -450,8 +441,8 @@ export default function NewOrder() {
                         <p className="text-xs font-medium truncate">
                           {item.type === "minipizza" ? (item as CartMinipizza).typeName : item.type === "jelly" ? (item as CartJelly).name : (item as CartItem).name}
                         </p>
-                        {item.type === "minipizza" && (item as CartMinipizza).flavorDescription && (
-                          <p className="text-xs text-muted-foreground truncate">{(item as CartMinipizza).flavorDescription}</p>
+                        {item.type === "minipizza" && (item as CartMinipizza).flavorNames.length > 0 && (
+                          <p className="text-xs text-muted-foreground truncate">{(item as CartMinipizza).flavorNames.join(", ")}</p>
                         )}
                         <p className="text-xs text-primary font-semibold">{fmt(item.price * item.quantity)}</p>
                       </div>
@@ -504,14 +495,14 @@ export default function NewOrder() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pizza className="w-4 h-4 text-primary" />
-              {mpStep === "type" ? "Selecionar Tipo" : mpStep === "flavors" ? "Distribuir Sabores" : "Quantidade"}
+              {mpStep === "type" ? "Selecionar Tipo" : mpStep === "flavors" ? "Selecionar Sabores" : "Quantidade"}
             </DialogTitle>
           </DialogHeader>
 
           {mpStep === "type" && (
             <div className="space-y-2">
               {mpTypes.filter(t => t.active).map(t => (
-                <button key={t.id} onClick={() => { setMpSelectedType(t.id); setMpFlavorDistribution(getCompatibleFlavors(t.id).map(f => ({ flavorId: f.id, flavorName: f.name, quantity: 0 }))); setMpStep("flavors"); }} className="w-full flex items-center justify-between p-3 rounded-xl bg-muted/30 hover:bg-primary/10 hover:border-primary/20 border border-transparent transition-all text-left">
+                <button key={t.id} onClick={() => { setMpSelectedType(t.id); setMpSelectedFlavors([]); setMpStep("flavors"); }} className="w-full flex items-center justify-between p-3 rounded-xl bg-muted/30 hover:bg-primary/10 hover:border-primary/20 border border-transparent transition-all text-left">
                   <div>
                     <p className="font-medium text-sm">{t.name}</p>
                     <p className="text-xs text-muted-foreground">{t.units} unidades</p>
@@ -524,27 +515,21 @@ export default function NewOrder() {
 
           {mpStep === "flavors" && mpSelectedType && (
             <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">Distribua as {mpTypes.find(t => t.id === mpSelectedType)?.units} unidades entre os sabores:</p>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {mpFlavorDistribution.map((f, idx) => (
-                  <div key={f.flavorId} className="flex items-center justify-between p-2 rounded-lg bg-muted/20">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">{f.flavorName}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => setMpFlavorDistribution(prev => prev.map((item, i) => i === idx ? { ...item, quantity: Math.max(0, item.quantity - 1) } : item))} className="w-6 h-6 rounded bg-muted flex items-center justify-center hover:bg-muted/70"><Minus className="w-3 h-3" /></button>
-                      <span className="text-sm font-semibold w-6 text-center">{f.quantity}</span>
-                      <button onClick={() => setMpFlavorDistribution(prev => prev.map((item, i) => i === idx ? { ...item, quantity: item.quantity + 1 } : item))} className="w-6 h-6 rounded bg-primary/10 flex items-center justify-center hover:bg-primary/20"><Plus className="w-3 h-3 text-primary" /></button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="text-xs text-muted-foreground bg-muted/20 p-2 rounded">
-                Total: {mpFlavorDistribution.reduce((acc, f) => acc + f.quantity, 0)} / {mpTypes.find(t => t.id === mpSelectedType)?.units} unidades
+              <p className="text-sm text-muted-foreground">Selecione os sabores desejados para o pacote:</p>
+              <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                {getCompatibleFlavors(mpSelectedType).map(f => {
+                  const selected = mpSelectedFlavors.includes(f.id);
+                  return (
+                    <button key={f.id} onClick={() => setMpSelectedFlavors(prev => selected ? prev.filter(id => id !== f.id) : [...prev, f.id])} className={`p-3 rounded-xl text-left text-sm transition-all border ${selected ? "bg-primary/15 border-primary/30 text-primary" : "bg-muted/30 border-transparent hover:border-primary/20"}`}>
+                      <p className="font-medium">{f.name}</p>
+                      {selected && <Check className="w-3 h-3 mt-1" />}
+                    </button>
+                  );
+                })}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setMpStep("type")}><ChevronLeft className="w-4 h-4" />Voltar</Button>
-                <Button onClick={() => setMpStep("qty")} className="bg-primary text-primary-foreground">Próximo</Button>
+                <Button onClick={() => { if (mpSelectedFlavors.length === 0) return toast.error("Selecione ao menos um sabor."); setMpStep("qty"); }} className="bg-primary text-primary-foreground">Próximo</Button>
               </DialogFooter>
             </div>
           )}
