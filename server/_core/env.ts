@@ -11,4 +11,7 @@ export const ENV = {
   googleSheetsClientEmail: process.env.GOOGLE_SHEETS_CLIENT_EMAIL ?? "",
   googleSheetsPrivateKey: (process.env.GOOGLE_SHEETS_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
   googleSheetsSpreadsheetId: process.env.GOOGLE_SHEETS_SPREADSHEET_ID ?? "",
+  // Google Maps API
+  googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY ?? "",
+  googleCloudProjectId: process.env.GOOGLE_CLOUD_PROJECT_ID ?? "",
 };
