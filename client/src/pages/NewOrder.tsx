@@ -17,7 +17,7 @@ import {
   Grape, Package, ChevronRight, ChevronLeft, Check, Loader2
 } from "lucide-react";
 
-type CartItem = { type: "product"; productId: number; name: string; unit: string; price: number; quantity: number };
+type CartItem = { type: "product"; productId: number; name: string; unit: string; price: number; quantity: number; flavorNames: string[]; flavorIds: number[] };
 type CartMinipizza = { type: "minipizza"; tempId: string; typeId: number; typeName: string; flavorNames: string[]; flavorIds: number[]; price: number; quantity: number };
 type CartJelly = { type: "jelly"; flavorId: number; name: string; price: number; quantity: number };
 type CartEntry = CartItem | CartMinipizza | CartJelly;
@@ -53,6 +53,12 @@ export default function NewOrder() {
   const [productSearch, setProductSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"products" | "minipizzas" | "jellies">("products");
 
+  // Product flavors wizard
+  const [pfDialogOpen, setPfDialogOpen] = useState(false);
+  const [pfSelectedProduct, setPfSelectedProduct] = useState<typeof products[0] | null>(null);
+  const [pfSelectedFlavors, setPfSelectedFlavors] = useState<number[]>([]);
+  const { data: allProductFlavors = [] } = trpc.catalog.productFlavors.listAll.useQuery();
+
   // Minipizza wizard
   const [mpStep, setMpStep] = useState<"type" | "flavors">("type");
   const [mpSelectedType, setMpSelectedType] = useState<number | null>(null);
@@ -80,11 +86,58 @@ export default function NewOrder() {
   const fmt = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
   function addProduct(p: typeof products[0]) {
+    // Se o produto tem sabores, abre o wizard
+    if (p.maxFlavors > 0) {
+      setPfSelectedProduct(p);
+      setPfSelectedFlavors([]);
+      setPfDialogOpen(true);
+      return;
+    }
+
+    // Caso contrário, adiciona direto
     setCart(prev => {
       const existing = prev.find(i => i.type === "product" && (i as CartItem).productId === p.id);
       if (existing) return prev.map(i => i.type === "product" && (i as CartItem).productId === p.id ? { ...i, quantity: i.quantity + 1 } : i);
-      return [...prev, { type: "product", productId: p.id, name: p.name, unit: p.unit, price: parseFloat(p.price), quantity: 1 }];
+      return [...prev, { type: "product", productId: p.id, name: p.name, unit: p.unit, price: parseFloat(p.price), quantity: 1, flavorNames: [], flavorIds: [] }];
     });
+  }
+
+  function confirmProductFlavors() {
+    if (!pfSelectedProduct) return;
+    const p = pfSelectedProduct;
+    const selectedFlavors = allProductFlavors.filter(f => pfSelectedFlavors.includes(f.id));
+
+    setCart(prev => {
+      // Unifica no carrinho se for o mesmo produto com os mesmos sabores (ou apenas o mesmo produto, conforme regra de negócio)
+      // Para simplificar e evitar erros de cobrança, vamos consolidar por produto
+      const existingIdx = prev.findIndex(i => i.type === "product" && (i as CartItem).productId === p.id);
+      
+      if (existingIdx >= 0) {
+        const updated = [...prev];
+        const existing = updated[existingIdx] as CartItem;
+        const newFlavorIds = Array.from(new Set([...existing.flavorIds, ...pfSelectedFlavors]));
+        const newFlavorNames = allProductFlavors.filter(f => newFlavorIds.includes(f.id)).map(f => f.name);
+
+        updated[existingIdx] = {
+          ...existing,
+          flavorNames: newFlavorNames,
+          flavorIds: newFlavorIds,
+        };
+        return updated;
+      }
+
+      return [...prev, {
+        type: "product",
+        productId: p.id,
+        name: p.name,
+        unit: p.unit,
+        price: parseFloat(p.price),
+        quantity: 1,
+        flavorNames: selectedFlavors.map(f => f.name),
+        flavorIds: pfSelectedFlavors,
+      }];
+    });
+    setPfDialogOpen(false);
   }
 
   function addJelly(f: typeof jellyFlavors[0]) {
@@ -168,7 +221,13 @@ export default function NewOrder() {
 
     const items = cart.filter(i => i.type === "product").map(i => {
       const p = i as CartItem;
-      return { productId: p.productId, quantity: p.quantity, unitPrice: String(p.price.toFixed(2)), subtotal: String((p.price * p.quantity).toFixed(2)) };
+      return { 
+        productId: p.productId, 
+        quantity: p.quantity, 
+        unitPrice: String(p.price.toFixed(2)), 
+        subtotal: String((p.price * p.quantity).toFixed(2)),
+        flavorIds: p.flavorIds
+      };
     });
     const minipizzas = cart.filter(i => i.type === "minipizza").map(i => {
       const mp = i as CartMinipizza;
@@ -420,6 +479,9 @@ export default function NewOrder() {
                         {item.type === "minipizza" && (item as CartMinipizza).flavorNames.length > 0 && (
                           <p className="text-xs text-muted-foreground">{(item as CartMinipizza).flavorNames.join(", ")}</p>
                         )}
+                        {item.type === "product" && (item as CartItem).flavorNames.length > 0 && (
+                          <p className="text-xs text-muted-foreground">{(item as CartItem).flavorNames.join(", ")}</p>
+                        )}
                         <span className="text-muted-foreground"> × {item.quantity}</span>
                       </div>
                       <span className="font-semibold text-primary">{fmt(item.price * item.quantity)}</span>
@@ -461,11 +523,14 @@ export default function NewOrder() {
                   {cart.map((item, idx) => (
                     <div key={idx} className="flex items-center gap-2 p-2 rounded-lg bg-muted/20">
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium truncate">
+                        <p className="text-sm font-medium text-foreground truncate">
                           {item.type === "minipizza" ? (item as CartMinipizza).typeName : item.type === "jelly" ? (item as CartJelly).name : (item as CartItem).name}
                         </p>
                         {item.type === "minipizza" && (item as CartMinipizza).flavorNames.length > 0 && (
-                          <p className="text-xs text-muted-foreground truncate">{(item as CartMinipizza).flavorNames.join(", ")}</p>
+                          <p className="text-[10px] text-muted-foreground truncate">{(item as CartMinipizza).flavorNames.join(", ")}</p>
+                        )}
+                        {item.type === "product" && (item as CartItem).flavorNames.length > 0 && (
+                          <p className="text-[10px] text-muted-foreground truncate">{(item as CartItem).flavorNames.join(", ")}</p>
                         )}
                         <p className="text-xs text-primary font-semibold">{fmt(item.price * item.quantity)}</p>
                       </div>
@@ -509,6 +574,64 @@ export default function NewOrder() {
               <Button type="submit" className="bg-primary text-primary-foreground" disabled={createCustomerMutation.isPending}>Cadastrar</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Product flavors wizard dialog */}
+      <Dialog open={pfDialogOpen} onOpenChange={setPfDialogOpen}>
+        <DialogContent className="bg-card border-border max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="w-4 h-4 text-primary" />
+              Selecionar Sabores
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Escolha os sabores para {pfSelectedProduct?.name} (máximo {pfSelectedProduct?.maxFlavors}):
+            </p>
+            <div className="flex flex-wrap gap-2 max-h-64 overflow-y-auto p-1">
+              {allProductFlavors.filter(f => f.productId === pfSelectedProduct?.id && f.active).map(f => {
+                const selected = pfSelectedFlavors.includes(f.id);
+                const canSelect = !selected && pfSelectedFlavors.length >= (pfSelectedProduct?.maxFlavors || 999);
+
+                return (
+                  <button 
+                    key={f.id} 
+                    onClick={() => {
+                      if (canSelect) return toast.error(`Máximo de ${pfSelectedProduct?.maxFlavors} sabores atingido`);
+                      setPfSelectedFlavors(prev => 
+                        selected ? prev.filter(id => id !== f.id) : [...prev, f.id]
+                      );
+                    }}
+                    disabled={canSelect}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all border ${
+                      selected 
+                        ? "bg-primary text-primary-foreground border-primary" 
+                        : canSelect
+                        ? "bg-muted/30 text-muted-foreground border-transparent opacity-50 cursor-not-allowed"
+                        : "bg-muted text-muted-foreground border-transparent hover:bg-muted/70"
+                    }`}
+                  >
+                    {f.name}
+                  </button>
+                );
+              })}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPfDialogOpen(false)}>Cancelar</Button>
+              <Button 
+                onClick={() => {
+                  if (pfSelectedFlavors.length === 0) return toast.error("Selecione ao menos um sabor.");
+                  confirmProductFlavors();
+                }} 
+                className="bg-primary text-primary-foreground"
+              >
+                Adicionar ao Carrinho
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 

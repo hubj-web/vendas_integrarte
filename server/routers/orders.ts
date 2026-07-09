@@ -71,6 +71,7 @@ const orderItemSchema = z.object({
   quantity: z.number().int().positive(),
   unitPrice: z.string(),
   subtotal: z.string(),
+  flavorIds: z.array(z.number()).optional(),
 });
 
 const orderMinipizzaSchema = z.object({
@@ -361,8 +362,30 @@ export const ordersRouter = router({
       const orderId = Number((result as any).insertId || (result as any)[0]?.insertId);
 
       // Insert items
-      if (input.items.length > 0) {
-        await db.insert(orderItems).values(input.items.map(i => ({ ...i, orderId })));
+      for (const item of input.items) {
+        const itemResult = await db.insert(orderItems).values({
+          orderId,
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          subtotal: item.subtotal,
+        });
+        const orderItemId = Number((itemResult as any).insertId || (itemResult as any)[0]?.insertId);
+        
+        if (item.flavorIds && item.flavorIds.length > 0) {
+          // Buscar nomes dos sabores para desnormalização
+          const flavors = await db.select({ id: productFlavors.id, name: productFlavors.name })
+            .from(productFlavors)
+            .where(inArray(productFlavors.id, item.flavorIds));
+
+          await db.insert(orderItemFlavors).values(
+            flavors.map(f => ({
+              orderItemId,
+              productFlavorId: f.id,
+              flavorName: f.name,
+            }))
+          );
+        }
       }
 
       // Insert minipizzas
