@@ -362,7 +362,8 @@ export default function SellerNewOrder() {
   const updateOrderMutation = trpc.seller.updateOrder.useMutation({
     onSuccess: () => {
       toast.success("Pedido atualizado com sucesso!");
-      const returnPath = location.startsWith("/admin") 
+      const isAdmin = location.startsWith("/admin");
+      const returnPath = isAdmin
         ? `/admin/pedidos/${editOrderId}` 
         : `/vendedor/pedido/${editOrderId}`;
       navigate(returnPath);
@@ -440,7 +441,7 @@ export default function SellerNewOrder() {
   }, [selectedFlavorIds, flavorQuantities]);
 
   // Disable editing if status is not "production" (but allow admin to edit anytime)
-  const isDisabled = isEditMode && existingOrder && existingOrder.status !== "production" && !isAdminRoute;
+  const isDisabled = isEditMode && existingOrder && existingOrder.status !== "production" && !(location.startsWith("/admin"));
 
   // Loading state for edit mode
   if (isEditMode && isLoadingOrder) {
@@ -464,7 +465,7 @@ export default function SellerNewOrder() {
   }
 
   // Show warning if order status is not "production" (admins bypass this)
-  if (isDisabled && !isAdminRoute) {
+  if (isDisabled && !(location.startsWith("/admin"))) {
     return (
       <div className="text-center py-16 text-muted-foreground">
         <p>Apenas pedidos em produção podem ser editados.</p>
