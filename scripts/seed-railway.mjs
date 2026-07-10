@@ -102,33 +102,38 @@ await conn.execute(`
 `);
 
 await conn.execute(`
-  CREATE TABLE IF NOT EXISTS \`products\` (
-    \`id\` int AUTO_INCREMENT NOT NULL,
-    \`name\` varchar(150) NOT NULL,
-    \`productTypeId\` int NOT NULL,
-    \`unit\` varchar(50) NOT NULL,
-    \`price\` decimal(10,2) NOT NULL,
-    \`description\` text,
-    \`active\` boolean NOT NULL DEFAULT true,
-    \`createdAt\` timestamp NOT NULL DEFAULT (now()),
-    \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT \`products_id\` PRIMARY KEY(\`id\`)
-  )
-`);
+    CREATE TABLE IF NOT EXISTS \`products\` (
+      \`id\` int AUTO_INCREMENT NOT NULL,
+      \`name\` varchar(150) NOT NULL,
+      \`categoryId\` int,
+      \`productTypeId\` int NOT NULL DEFAULT 1,
+      \`supplierId\` int,
+      \`unit\` varchar(50) NOT NULL,
+      \`price\` decimal(10,2) NOT NULL,
+      \`cost\` decimal(10,2) NOT NULL DEFAULT 0.00,
+      \`description\` text,
+      \`maxFlavors\` int DEFAULT 0,
+      \`active\` boolean NOT NULL DEFAULT true,
+      \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+      \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT \`products_id\` PRIMARY KEY(\`id\`)
+    )
+  `);
 
 await conn.execute(`
-  CREATE TABLE IF NOT EXISTS \`minipizza_types\` (
-    \`id\` int AUTO_INCREMENT NOT NULL,
-    \`name\` varchar(150) NOT NULL,
-    \`units\` int NOT NULL DEFAULT 1,
-    \`price\` decimal(10,2) NOT NULL DEFAULT 0.00,
-    \`description\` text,
-    \`active\` boolean NOT NULL DEFAULT true,
-    \`createdAt\` timestamp NOT NULL DEFAULT (now()),
-    \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
-    CONSTRAINT \`minipizza_types_id\` PRIMARY KEY(\`id\`)
-  )
-`);
+    CREATE TABLE IF NOT EXISTS \`minipizza_types\` (
+      \`id\` int AUTO_INCREMENT NOT NULL,
+      \`name\` varchar(150) NOT NULL,
+      \`units\` int NOT NULL DEFAULT 1,
+      \`price\` decimal(10,2) NOT NULL DEFAULT 0.00,
+      \`supplierId\` int,
+      \`description\` text,
+      \`active\` boolean NOT NULL DEFAULT true,
+      \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+      \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT \`minipizza_types_id\` PRIMARY KEY(\`id\`)
+    )
+  `);
 
 await conn.execute(`
   CREATE TABLE IF NOT EXISTS \`minipizza_flavors\` (

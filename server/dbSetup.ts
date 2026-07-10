@@ -535,6 +535,14 @@ export function registerDbSetupRoute(app: Express) {
       ALTER TABLE \`products\` ADD COLUMN \`cost\` decimal(10,2) NOT NULL DEFAULT 0.00
     `);
 
+    await run("Migration: add categoryId to products", `
+      ALTER TABLE \`products\` ADD COLUMN \`categoryId\` int NULL
+    `);
+
+    await run("Migration: add maxFlavors to products", `
+      ALTER TABLE \`products\` ADD COLUMN \`maxFlavors\` int DEFAULT 0
+    `);
+
     const allOk = errors.length === 0;
     return res.status(allOk ? 200 : 207).json({
       success: allOk,
