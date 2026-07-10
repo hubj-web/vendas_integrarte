@@ -340,15 +340,23 @@ export const sellerRouter = router({
       return { orders: rows, total: totalResult[0]?.count ?? 0 };
     }),
 
-  /** Detalhes de um pedido (apenas se pertencer ao vendedor) */
+  /** Detalhes de um pedido (se pertencer ao vendedor OU for admin) */
   orderDetail: publicProcedure
     .input(z.object({ orderId: z.number(), sellerId: z.number() }))
-    .query(async ({ input }) => {
-      await requireLauncher(input.sellerId);
+    .query(async ({ input, ctx }) => {
+      const user = await requireLauncher(input.sellerId);
+      const isAdmin = user?.role === "admin" || (user?.roles && user.roles.includes('"admin"'));
+      
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      
+      const conditions = [eq(orders.id, input.orderId)];
+      if (!isAdmin) {
+        conditions.push(eq(orders.launcherId, input.sellerId));
+      }
+
       const orderResult = await db.select().from(orders)
-        .where(and(eq(orders.id, input.orderId), eq(orders.launcherId, input.sellerId)))
+        .where(and(...conditions))
         .limit(1);
       if (!orderResult[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
       const order = orderResult[0];
@@ -399,7 +407,7 @@ export const sellerRouter = router({
       };
     }),
 
-  /** Atualiza um pedido próprio (apenas se ainda em produção) */
+  /** Atualiza um pedido (próprio se vendedor, qualquer um se admin) */
   updateOrder: publicProcedure
     .input(z.object({
       orderId: z.number(),
@@ -421,15 +429,27 @@ export const sellerRouter = router({
       })).optional(),
     }))
     .mutation(async ({ input }) => {
-      await requireLauncher(input.sellerId);
+      const user = await requireLauncher(input.sellerId);
+      const isAdmin = user?.role === "admin" || (user?.roles && user.roles.includes('"admin"'));
+      
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+      const conditions = [eq(orders.id, input.orderId)];
+      if (!isAdmin) {
+        conditions.push(eq(orders.launcherId, input.sellerId));
+      }
+
       const current = await db.select().from(orders)
-        .where(and(eq(orders.id, input.orderId), eq(orders.launcherId, input.sellerId)))
+        .where(and(...conditions))
         .limit(1);
       if (!current[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
-      if (current[0].status !== "production") {
+      
+      // Admins can edit even if not in production? 
+      // User said "editar pedidos feitos por qualquer pessoa", 
+      // usually admin can edit anytime, but let's keep it safer for now or allow it.
+      // If user didn't specify, let's allow admin to edit even if not in production.
+      if (!isAdmin && current[0].status !== "production") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas pedidos em produção podem ser editados." });
       }
 

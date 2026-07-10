@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Search, Eye, Filter, Calendar, Package, Trash2, MoreHorizontal, User } from "lucide-react";
+import { Plus, Search, Eye, Filter, Calendar, Package, Trash2, MoreHorizontal, User, Pencil } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
@@ -294,9 +294,20 @@ export default function Orders() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Link href={`/admin/pedidos/${o.id}`}>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary"><Eye className="w-3.5 h-3.5" /></Button>
-                    </Link>
+                    <div className="flex items-center justify-end gap-1">
+                      {user?.role === "admin" && (
+                        <Link href={`/admin/pedidos/${o.id}/editar`}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" title="Editar Pedido">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Button>
+                        </Link>
+                      )}
+                      <Link href={`/admin/pedidos/${o.id}`}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" title="Ver Detalhes">
+                          <Eye className="w-3.5 h-3.5" />
+                        </Button>
+                      </Link>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))

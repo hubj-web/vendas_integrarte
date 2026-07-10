@@ -127,6 +127,9 @@ function Router() {
       </Route>
 
       {/* ── ADMIN PAGES ── */}
+      <Route path="/admin/pedidos/:id/editar">
+        <AdminGuard><SellerProvider><AppLayout><SellerNewOrder /></AppLayout></SellerProvider></AdminGuard>
+      </Route>
       <Route path="/admin/pedidos/:id">
         <AdminGuard><AppLayout><OrderDetail /></AppLayout></AdminGuard>
       </Route>

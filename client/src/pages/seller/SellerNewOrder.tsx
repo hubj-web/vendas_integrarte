@@ -35,7 +35,9 @@ interface CartItem {
 export default function SellerNewOrder() {
   const { seller } = useSeller();
   const [location, navigate] = useLocation();
-  const [, params] = useRoute("/vendedor/pedido/:id/editar");
+  const [, paramsVendedor] = useRoute("/vendedor/pedido/:id/editar");
+  const [, paramsAdmin] = useRoute("/admin/pedidos/:id/editar");
+  const params = paramsVendedor || paramsAdmin;
   const editOrderId = params?.id ? Number(params.id) : null;
   const isEditMode = !!editOrderId;
 
@@ -327,7 +329,10 @@ export default function SellerNewOrder() {
   const updateOrderMutation = trpc.seller.updateOrder.useMutation({
     onSuccess: () => {
       toast.success("Pedido atualizado com sucesso!");
-      navigate(`/vendedor/pedido/${editOrderId}`);
+      const returnPath = location.startsWith("/admin") 
+        ? `/admin/pedidos/${editOrderId}` 
+        : `/vendedor/pedido/${editOrderId}`;
+      navigate(returnPath);
     },
     onError: (e) => toast.error(e.message),
   });
