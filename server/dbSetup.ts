@@ -31,15 +31,25 @@ export function registerDbSetupRoute(app: Express) {
         results.push(`✓ ${label}`);
       } catch (e: any) {
         // Ignore "already exists" and "duplicate column" errors
+        // MySQL error codes: 
+        // 1050: Table already exists
+        // 1060: Duplicate column name
+        // 1061: Duplicate key name
+        // 1062: Duplicate entry
+        const errorCode = e.code || (e.errno ? String(e.errno) : "");
+        const sqlMsg = (e.sqlMessage || e.message || "").toLowerCase();
+        
         if (
-          e.code === "ER_TABLE_EXISTS_ERROR" ||
-          e.code === "ER_DUP_FIELDNAME" ||
-          e.code === "ER_DUP_KEYNAME" ||
-          (e.sqlMessage && e.sqlMessage.includes("Duplicate"))
+          errorCode === "ER_TABLE_EXISTS_ERROR" || errorCode === "1050" ||
+          errorCode === "ER_DUP_FIELDNAME" || errorCode === "1060" ||
+          errorCode === "ER_DUP_KEYNAME" || errorCode === "1061" ||
+          errorCode === "ER_DUP_ENTRY" || errorCode === "1062" ||
+          sqlMsg.includes("duplicate") || 
+          sqlMsg.includes("already exists")
         ) {
           results.push(`~ ${label} (already exists, skipped)`);
         } else {
-          errors.push(`✗ ${label}: ${e.sqlMessage || e.message}`);
+          errors.push(`✗ ${label}: ${e.sqlMessage || e.message} (Code: ${errorCode})`);
         }
       }
     };
