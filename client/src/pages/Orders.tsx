@@ -28,6 +28,7 @@ const statusOptions = [
   { value: "all", label: "Todos os status" },
   { value: "production", label: "Em Produção" },
   { value: "in_route", label: "Em Rota" },
+  { value: "packaged", label: "Empacotado" },
   { value: "delivered", label: "Entregue" },
   { value: "paid", label: "Pago" },
   { value: "cancelled", label: "Cancelado" },

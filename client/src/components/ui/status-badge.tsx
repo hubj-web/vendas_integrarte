@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 const statusConfig: Record<string, { label: string; className: string }> = {
   production: { label: "Em Produção", className: "status-production" },
   in_route: { label: "Em Rota", className: "status-in_route" },
+  packaged: { label: "Empacotado", className: "status-packaged" },
   delivered: { label: "Entregue", className: "status-delivered" },
   paid: { label: "Pago", className: "status-paid" },
   cancelled: { label: "Cancelado", className: "status-cancelled" },

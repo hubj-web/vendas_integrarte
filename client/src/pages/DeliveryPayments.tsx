@@ -21,9 +21,11 @@ export default function DeliveryPayments() {
   const { user } = useLocalAuth();
   const utils = trpc.useUtils();
 
-  // Orders in_route = pending delivery; delivered + payment pending = pending payment
-  const { data: allOrders = [], isLoading: loadingDel } = trpc.orders.list.useQuery({ status: "in_route" });
-  const pendingDeliveries = (allOrders as any).data ?? allOrders;
+  // Orders in_route/packaged = pending delivery; delivered + payment pending = pending payment
+  const { data: allOrders = [], isLoading: loadingDel } = trpc.orders.list.useQuery({ pageSize: 200 });
+  const pendingDeliveries = ((allOrders as any).data ?? allOrders).filter(
+    (o: any) => o.status === "in_route" || o.status === "packaged"
+  );
   const { data: pendingPayments = [], isLoading: loadingPay } = trpc.orders.pendingPayments.useQuery();
 
   const registerDeliveryMutation = trpc.delivery.deliveryRecords.register.useMutation({

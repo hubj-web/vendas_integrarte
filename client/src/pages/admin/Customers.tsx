@@ -14,6 +14,7 @@ type Customer = {
   name: string;
   phone: string;
   locationReference: string | null;
+  customerReference: string | null;
   street: string | null;
   number: string | null;
   complement: string | null;
@@ -26,6 +27,7 @@ type FormData = {
   name: string;
   phone: string;
   locationReference: string;
+  customerReference: string;
   street: string;
   number: string;
   complement: string;
@@ -35,7 +37,7 @@ type FormData = {
 };
 
 const emptyForm: FormData = {
-  name: "", phone: "", locationReference: "", street: "",
+  name: "", phone: "", locationReference: "", customerReference: "", street: "",
   number: "", complement: "", neighborhood: "", city: "", zipCode: "",
 };
 
@@ -86,6 +88,7 @@ export default function Customers() {
       name: c.name,
       phone: c.phone,
       locationReference: c.locationReference ?? "",
+      customerReference: c.customerReference ?? "",
       street: c.street ?? "",
       number: c.number ?? "",
       complement: c.complement ?? "",
@@ -109,6 +112,7 @@ export default function Customers() {
       name: form.name.trim(),
       phone: form.phone.trim(),
       locationReference: form.locationReference || undefined,
+      customerReference: form.customerReference || undefined,
       street: form.street || undefined,
       number: form.number || undefined,
       complement: form.complement || undefined,
@@ -202,7 +206,12 @@ export default function Customers() {
                   )}
                   {c.locationReference && (
                     <Badge variant="secondary" className="text-[10px] mt-1 w-fit">
-                      Ref: {c.locationReference}
+                      Ref. ponto: {c.locationReference}
+                    </Badge>
+                  )}
+                  {c.customerReference && (
+                    <Badge variant="outline" className="text-[10px] mt-1 w-fit">
+                      Origem: {c.customerReference}
                     </Badge>
                   )}
                 </div>
@@ -259,7 +268,18 @@ export default function Customers() {
                 />
               </div>
               <div className="col-span-2">
-                <Label htmlFor="cus-street">Rua</Label>
+                <Label htmlFor="cus-customer-ref">Referência do Cliente</Label>
+                <Input
+                  id="cus-customer-ref"
+                  value={form.customerReference}
+                  onChange={e => setForm(f => ({ ...f, customerReference: e.target.value }))}
+                  placeholder="Ex: Indicação da Maria, Instagram, Panfleto..."
+                  className="mt-1"
+                />
+                <p className="text-xs text-gray-400 mt-1">De onde esse cliente veio</p>
+              </div>
+              <div className="col-span-2">
+                <Label htmlFor="cus-street">Logradouro</Label>
                 <Input
                   id="cus-street"
                   value={form.street}

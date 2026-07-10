@@ -40,6 +40,7 @@ import DeliveryMethods from "./pages/admin/DeliveryMethods";
 import Users from "./pages/admin/Users";
 import Exports from "./pages/Exports";
 import Backup from "./pages/admin/Backup";
+import Packaging from "./pages/admin/Packaging";
 import OptimizedRouteGenerator from "./pages/OptimizedRouteGenerator";
 import NotFound from "./pages/NotFound";
 
@@ -145,6 +146,9 @@ function Router() {
       </Route>
       <Route path="/admin/rotas">
         <AdminGuard><AppLayout><DeliveryRoutes /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/empacotamento">
+        <AdminGuard><AppLayout><Packaging /></AppLayout></AdminGuard>
       </Route>
       <Route path="/admin/entregas-pagamentos">
         <AdminGuard><AppLayout><DeliveryPayments /></AppLayout></AdminGuard>

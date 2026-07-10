@@ -16,7 +16,7 @@ interface OrderWithLocation {
   totalAmount: string;
   deliveryDate: Date | null;
   deliveryAddress: string | null;
-  status: "production" | "in_route" | "delivered" | "paid" | "cancelled";
+  status: "production" | "in_route" | "packaged" | "delivered" | "paid" | "cancelled";
   customerId: number;
   customerName: string;
   customerPhone: string;

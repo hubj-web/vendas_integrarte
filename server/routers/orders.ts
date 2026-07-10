@@ -88,6 +88,7 @@ const customersRouter = router({
       name: z.string().min(2),
       phone: z.string().min(8),
       locationReference: z.string().optional(),
+      customerReference: z.string().optional(),
       street: z.string().optional(),
       number: z.string().optional(),
       complement: z.string().optional(),
@@ -108,6 +109,7 @@ const customersRouter = router({
       name: z.string().optional(),
       phone: z.string().optional(),
       locationReference: z.string().optional(),
+      customerReference: z.string().optional(),
       street: z.string().optional(),
       number: z.string().optional(),
       complement: z.string().optional(),
@@ -566,7 +568,7 @@ export const ordersRouter = router({
   updateStatus: protectedProcedure
     .input(z.object({
       id: z.number(),
-      status: z.enum(["production", "in_route", "delivered", "paid", "cancelled"]),
+      status: z.enum(["production", "in_route", "packaged", "delivered", "paid", "cancelled"]),
       notes: z.string().optional(),
       cancelReason: z.string().optional(),
     }))
@@ -630,7 +632,7 @@ export const ordersRouter = router({
   bulkUpdateStatus: protectedProcedure
     .input(z.object({
       ids: z.array(z.number()),
-      status: z.enum(["production", "in_route", "delivered", "paid", "cancelled"]),
+      status: z.enum(["production", "in_route", "packaged", "delivered", "paid", "cancelled"]),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();

@@ -33,7 +33,7 @@ export const reportsRouter = router({
     const todayOrders = allOrders.filter(o => o.createdAt >= today && o.createdAt < tomorrow);
     const pendingPayments = allOrders.filter(o => o.status === "delivered" && o.paymentStatus === "pending");
     const inProduction = allOrders.filter(o => o.status === "production");
-    const inRoute = allOrders.filter(o => o.status === "in_route");
+    const inRoute = allOrders.filter(o => o.status === "in_route" || o.status === "packaged");
 
     const todayRevenue = todayOrders
       .filter(o => o.status !== "cancelled")
