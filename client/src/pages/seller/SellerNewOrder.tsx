@@ -45,10 +45,13 @@ export default function SellerNewOrder() {
   const editOrderId = params?.id ? Number(params.id) : null;
   const isEditMode = !!editOrderId;
 
-  // Use current logged in user ID if seller context is missing (admin case)
-  const effectiveSellerId = seller?.id ?? authUser?.id ?? -1;
-
+  // Determine if this is an admin route
   const isAdminRoute = location.startsWith("/admin");
+
+  // Use current logged in user ID if seller context is missing (admin case)
+  // For admin: use authUser.id; for seller: use seller.id or authUser.id as fallback
+  const effectiveSellerId = isAdminRoute ? (authUser?.id ?? -1) : (seller?.id ?? authUser?.id ?? -1);
+
   const returnPath = isAdminRoute 
     ? (editOrderId ? `/admin/pedidos/${editOrderId}` : "/admin/pedidos")
     : (editOrderId ? `/vendedor/pedido/${editOrderId}` : "/vendedor/meus-pedidos");
@@ -425,8 +428,8 @@ export default function SellerNewOrder() {
     return selectedFlavorIds.reduce((sum, fId) => sum + (flavorQuantities[fId] || 0), 0);
   }, [selectedFlavorIds, flavorQuantities]);
 
-  // Disable editing if status is not "production"
-  const isDisabled = isEditMode && existingOrder && existingOrder.status !== "production";
+  // Disable editing if status is not "production" (but allow admin to edit anytime)
+  const isDisabled = isEditMode && existingOrder && existingOrder.status !== "production" && !isAdminRoute;
 
   // Loading state for edit mode
   if (isEditMode && isLoadingOrder) {

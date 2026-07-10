@@ -18,7 +18,7 @@ import { googleSheets } from "../google-sheets";
 import { uploadReceiptToDrive } from "../google-drive";
 import { sendOrderNotification } from "../telegram";
 
-// Helper: validate that userId belongs to a launcher/seller
+// Helper: validate that userId belongs to a launcher/seller or admin
 // id=-1 is the special "Outro" (guest) seller — allowed without DB lookup
 async function requireLauncher(userId: number) {
   if (userId === -1) return null; // guest seller: sem vínculo a usuário cadastrado
@@ -28,13 +28,14 @@ async function requireLauncher(userId: number) {
     .where(and(eq(users.id, userId), eq(users.active, true)))
     .limit(1);
   const user = result[0];
-  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Vendedor não encontrado." });
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário não encontrado." });
   // Check legacy role OR new roles array
   const isAdmin = user.role === "admin" || (user.roles && user.roles.includes('"admin"'));
   const hasLauncherRole = user.role === "launcher" || (user.roles && user.roles.includes('"launcher"'));
   
+  // Allow both launcher and admin roles
   if (!hasLauncherRole && !isAdmin) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a vendedores." });
+    throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a vendedores e administradores." });
   }
   return user;
 }
