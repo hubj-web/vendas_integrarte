@@ -192,6 +192,13 @@ function calculateRouteTotalDistance(
 /**
  * Agrupa pedidos em rotas balanceadas por KM total usando a matriz de distância real.
  * Algoritmo: First-Fit Decreasing (FFD) adaptado para balanceamento de distância.
+ *
+ * IMPORTANTE sobre índices: `distanceMatrix` inclui a origem no índice 0 e cada
+ * pedido de `ordersToProcess[i]` no índice `i + 1`. As funções auxiliares
+ * `orderStopsByNearestNeighbor` e `calculateRouteTotalDistance` esperam receber
+ * e retornar ÍNDICES DE MATRIZ (já deslocados). Por isso, aqui dentro trabalhamos
+ * com índices de matriz (`matrixIdx = i + 1`) e só convertemos de volta para
+ * índices de `ordersToProcess` (0-based) no retorno final.
  */
 function balanceRoutesByDistance(
   ordersToProcess: OrderWithLocation[],
@@ -203,14 +210,15 @@ function balanceRoutesByDistance(
   const clusters: number[][] = Array.from({ length: numRoutes }, () => []);
   const routeTotalDistance: number[] = Array(numRoutes).fill(0);
 
-  // Ordenar pedidos pela distância da origem (mais distantes primeiro) para melhor balanceamento
+  // Ordenar pedidos pela distância da origem (mais distantes primeiro) para melhor balanceamento.
+  // matrixIdx = i + 1 porque o índice 0 da matriz é a origem.
   const ordersWithDistance = ordersToProcess.map((o, i) => ({
-    index: i,
-    distFromOrigin: distanceMatrix[originIndex][i],
+    matrixIdx: i + 1,
+    distFromOrigin: distanceMatrix[originIndex][i + 1],
   })).sort((a, b) => b.distFromOrigin - a.distFromOrigin);
 
   for (const order of ordersWithDistance) {
-    const orderIdx = order.index;
+    const matrixIdx = order.matrixIdx;
 
     // Encontrar a rota que resultará no menor KM total após adicionar este pedido
     let bestRoute = 0;
@@ -218,7 +226,7 @@ function balanceRoutesByDistance(
 
     for (let r = 0; r < numRoutes; r++) {
       // Simular adição à rota r: recalcular a rota completa com vizinho mais próximo
-      const simulatedCluster = [...clusters[r], orderIdx];
+      const simulatedCluster = [...clusters[r], matrixIdx];
       const simulatedOrdered = orderStopsByNearestNeighbor(simulatedCluster, originIndex, distanceMatrix);
       const simulatedDistance = calculateRouteTotalDistance(simulatedOrdered, originIndex, distanceMatrix);
 
@@ -228,7 +236,7 @@ function balanceRoutesByDistance(
       }
     }
 
-    clusters[bestRoute].push(orderIdx);
+    clusters[bestRoute].push(matrixIdx);
     routeTotalDistance[bestRoute] = bestNewDistance;
   }
 
@@ -239,7 +247,8 @@ function balanceRoutesByDistance(
     }
   }
 
-  return clusters;
+  // Converter de índice de matriz de volta para índice de ordersToProcess (0-based)
+  return clusters.map(cluster => cluster.map(matrixIdx => matrixIdx - 1));
 }
 
 /**
@@ -517,12 +526,14 @@ export const routeOptimizationRouter = router({
 
         routeMetrics = routeClusters.map((cluster) => {
           let totalDist = 0;
+          // cluster contém índices de ordersToProcess (0-based); na matriz de
+          // distância a origem ocupa o índice 0, então o pedido i está no índice i+1.
           const visits = cluster.map((orderIdx, i) => {
             let distFromPrev: number;
             if (i === 0) {
-              distFromPrev = distanceMatrix[originIdx][orderIdx];
+              distFromPrev = distanceMatrix[originIdx][orderIdx + 1];
             } else {
-              distFromPrev = distanceMatrix[cluster[i - 1]][orderIdx];
+              distFromPrev = distanceMatrix[cluster[i - 1] + 1][orderIdx + 1];
             }
             totalDist += distFromPrev;
             return {
@@ -533,7 +544,7 @@ export const routeOptimizationRouter = router({
 
           // Adicionar distância de volta à origem
           if (cluster.length > 0) {
-            totalDist += distanceMatrix[cluster[cluster.length - 1]][originIdx];
+            totalDist += distanceMatrix[cluster[cluster.length - 1] + 1][originIdx];
           }
 
           return {
@@ -548,29 +559,30 @@ export const routeOptimizationRouter = router({
         console.log(`[Roteirização] Usando agrupamento por proximidade euclidiana (${numRoutes} rotas).`);
         routeClusters = clusterOrdersByProximity(ordersToProcess, originCoords, numRoutes);
 
-        // Ordenar paradas usando vizinho mais próximo com distância euclidiana
-        routeClusters = routeClusters.map((cluster) =>
-          orderStopsByNearestNeighbor(
-            cluster,
-            originIdx,
-            // Criar matriz euclidiana temporária
-            (() => {
-              const n = allPoints.length;
-              const mat: number[][] = Array.from({ length: n }, (_, i) =>
-                Array.from({ length: n }, (_, j) => {
-                  if (i === j) return 0;
-                  return Math.round(
-                    Math.sqrt(
-                      Math.pow(allPoints[i].latitude - allPoints[j].latitude, 2) +
-                      Math.pow(allPoints[i].longitude - allPoints[j].longitude, 2)
-                    ) * 111000
-                  );
-                })
+        // Matriz euclidiana temporária sobre allPoints (índice 0 = origem, índice i+1 = ordersToProcess[i])
+        const tempMatrix: number[][] = (() => {
+          const n = allPoints.length;
+          return Array.from({ length: n }, (_, i) =>
+            Array.from({ length: n }, (_, j) => {
+              if (i === j) return 0;
+              return Math.round(
+                Math.sqrt(
+                  Math.pow(allPoints[i].latitude - allPoints[j].latitude, 2) +
+                  Math.pow(allPoints[i].longitude - allPoints[j].longitude, 2)
+                ) * 111000
               );
-              return mat;
-            })()
-          )
-        );
+            })
+          );
+        })();
+
+        // Ordenar paradas usando vizinho mais próximo com distância euclidiana.
+        // clusters contêm índices de ordersToProcess (0-based); orderStopsByNearestNeighbor
+        // espera índices de matriz (origem = 0, pedido i = i+1), então convertemos na ida e na volta.
+        routeClusters = routeClusters.map((cluster) => {
+          const matrixIndices = cluster.map(idx => idx + 1);
+          const orderedMatrixIndices = orderStopsByNearestNeighbor(matrixIndices, originIdx, tempMatrix);
+          return orderedMatrixIndices.map(matrixIdx => matrixIdx - 1);
+        });
 
         // Calcular métricas aproximadas
         routeMetrics = routeClusters.map((cluster) => {

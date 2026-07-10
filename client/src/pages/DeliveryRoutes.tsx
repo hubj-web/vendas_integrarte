@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import {
   MapPin, Truck, ExternalLink, ChevronDown, ChevronUp,
-  Loader2, Calendar, Zap, Trash2, CheckSquare, Square, X, UserPlus,
+  Loader2, Calendar, Zap, Trash2, CheckSquare, Square, X, UserPlus, RefreshCw,
 } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Link } from "wouter";
@@ -47,6 +47,15 @@ export default function DeliveryRoutes() {
 
   const assignDelivererMutation = trpc.routeOptimization.assignDeliverer.useMutation({
     onSuccess: () => { utils.delivery.routes.list.invalidate(); toast.success("Entregador atribuído!"); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const recalculateMutation = trpc.routeOptimization.recalculateRouteDistances.useMutation({
+    onSuccess: (data) => {
+      utils.delivery.routes.list.invalidate();
+      utils.delivery.routes.getById.invalidate();
+      toast.success(data.message);
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -205,6 +214,19 @@ export default function DeliveryRoutes() {
                       )}
 
                       <div className="flex items-center gap-1">
+                        {!selectionMode && isAdmin && route.status !== "completed" && (
+                          <Button
+                            size="sm" variant="outline" className="h-8 text-xs px-2 gap-1"
+                            disabled={recalculateMutation.isPending}
+                            title="Recalcula a ordem das paradas e as distâncias usando ruas reais"
+                            onClick={() => recalculateMutation.mutate({ routeId: route.id })}
+                          >
+                            {recalculateMutation.isPending && recalculateMutation.variables?.routeId === route.id
+                              ? <Loader2 className="w-3 h-3 animate-spin" />
+                              : <RefreshCw className="w-3 h-3" />}
+                            Recalcular
+                          </Button>
+                        )}
                         {!selectionMode && isAdmin && route.status === "planned" && (
                           <Button size="sm" variant="outline" className="h-8 text-xs px-2" onClick={() => updateStatusMutation.mutate({ id: route.id, status: "in_progress" })}>Iniciar</Button>
                         )}
