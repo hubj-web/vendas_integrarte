@@ -46,6 +46,11 @@ export default function SellerNewOrder() {
   // Use current logged in user ID if seller context is missing (admin case)
   const effectiveSellerId = seller?.id ?? authUser?.id ?? -1;
 
+  const isAdminRoute = location.startsWith("/admin");
+  const returnPath = isAdminRoute 
+    ? (editOrderId ? `/admin/pedidos/${editOrderId}` : "/admin/pedidos")
+    : (editOrderId ? `/vendedor/pedido/${editOrderId}` : "/vendedor/meus-pedidos");
+
   const { data: catalog } = trpc.seller.catalog.useQuery();
 
   // Fetch order detail when in edit mode
@@ -108,6 +113,7 @@ export default function SellerNewOrder() {
   // Pre-populate from existing order when in edit mode
   useEffect(() => {
     if (isEditMode && existingOrder && catalog) {
+      console.log("Pre-populating from existing order:", existingOrder.id);
       // Load customer
       const customer = existingOrder.customer;
       if (customer) {
@@ -148,26 +154,31 @@ export default function SellerNewOrder() {
 
       // Load cart items from order items
       // Each order item already represents a product+flavor combination with its own quantity
-      const newCart: CartItem[] = existingOrder.items.map((item, index) => {
-        const flavors = (item as any).flavors ?? [];
-        const flavorNames = flavors.map((f: any) => f.flavorName ?? f.name);
-        const flavorIds = flavors.map((f: any) => f.productFlavorId ?? f.id);
-        const flavorSuffix = flavorNames.length > 0 ? ` (${flavorNames.join(", ")})` : "";
-        return {
-          type: "product",
-          id: `edit-${item.id ?? index}-${Date.now()}`,
-          label: `${item.productName ?? `Produto #${item.productId}`}${flavorSuffix}`,
-          quantity: item.quantity,
-          unitPrice: Number(item.unitPrice),
-          subtotal: Number(item.subtotal),
-          productId: item.productId,
-          flavorIds: flavorIds.length > 0 ? flavorIds : undefined,
-          flavorNames: flavorNames.length > 0 ? flavorNames : undefined,
-        };
-      });
-      setCart(newCart);
+      try {
+        const items = existingOrder.items || [];
+        const newCart: CartItem[] = items.map((item, index) => {
+          const flavors = (item as any).flavors ?? [];
+          const flavorNames = flavors.map((f: any) => f.flavorName ?? f.name || "Sabor");
+          const flavorIds = flavors.map((f: any) => f.productFlavorId ?? f.id);
+          const flavorSuffix = flavorNames.length > 0 ? ` (${flavorNames.join(", ")})` : "";
+          return {
+            type: "product",
+            id: `edit-${item.id ?? index}-${Date.now()}-${index}`,
+            label: `${item.productName ?? `Produto #${item.productId}`}${flavorSuffix}`,
+            quantity: item.quantity || 0,
+            unitPrice: Number(item.unitPrice || 0),
+            subtotal: Number(item.subtotal || 0),
+            productId: item.productId,
+            flavorIds: flavorIds.length > 0 ? flavorIds : undefined,
+            flavorNames: flavorNames.length > 0 ? flavorNames : undefined,
+          };
+        });
+        setCart(newCart);
+      } catch (err) {
+        console.error("Error mapping order items to cart:", err);
+      }
     }
-  }, [isEditMode, existingOrder, catalog]);
+  }, [isEditMode, !!existingOrder, !!catalog]); // Use booleans to avoid re-running on data updates unless they become available
 
   // Category product dialog
   const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
