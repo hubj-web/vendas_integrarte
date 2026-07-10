@@ -82,7 +82,8 @@ export default function OrderDetail() {
               <Button variant="outline" size="sm" className="gap-2"><ArrowLeft className="w-4 h-4" />Voltar</Button>
             </Link>
             <OrderReceiptButton order={order} />
-            {user?.role === "admin" && (
+            {/* Admin Edit Button */}
+            {user && (user.role === "admin" || (user as any).roles?.includes("admin")) && (
               <Link href={`/admin/pedidos/${order.id}/editar`}>
                 <Button variant="outline" size="sm" className="gap-2 border-primary/30 text-primary hover:bg-primary/10">
                   <Pencil className="w-4 h-4" />Editar
