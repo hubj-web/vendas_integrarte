@@ -30,8 +30,10 @@ async function requireLauncher(userId: number) {
   const user = result[0];
   if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Vendedor não encontrado." });
   // Check legacy role OR new roles array
+  const isAdmin = user.role === "admin" || (user.roles && user.roles.includes('"admin"'));
   const hasLauncherRole = user.role === "launcher" || (user.roles && user.roles.includes('"launcher"'));
-  if (!hasLauncherRole && user.role !== "admin") {
+  
+  if (!hasLauncherRole && !isAdmin) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a vendedores." });
   }
   return user;

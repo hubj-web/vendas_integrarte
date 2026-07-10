@@ -15,6 +15,7 @@ import {
   Search, Plus, Minus, Trash2, ShoppingCart, User, UserPlus,
   ChevronRight, Check, Tag, MapPin, ArrowLeft, X
 } from "lucide-react";
+import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Link } from "wouter";
 
 const fmt = (v: number) =>
@@ -34,6 +35,7 @@ interface CartItem {
 
 export default function SellerNewOrder() {
   const { seller } = useSeller();
+  const { user: authUser } = useLocalAuth();
   const [location, navigate] = useLocation();
   const [, paramsVendedor] = useRoute("/vendedor/pedido/:id/editar");
   const [, paramsAdmin] = useRoute("/admin/pedidos/:id/editar");
@@ -41,14 +43,15 @@ export default function SellerNewOrder() {
   const editOrderId = params?.id ? Number(params.id) : null;
   const isEditMode = !!editOrderId;
 
+  // Use current logged in user ID if seller context is missing (admin case)
+  const effectiveSellerId = seller?.id ?? authUser?.id ?? -1;
+
   const { data: catalog } = trpc.seller.catalog.useQuery();
 
   // Fetch order detail when in edit mode
-  // Admin Support: Use placeholder sellerId (-1) if seller is not yet loaded or not present,
-  // the backend now allows admin role to bypass ownership checks.
   const { data: existingOrder, isLoading: isLoadingOrder } = trpc.seller.orderDetail.useQuery(
-    { orderId: editOrderId!, sellerId: seller?.id ?? -1 },
-    { enabled: isEditMode && !!editOrderId, retry: 1 }
+    { orderId: editOrderId!, sellerId: effectiveSellerId },
+    { enabled: isEditMode && !!editOrderId && effectiveSellerId !== -1 }
   );
 
   // Customer
@@ -351,10 +354,10 @@ export default function SellerNewOrder() {
       finalAddress = [c.street, c.number, c.neighborhood, c.city].filter(Boolean).join(", ");
     }
 
-    if (!seller) return;
+    if (effectiveSellerId === -1) return;
 
     const payload = {
-      sellerId: seller.id,
+      sellerId: effectiveSellerId,
       customerId: selectedCustomer.id,
       deliveryMethodId: Number(deliveryMethodId),
       deliveryAddress: finalAddress || undefined,
