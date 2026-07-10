@@ -42,9 +42,11 @@ export default function ProductionReport() {
 
   const formatUnit = (unit: string, quantity: number) => {
     if (quantity < 2) return unit;
-    if (unit.toLowerCase() === "pacote") return "pacotes";
-    if (unit.toLowerCase() === "unidade") return "unidades";
-    return unit; // Fallback para outras unidades não mapeadas
+    const u = unit.toLowerCase();
+    if (u === "pacote") return "pacotes";
+    if (u === "unidade") return "unidades";
+    if (u === "un") return "unidades";
+    return unit;
   };
 
   const handlePrint = () => {
@@ -142,9 +144,9 @@ export default function ProductionReport() {
                   <TableHeader>
                     <TableRow className="border-border hover:bg-transparent bg-muted/10">
                       <TableHead className="w-[25%]">Produto</TableHead>
-                      <TableHead className="w-[30%]">Sabores</TableHead>
-                      <TableHead className="w-[15%]">Detalhes</TableHead>
-                      <TableHead className="text-center w-[10%]">Qtd</TableHead>
+                      <TableHead className="w-[35%]">Sabores</TableHead>
+                      <TableHead className="w-[10%]">Detalhes</TableHead>
+                      <TableHead className="text-center w-[10%]">Quantidade</TableHead>
                       <TableHead className="text-right pr-6 w-[20%]">Financeiro (Custo)</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -155,23 +157,38 @@ export default function ProductionReport() {
                           {item.name}
                         </TableCell>
                         <TableCell className="py-4 align-top">
-                          {Object.keys(item.flavors).length > 0 ? (
-                            <div className="text-[10px] text-muted-foreground">
-                              {Object.keys(item.flavors).join(", ")}
+                          {item.combinations && Object.keys(item.combinations).length > 0 ? (
+                            <div className="space-y-1">
+                              {Object.keys(item.combinations).map(comb => (
+                                <div key={comb} className="text-[10px] text-muted-foreground border-b border-border/20 pb-1 last:border-0">
+                                  {comb}
+                                </div>
+                              ))}
                             </div>
                           ) : (
                             <span className="text-[10px] text-muted-foreground italic">Sem sabores</span>
                           )}
                         </TableCell>
                         <TableCell className="py-4 align-top">
-                          <div className="text-[10px] font-medium">
-                            {item.quantity} {formatUnit(item.unit, item.quantity)}
-                          </div>
+                          {item.combinations && Object.keys(item.combinations).length > 0 ? (
+                            <div className="space-y-1">
+                              {Object.entries(item.combinations).map(([comb, qty]: [string, any]) => (
+                                <div key={comb} className="text-[10px] font-medium border-b border-border/20 pb-1 last:border-0">
+                                  {qty}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-[10px] font-medium">{item.quantity}</div>
+                          )}
                         </TableCell>
                         <TableCell className="text-center align-top py-4">
                           <span className="text-base font-bold text-primary">
                             {item.quantity}
                           </span>
+                          <div className="text-[10px] text-muted-foreground">
+                            {formatUnit(item.unit, item.quantity)}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right pr-6 align-top py-4">
                           <div className="text-[10px] text-muted-foreground">

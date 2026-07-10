@@ -248,14 +248,23 @@ export const reportsRouter = router({
         totalCost: number,
         totalRevenue: number,
         totalProfit: number,
-        items: Record<string, { name: string, quantity: number, unit: string, revenue: number, cost: number, profit: number, flavors: Record<string, number> }> 
+        items: Record<string, { 
+          name: string, 
+          quantity: number, 
+          unit: string, 
+          revenue: number, 
+          cost: number, 
+          profit: number, 
+          flavors: Record<string, number>,
+          combinations: Record<string, number> 
+        }> 
       }> = {};
 
       // Helper to add item to consolidation
       const addItem = (sId: number, name: string, qty: number, unit: string, unitPrice: number, unitCost: number, flavors: string[] = []) => {
         if (!consolidation[sId]) consolidation[sId] = { supplierId: sId, totalCost: 0, totalRevenue: 0, totalProfit: 0, items: {} };
         if (!consolidation[sId].items[name]) {
-          consolidation[sId].items[name] = { name, quantity: 0, unit, revenue: 0, cost: 0, profit: 0, flavors: {} };
+          consolidation[sId].items[name] = { name, quantity: 0, unit, revenue: 0, cost: 0, profit: 0, flavors: {}, combinations: {} };
         }
         
         const itemRevenue = qty * unitPrice;
@@ -271,10 +280,16 @@ export const reportsRouter = router({
         consolidation[sId].totalCost += itemCost;
         consolidation[sId].totalProfit += itemProfit;
 
+        // Individual flavor counts (legacy)
         flavors.forEach(fName => {
           consolidation[sId].items[name].flavors[fName] = 
             (consolidation[sId].items[name].flavors[fName] || 0) + qty;
         });
+
+        // Exact combinations grouping
+        const combinationKey = flavors.length > 0 ? flavors.sort().join(" & ") : "Sem sabores";
+        consolidation[sId].items[name].combinations[combinationKey] = 
+          (consolidation[sId].items[name].combinations[combinationKey] || 0) + qty;
       };
 
       // Process regular products
