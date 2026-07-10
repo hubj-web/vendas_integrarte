@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { ArrowLeft, User, MapPin, CreditCard, Package, Clock, XCircle, Loader2 } from "lucide-react";
+import { ArrowLeft, User, MapPin, CreditCard, Package, Clock, XCircle, Loader2, Pencil } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Link } from "wouter";
 import { OrderReceiptButton } from "@/components/OrderReceipt";
@@ -82,6 +82,13 @@ export default function OrderDetail() {
               <Button variant="outline" size="sm" className="gap-2"><ArrowLeft className="w-4 h-4" />Voltar</Button>
             </Link>
             <OrderReceiptButton order={order} />
+            {user?.role === "admin" && (
+              <Link href={`/admin/pedidos/${order.id}/editar`}>
+                <Button variant="outline" size="sm" className="gap-2 border-primary/30 text-primary hover:bg-primary/10">
+                  <Pencil className="w-4 h-4" />Editar
+                </Button>
+              </Link>
+            )}
             {canChangeStatus && nextStatuses.filter(s => s !== "cancelled").map(s => (
               <Button key={s} size="sm" className="bg-primary text-primary-foreground gap-2" onClick={() => { setNewStatus(s); setStatusOpen(true); }}>
                 {statusLabels[s]}

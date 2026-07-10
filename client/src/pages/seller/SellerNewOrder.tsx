@@ -44,9 +44,11 @@ export default function SellerNewOrder() {
   const { data: catalog } = trpc.seller.catalog.useQuery();
 
   // Fetch order detail when in edit mode
+  // If admin, we use a placeholder sellerId (or the launcherId from the order)
+  // because the backend now allows admin to bypass the launcherId check.
   const { data: existingOrder, isLoading: isLoadingOrder } = trpc.seller.orderDetail.useQuery(
-    { orderId: editOrderId!, sellerId: seller?.id ?? 0 },
-    { enabled: isEditMode && !!seller && !!editOrderId }
+    { orderId: editOrderId!, sellerId: seller?.id ?? -1 },
+    { enabled: isEditMode && !!editOrderId }
   );
 
   // Customer

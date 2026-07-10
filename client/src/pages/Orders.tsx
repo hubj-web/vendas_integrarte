@@ -295,13 +295,7 @@ export default function Orders() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
-                      {user?.role === "admin" && (
-                        <Link href={`/admin/pedidos/${o.id}/editar`}>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" title="Editar Pedido">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </Button>
-                        </Link>
-                      )}
+
                       <Link href={`/admin/pedidos/${o.id}`}>
                         <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" title="Ver Detalhes">
                           <Eye className="w-3.5 h-3.5" />
