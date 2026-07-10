@@ -21,8 +21,20 @@ export default function DeliveryPayments() {
   const { user } = useLocalAuth();
   const utils = trpc.useUtils();
 
+  const [deliveryMethodFilter, setDeliveryMethodFilter] = useState<string>("all");
+  const [routeFilter, setRouteFilter] = useState<string>("all");
+
+  const { data: deliveryMethods = [] } = trpc.catalog.deliveryMethods.list.useQuery();
+  const { data: routesList = [] } = trpc.delivery.routes.list.useQuery({});
+  // Só faz sentido escolher rotas que ainda têm entregas em andamento
+  const activeRoutes = routesList.filter(r => r.status === "planned" || r.status === "in_progress");
+
   // Orders in_route/packaged = pending delivery; delivered + payment pending = pending payment
-  const { data: allOrders = [], isLoading: loadingDel } = trpc.orders.list.useQuery({ pageSize: 200 });
+  const { data: allOrders = [], isLoading: loadingDel } = trpc.orders.list.useQuery({
+    pageSize: 200,
+    deliveryMethodId: deliveryMethodFilter !== "all" ? Number(deliveryMethodFilter) : undefined,
+    routeId: routeFilter !== "all" ? Number(routeFilter) : undefined,
+  });
   const pendingDeliveries = ((allOrders as any).data ?? allOrders).filter(
     (o: any) => o.status === "in_route" || o.status === "packaged"
   );
@@ -117,6 +129,37 @@ export default function DeliveryPayments() {
     <div>
       <PageHeader title="Entregas e Pagamentos" description="Registre entregas e confirme pagamentos" />
 
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 max-w-xl">
+        <div>
+          <Label className="text-xs text-muted-foreground mb-1 block">Tipo de entrega</Label>
+          <Select value={deliveryMethodFilter} onValueChange={setDeliveryMethodFilter}>
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder="Todos os tipos" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os tipos</SelectItem>
+              {deliveryMethods.map(dm => (
+                <SelectItem key={dm.id} value={String(dm.id)}>{dm.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground mb-1 block">Rota</Label>
+          <Select value={routeFilter} onValueChange={setRouteFilter}>
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder="Todas as rotas" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas as rotas</SelectItem>
+              {activeRoutes.map(r => (
+                <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       <Tabs defaultValue="deliveries">
         <TabsList className="bg-muted/30 mb-4">
           <TabsTrigger value="deliveries" className="gap-2">
@@ -144,8 +187,10 @@ export default function DeliveryPayments() {
                 <TableHeader>
                   <TableRow className="border-border hover:bg-transparent">
                     <TableHead className="text-muted-foreground">#</TableHead>
+                    {routeFilter !== "all" && <TableHead className="text-muted-foreground">Ordem</TableHead>}
                     <TableHead className="text-muted-foreground">Cliente</TableHead>
                     <TableHead className="text-muted-foreground">Endereço</TableHead>
+                    <TableHead className="text-muted-foreground">Produtos</TableHead>
                     <TableHead className="text-muted-foreground">Status</TableHead>
                     <TableHead className="text-muted-foreground">Total</TableHead>
                     <TableHead className="text-right text-muted-foreground">Ação</TableHead>
@@ -157,11 +202,15 @@ export default function DeliveryPayments() {
                     return (
                       <TableRow key={o.id} className="border-border hover:bg-muted/20">
                         <TableCell className="font-mono text-sm text-muted-foreground">#{o.id}</TableCell>
+                        {routeFilter !== "all" && (
+                          <TableCell className="text-sm font-semibold text-primary">{o.routePosition ?? "—"}</TableCell>
+                        )}
                         <TableCell>
                           <p className="font-medium text-sm">{o.customerName}</p>
                           <p className="text-xs text-muted-foreground">{o.customerPhone}</p>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{addr || "—"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground max-w-[240px] truncate" title={o.productSummary}>{o.productSummary || "—"}</TableCell>
                         <TableCell><StatusBadge status={o.status} /></TableCell>
                         <TableCell className="font-semibold text-primary">{fmt(o.totalAmount)}</TableCell>
                         <TableCell className="text-right">

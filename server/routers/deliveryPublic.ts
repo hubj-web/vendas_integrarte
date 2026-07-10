@@ -4,11 +4,14 @@
  * Operações de escrita exigem que o userId seja de um usuário com role=delivery.
  */
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   customers, deliveryRecords, routeOrders, deliveryRoutes,
-  orders, users,
+  orders, users, deliveryMethods,
+  orderItems, orderItemFlavors, products,
+  orderMinipizzas, orderMinipizzaFlavors, minipizzaTypes, minipizzaFlavors,
+  orderJellies, jellyFlavors,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
@@ -143,12 +146,80 @@ export const deliveryPublicRouter = router({
           totalAmount: orders.totalAmount,
           paymentMethod: orders.paymentMethod,
           orderStatus: orders.status,
+          deliveryMethodId: orders.deliveryMethodId,
+          deliveryMethodName: deliveryMethods.name,
+          notes: orders.notes,
         })
         .from(routeOrders)
         .leftJoin(orders, eq(routeOrders.orderId, orders.id))
         .leftJoin(customers, eq(orders.customerId, customers.id))
+        .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
         .where(eq(routeOrders.routeId, input.routeId))
         .orderBy(asc(routeOrders.position));
+
+      // Monta o detalhamento dos produtos comprados em cada pedido (produtos, minipizzas, geleias)
+      const orderIds = items.map(i => i.orderId);
+      const productsByOrder: Record<number, { label: string; quantity: number }[]> = {};
+
+      if (orderIds.length > 0) {
+        const itemRows = await db.select({
+          id: orderItems.id, orderId: orderItems.orderId,
+          productName: products.name, quantity: orderItems.quantity,
+        }).from(orderItems)
+          .leftJoin(products, eq(orderItems.productId, products.id))
+          .where(inArray(orderItems.orderId, orderIds));
+
+        const itemIds = itemRows.map(i => i.id);
+        const itemFlavorMap: Record<number, string[]> = {};
+        if (itemIds.length > 0) {
+          const flavorRows = await db.select({
+            orderItemId: orderItemFlavors.orderItemId, flavorName: orderItemFlavors.flavorName,
+          }).from(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId, itemIds));
+          for (const f of flavorRows) {
+            (itemFlavorMap[f.orderItemId] ??= []).push(f.flavorName);
+          }
+        }
+
+        const mpRows = await db.select({
+          id: orderMinipizzas.id, orderId: orderMinipizzas.orderId,
+          typeName: minipizzaTypes.name, quantity: orderMinipizzas.quantity,
+        }).from(orderMinipizzas)
+          .leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
+          .where(inArray(orderMinipizzas.orderId, orderIds));
+
+        const mpIds = mpRows.map(m => m.id);
+        const mpFlavorMap: Record<number, string[]> = {};
+        if (mpIds.length > 0) {
+          const flavorRows = await db.select({
+            orderMinipizzaId: orderMinipizzaFlavors.orderMinipizzaId, flavorName: minipizzaFlavors.name,
+          }).from(orderMinipizzaFlavors)
+            .leftJoin(minipizzaFlavors, eq(orderMinipizzaFlavors.minipizzaFlavorId, minipizzaFlavors.id))
+            .where(inArray(orderMinipizzaFlavors.orderMinipizzaId, mpIds));
+          for (const f of flavorRows) {
+            (mpFlavorMap[f.orderMinipizzaId] ??= []).push(f.flavorName ?? "");
+          }
+        }
+
+        const jRows = await db.select({
+          orderId: orderJellies.orderId, flavorName: jellyFlavors.name, quantity: orderJellies.quantity,
+        }).from(orderJellies)
+          .leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
+          .where(inArray(orderJellies.orderId, orderIds));
+
+        for (const it of itemRows) {
+          const flavors = itemFlavorMap[it.id] ?? [];
+          const flavorStr = flavors.length > 0 ? ` (${flavors.join(", ")})` : "";
+          (productsByOrder[it.orderId] ??= []).push({ label: `${it.productName}${flavorStr}`, quantity: it.quantity });
+        }
+        for (const mp of mpRows) {
+          const flavors = mpFlavorMap[mp.id] ?? [];
+          const flavorStr = flavors.length > 0 ? ` — ${flavors.join(", ")}` : "";
+          (productsByOrder[mp.orderId] ??= []).push({ label: `Minipizza ${mp.typeName ?? "—"}${flavorStr}`, quantity: mp.quantity });
+        }
+        for (const j of jRows) {
+          (productsByOrder[j.orderId] ??= []).push({ label: `Geleia ${j.flavorName}`, quantity: j.quantity });
+        }
+      }
 
       // Monta URL do Google Maps com endereços completos
       const addresses = items
@@ -173,10 +244,11 @@ export const deliveryPublicRouter = router({
         }
       }
 
-      // Adiciona o campo fullAddress a cada item para facilitar exibição
+      // Adiciona o campo fullAddress e os produtos a cada item para facilitar exibição
       const itemsWithAddress = items.map(i => ({
         ...i,
         fullAddress: buildAddress(i),
+        products: productsByOrder[i.orderId] ?? [],
       }));
 
       return {

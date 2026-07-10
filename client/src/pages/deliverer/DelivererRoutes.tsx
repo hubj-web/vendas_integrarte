@@ -34,6 +34,7 @@ const statusColor: Record<string, string> = {
 export default function DelivererRoutes() {
   const { deliverer } = useDeliverer();
   const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
+  const [deliveryTypeFilter, setDeliveryTypeFilter] = useState<string>("all");
   const [deliveryDialog, setDeliveryDialog] = useState<{ orderId: number; routeId: number } | null>(null);
   const [deliveryNotes, setDeliveryNotes] = useState("");
   const [proofImage, setProofImage] = useState<string | null>(null);
@@ -141,7 +142,7 @@ export default function DelivererRoutes() {
   return (
     <div className="space-y-4">
       <button
-        onClick={() => setSelectedRouteId(null)}
+        onClick={() => { setSelectedRouteId(null); setDeliveryTypeFilter("all"); }}
         className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
@@ -242,12 +243,48 @@ export default function DelivererRoutes() {
             )}
           </div>
 
+          {/* Filtro por tipo de entrega */}
+          {(() => {
+            const deliveryTypes = Array.from(
+              new Map(
+                routeDetail.items
+                  .filter(i => (i as any).deliveryMethodId)
+                  .map(i => [(i as any).deliveryMethodId, (i as any).deliveryMethodName])
+              ).entries()
+            );
+            if (deliveryTypes.length <= 1) return null;
+            return (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  Filtrar por tipo de entrega
+                </label>
+                <select
+                  value={deliveryTypeFilter}
+                  onChange={(e) => setDeliveryTypeFilter(e.target.value)}
+                  className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm"
+                >
+                  <option value="all">Todos os tipos</option>
+                  {deliveryTypes.map(([id, name]) => (
+                    <option key={id} value={String(id)}>{name}</option>
+                  ))}
+                </select>
+              </div>
+            );
+          })()}
+
           {/* Paradas */}
           <div className="space-y-3">
-            <h3 className="text-sm font-medium text-muted-foreground">
-              Paradas ({routeDetail.items.length})
-            </h3>
-            {routeDetail.items.map((item, idx) => {
+            {(() => {
+              const filteredItems = deliveryTypeFilter === "all"
+                ? routeDetail.items
+                : routeDetail.items.filter(i => String((i as any).deliveryMethodId) === deliveryTypeFilter);
+
+              return (
+                <>
+                  <h3 className="text-sm font-medium text-muted-foreground">
+                    Paradas ({filteredItems.length}{filteredItems.length !== routeDetail.items.length ? ` de ${routeDetail.items.length}` : ""})
+                  </h3>
+                  {filteredItems.map((item, idx) => {
               const delivered = item.orderStatus === "delivered" || item.orderStatus === "paid";
               const address = (item as any).fullAddress || item.deliveryAddress || "Sem endereço";
 
@@ -286,6 +323,19 @@ export default function DelivererRoutes() {
                           <MapPin className="w-3 h-3 shrink-0" />
                           {address}
                         </p>
+                        {(item as any).products && (item as any).products.length > 0 && (
+                          <ul className="mt-1.5 space-y-0.5 bg-muted/30 rounded-md p-2">
+                            {(item as any).products.map((p: { label: string; quantity: number }, pIdx: number) => (
+                              <li key={pIdx} className="flex items-center justify-between text-xs text-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Package className="w-3 h-3 text-muted-foreground shrink-0" />
+                                  {p.label}
+                                </span>
+                                <span className="font-medium text-muted-foreground">{p.quantity}x</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                         {(item as any).distanceFromPrevious &&
                           parseFloat((item as any).distanceFromPrevious) > 0 && (
                             <p className="text-xs text-muted-foreground mt-0.5 opacity-70">
@@ -319,7 +369,10 @@ export default function DelivererRoutes() {
                   </CardContent>
                 </Card>
               );
-            })}
+                  })}
+                </>
+              );
+            })()}
           </div>
         </>
       ) : null}

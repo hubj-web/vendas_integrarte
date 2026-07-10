@@ -160,6 +160,7 @@ export const ordersRouter = router({
       paymentStatus: z.string().optional(),
       launcherId: z.number().optional(),
       deliveryMethodId: z.number().optional(),
+      routeId: z.number().optional(),
       dateFrom: z.string().optional(),
       dateTo: z.string().optional(),
       search: z.string().optional(),
@@ -189,23 +190,27 @@ export const ordersRouter = router({
         deliveryMethodId: orders.deliveryMethodId,
         deliveryMethodName: deliveryMethods.name,
         deliveryAddress: orders.deliveryAddress,
+        routeId: routeOrders.routeId,
+        routePosition: routeOrders.position,
       })
         .from(orders)
         .leftJoin(customers, eq(orders.customerId, customers.id))
         .leftJoin(users, eq(orders.launcherId, users.id))
         .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
+        .leftJoin(routeOrders, eq(orders.id, routeOrders.orderId))
         .orderBy(desc(orders.createdAt));
 
       // Filter
       let filtered = allOrders.filter(o => {
         if (ctx.user.role === "delivery") {
           // Entregadores só veem pedidos em rota ou entregues
-          if (!["in_route", "delivered"].includes(o.status)) return false;
+          if (!["in_route", "packaged", "delivered"].includes(o.status)) return false;
         }
         if (input?.status && o.status !== input.status) return false;
         if (input?.paymentStatus && o.paymentStatus !== input.paymentStatus) return false;
         if (input?.launcherId && o.launcherId !== input.launcherId) return false;
         if (input?.deliveryMethodId && o.deliveryMethodId !== input.deliveryMethodId) return false;
+        if (input?.routeId && o.routeId !== input.routeId) return false;
         if (input?.search) {
           const s = input.search.toLowerCase();
           if (!o.customerName?.toLowerCase().includes(s) && !o.customerPhone?.includes(s)) return false;
@@ -221,6 +226,12 @@ export const ordersRouter = router({
         }
         return true;
       });
+
+      // Quando filtrando por uma rota específica, ordena pela posição definida na rota
+      // (a ordem real de visitação), em vez da ordem padrão por data de criação.
+      if (input?.routeId) {
+        filtered = filtered.sort((a, b) => (a.routePosition ?? 0) - (b.routePosition ?? 0));
+      }
 
       const total = filtered.length;
       const data = filtered.slice(offset, offset + pageSize);
