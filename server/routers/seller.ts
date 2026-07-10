@@ -366,6 +366,8 @@ export const sellerRouter = router({
         .where(eq(orders.id, input.orderId))
         .limit(1);
       const order = orderResult[0];
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
+      
       const [items, minipizzasData, jelliesData, customerData, deliveryMethodData] = await Promise.all([
         db.select({ id: orderItems.id, productId: orderItems.productId, quantity: orderItems.quantity, unitPrice: orderItems.unitPrice, subtotal: orderItems.subtotal, productName: products.name, unit: products.unit })
           .from(orderItems).leftJoin(products, eq(orderItems.productId, products.id))
@@ -376,9 +378,12 @@ export const sellerRouter = router({
         db.select({ id: orderJellies.id, jellyFlavorId: orderJellies.jellyFlavorId, quantity: orderJellies.quantity, unitPrice: orderJellies.unitPrice, subtotal: orderJellies.subtotal, flavorName: jellyFlavors.name })
           .from(orderJellies).leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
           .where(eq(orderJellies.orderId, input.orderId)),
-        db.select().from(customers).where(eq(customers.id, order.customerId)).limit(1),
-        db.select({ name: deliveryMethods.name }).from(deliveryMethods).where(eq(deliveryMethods.id, order.deliveryMethodId)).limit(1),
-      ]);
+        db.select().from(customers).where(eq(customers.id, order?.customerId ?? 0)).limit(1),
+        db.select({ name: deliveryMethods.name }).from(deliveryMethods).where(eq(deliveryMethods.id, order?.deliveryMethodId ?? 0)).limit(1),
+      ]).catch(err => {
+        console.error("Error fetching order details:", err);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao buscar detalhes do pedido." });
+      });
       
       // Fetch flavor info for each order item
       const itemsWithFlavors = await Promise.all(items.map(async (item) => {
