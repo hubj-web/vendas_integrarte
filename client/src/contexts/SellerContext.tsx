@@ -45,6 +45,6 @@ export function SellerProvider({ children }: { children: ReactNode }) {
 
 export function useSeller() {
   const ctx = useContext(SellerContext);
-  // Allow usage outside provider (e.g. Admin area)
+  // Return a safe default if used outside SellerProvider (like in Admin area)
   return ctx || { seller: null, setSeller: () => {}, clearSeller: () => {} };
 }

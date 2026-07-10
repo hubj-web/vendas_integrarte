@@ -34,13 +34,8 @@ interface CartItem {
 }
 
 export default function SellerNewOrder() {
-  // Use context safely, if it fails (outside provider), we handle it
-  let sellerContext = null;
-  try {
-    sellerContext = useSeller();
-  } catch (e) {
-    // Silently ignore context error in admin area
-  }
+  // useSeller is now safe to use even outside Provider
+  const sellerContext = useSeller();
   const seller = sellerContext?.seller;
   const { user: authUser } = useLocalAuth();
   const [location, navigate] = useLocation();
