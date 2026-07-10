@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte, ne } from "drizzle-orm";
 import { z } from "zod";
 import {
   customers, deliveryMethods, deliveryRoutes,
@@ -736,11 +736,25 @@ export const routeOptimizationRouter = router({
         .from(routeOrders)
         .leftJoin(orders, eq(routeOrders.orderId, orders.id))
         .leftJoin(customers, eq(orders.customerId, customers.id))
-        .where(eq(routeOrders.routeId, input.routeId))
+        .where(and(eq(routeOrders.routeId, input.routeId), ne(orders.status, "cancelled")))
         .orderBy(asc(routeOrders.position));
 
       if (routeOrderRows.length === 0) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Rota sem pedidos." });
+      }
+
+      // Limpeza: remove da rota qualquer pedido que já tenha sido cancelado
+      // (pode acontecer de vínculos antigos terem ficado presos antes desta correção).
+      const cancelledInRoute = await db.select({ orderId: routeOrders.orderId })
+        .from(routeOrders)
+        .leftJoin(orders, eq(routeOrders.orderId, orders.id))
+        .where(and(eq(routeOrders.routeId, input.routeId), eq(orders.status, "cancelled")));
+
+      if (cancelledInRoute.length > 0) {
+        await db.delete(routeOrders).where(and(
+          eq(routeOrders.routeId, input.routeId),
+          inArray(routeOrders.orderId, cancelledInRoute.map(c => c.orderId))
+        ));
       }
 
       // Geocodificar a origem

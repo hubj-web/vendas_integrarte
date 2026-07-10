@@ -615,6 +615,12 @@ export const ordersRouter = router({
         notes: input.cancelReason ?? input.notes,
       });
 
+      // Ao cancelar, o pedido deixa de fazer parte de qualquer rota de entrega
+      // (senão continuaria aparecendo como parada, contando na distância e nos links do Maps).
+      if (input.status === "cancelled") {
+        await db.delete(routeOrders).where(eq(routeOrders.orderId, input.id));
+      }
+
       return { success: true };
     }),
 
@@ -754,6 +760,11 @@ export const ordersRouter = router({
             notes: "Atualização em massa",
           }))
         );
+      }
+
+      // Ao cancelar, os pedidos deixam de fazer parte de qualquer rota de entrega
+      if (input.status === "cancelled" && input.ids.length > 0) {
+        await db.delete(routeOrders).where(inArray(routeOrders.orderId, input.ids));
       }
 
       return { success: true };

@@ -4,7 +4,7 @@
  * Operações de escrita exigem que o userId seja de um usuário com role=delivery.
  */
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import {
   customers, deliveryRecords, routeOrders, deliveryRoutes,
@@ -154,7 +154,7 @@ export const deliveryPublicRouter = router({
         .leftJoin(orders, eq(routeOrders.orderId, orders.id))
         .leftJoin(customers, eq(orders.customerId, customers.id))
         .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
-        .where(eq(routeOrders.routeId, input.routeId))
+        .where(and(eq(routeOrders.routeId, input.routeId), ne(orders.status, "cancelled")))
         .orderBy(asc(routeOrders.position));
 
       // Monta o detalhamento dos produtos comprados em cada pedido (produtos, minipizzas, geleias)

@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { eq, and, desc, asc, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import {
   deliveryRoutes, routeOrders, orders, customers, users,
@@ -78,7 +78,7 @@ const routesRouter = router({
         .from(routeOrders)
         .leftJoin(orders, eq(routeOrders.orderId, orders.id))
         .leftJoin(customers, eq(orders.customerId, customers.id))
-        .where(eq(routeOrders.routeId, input.id))
+        .where(and(eq(routeOrders.routeId, input.id), ne(orders.status, "cancelled")))
         .orderBy(asc(routeOrders.position));
 
       return { ...route[0], orders: routeOrderRows };
