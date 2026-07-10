@@ -344,21 +344,24 @@ export const sellerRouter = router({
   orderDetail: publicProcedure
     .input(z.object({ orderId: z.number(), sellerId: z.number() }))
     .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // First find the order to check its launcherId
+      const baseOrder = await db.select({ launcherId: orders.launcherId }).from(orders).where(eq(orders.id, input.orderId)).limit(1);
+      if (!baseOrder[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
+
+      // Validate permission: must be the launcher OR an admin
       const user = await requireLauncher(input.sellerId);
       const isAdmin = user?.role === "admin" || (user?.roles && user.roles.includes('"admin"'));
       
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      
-      const conditions = [eq(orders.id, input.orderId)];
-      if (!isAdmin) {
-        conditions.push(eq(orders.launcherId, input.sellerId));
+      if (!isAdmin && baseOrder[0].launcherId !== input.sellerId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem permissão para ver este pedido." });
       }
 
       const orderResult = await db.select().from(orders)
-        .where(and(...conditions))
+        .where(eq(orders.id, input.orderId))
         .limit(1);
-      if (!orderResult[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
       const order = orderResult[0];
       const [items, minipizzasData, jelliesData, customerData, deliveryMethodData] = await Promise.all([
         db.select({ id: orderItems.id, productId: orderItems.productId, quantity: orderItems.quantity, unitPrice: orderItems.unitPrice, subtotal: orderItems.subtotal, productName: products.name, unit: products.unit })
