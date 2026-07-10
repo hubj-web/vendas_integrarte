@@ -39,7 +39,6 @@ export default function ProductionReport() {
   }, [production, suppliers, selectedSupplierId]);
 
   const fmt = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
-  const fmtPct = (v: number) => new Intl.NumberFormat("pt-BR", { style: "percent", minimumFractionDigits: 1 }).format(v);
 
   const handlePrint = () => {
     window.print();
@@ -124,23 +123,10 @@ export default function ProductionReport() {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="bg-background/50 p-2 rounded-lg border border-border/50">
-                    <div className="text-[10px] text-muted-foreground uppercase">Receita Total</div>
-                    <div className="text-sm font-semibold">{fmt(supplier.totalRevenue)}</div>
-                  </div>
+                <div className="grid grid-cols-1 gap-4">
                   <div className="bg-background/50 p-2 rounded-lg border border-border/50">
                     <div className="text-[10px] text-muted-foreground uppercase">Custo Total</div>
                     <div className="text-sm font-semibold text-orange-400">{fmt(supplier.totalCost)}</div>
-                  </div>
-                  <div className="bg-background/50 p-2 rounded-lg border border-border/50">
-                    <div className="text-[10px] text-muted-foreground uppercase">Lucro Estimado</div>
-                    <div className="text-sm font-semibold text-emerald-400">
-                      {fmt(supplier.totalProfit)}
-                      <span className="text-[10px] ml-1 opacity-70">
-                        ({supplier.totalRevenue > 0 ? fmtPct(supplier.totalProfit / supplier.totalRevenue) : "0%"})
-                      </span>
-                    </div>
                   </div>
                 </div>
               </CardHeader>
@@ -151,7 +137,7 @@ export default function ProductionReport() {
                       <TableHead className="w-[30%]">Produto</TableHead>
                       <TableHead>Sabores / Detalhes</TableHead>
                       <TableHead className="text-center">Quantidade</TableHead>
-                      <TableHead className="text-right pr-6">Financeiro (Custo / Lucro)</TableHead>
+                      <TableHead className="text-right pr-6">Financeiro (Custo)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -181,12 +167,8 @@ export default function ProductionReport() {
                           </span>
                         </TableCell>
                         <TableCell className="text-right pr-6 align-top py-4">
-                          <div className="text-xs font-medium">{fmt(item.revenue)}</div>
                           <div className="text-[10px] text-muted-foreground">
                             Custo: <span className="text-orange-400/80">{fmt(item.cost)}</span>
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            Lucro: <span className="text-emerald-400/80">{fmt(item.profit)}</span>
                           </div>
                         </TableCell>
                       </TableRow>
