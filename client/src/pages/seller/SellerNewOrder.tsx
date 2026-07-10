@@ -34,7 +34,14 @@ interface CartItem {
 }
 
 export default function SellerNewOrder() {
-  const { seller } = useSeller();
+  // Use context safely, if it fails (outside provider), we handle it
+  let sellerContext = null;
+  try {
+    sellerContext = useSeller();
+  } catch (e) {
+    // Silently ignore context error in admin area
+  }
+  const seller = sellerContext?.seller;
   const { user: authUser } = useLocalAuth();
   const [location, navigate] = useLocation();
   const [, paramsVendedor] = useRoute("/vendedor/pedido/:id/editar");
@@ -112,6 +119,7 @@ export default function SellerNewOrder() {
 
   // Pre-populate from existing order when in edit mode
   useEffect(() => {
+    console.log("SellerNewOrder Effect Check:", { isEditMode, hasOrder: !!existingOrder, hasCatalog: !!catalog });
     if (isEditMode && existingOrder && catalog) {
       console.log("Pre-populating from existing order:", existingOrder.id);
       // Load customer
