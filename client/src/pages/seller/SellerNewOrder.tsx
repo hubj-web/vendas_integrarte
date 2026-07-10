@@ -59,10 +59,18 @@ export default function SellerNewOrder() {
   const { data: catalog } = trpc.seller.catalog.useQuery();
 
   // Fetch order detail when in edit mode
-  const { data: existingOrder, isLoading: isLoadingOrder } = trpc.seller.orderDetail.useQuery(
+  const { data: existingOrder, isLoading: isLoadingOrder, error: orderError } = trpc.seller.orderDetail.useQuery(
     { orderId: editOrderId!, sellerId: effectiveSellerId },
-    { enabled: isEditMode && !!editOrderId && effectiveSellerId !== -1 }
+    { 
+      enabled: isEditMode && !!editOrderId && effectiveSellerId !== -1,
+      retry: false
+    }
   );
+
+  // If there's an API error, it might trigger the unexpected error if not handled
+  if (orderError) {
+    console.error("Order Detail Query Error:", orderError);
+  }
 
   // Customer
   const [customerSearch, setCustomerSearch] = useState("");
@@ -162,13 +170,15 @@ export default function SellerNewOrder() {
       // Each order item already represents a product+flavor combination with its own quantity
       try {
         const items = existingOrder.items || [];
+        console.log("Mapping items to cart:", items);
         const newCart: CartItem[] = items.map((item, index) => {
+          if (!item) return null;
           const flavors = (item as any).flavors ?? [];
           const flavorNames = flavors.map((f: any) => f.flavorName ?? f.name || "Sabor");
           const flavorIds = flavors.map((f: any) => f.productFlavorId ?? f.id);
           const flavorSuffix = flavorNames.length > 0 ? ` (${flavorNames.join(", ")})` : "";
           return {
-            type: "product",
+            type: "product" as const,
             id: `edit-${item.id ?? index}-${Date.now()}-${index}`,
             label: `${item.productName ?? `Produto #${item.productId}`}${flavorSuffix}`,
             quantity: item.quantity || 0,
@@ -178,7 +188,8 @@ export default function SellerNewOrder() {
             flavorIds: flavorIds.length > 0 ? flavorIds : undefined,
             flavorNames: flavorNames.length > 0 ? flavorNames : undefined,
           };
-        });
+        }).filter((i): i is CartItem => i !== null);
+        console.log("New cart generated:", newCart);
         setCart(newCart);
       } catch (err) {
         console.error("Error mapping order items to cart:", err);
@@ -441,10 +452,10 @@ export default function SellerNewOrder() {
   }
 
   // Show error if order not found or not editable
-  if (isEditMode && !isLoadingOrder && !existingOrder) {
+  if (isEditMode && !isLoadingOrder && (!existingOrder || orderError)) {
     return (
       <div className="text-center py-16 text-muted-foreground">
-        <p>Pedido não encontrado ou não pode ser editado.</p>
+        <p>{orderError ? `Erro ao carregar pedido: ${orderError.message}` : "Pedido não encontrado ou não pode ser editado."}</p>
         <Link href={returnPath}>
           <Button variant="outline" className="mt-4">Voltar</Button>
         </Link>
@@ -663,7 +674,7 @@ export default function SellerNewOrder() {
               {deliveryAddressOption === "customer" ? (
                 <div className="text-xs text-muted-foreground italic bg-background/50 p-2 rounded border border-border/30">
                   {selectedCustomer ? (
-                    [selectedCustomer.street, selectedCustomer.number, selectedCustomer.neighborhood, selectedCustomer.city].filter(Boolean).join(", ") || "Cliente sem endereço cadastrado."
+                    [selectedCustomer?.street, selectedCustomer?.number, selectedCustomer?.neighborhood, selectedCustomer?.city].filter(Boolean).join(", ") || "Cliente sem endereço cadastrado."
                   ) : "Selecione um cliente primeiro."}
                 </div>
               ) : (
