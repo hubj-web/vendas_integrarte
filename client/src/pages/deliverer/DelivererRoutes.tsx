@@ -231,17 +231,24 @@ export default function DelivererRoutes() {
                 Concluir Rota
               </Button>
             )}
-            {routeDetail.mapsUrl && (
-              <Button
-                variant="outline"
-                className="flex-1 gap-2"
-                onClick={() => window.open(routeDetail.mapsUrl, "_blank")}
-              >
-                <Navigation className="w-4 h-4" />
-                Abrir no Maps
-              </Button>
-            )}
           </div>
+
+          {/* Links do Maps — pode haver mais de um se a rota tiver mais de 10 paradas */}
+          {(routeDetail as any).mapLinks && (routeDetail as any).mapLinks.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {(routeDetail as any).mapLinks.map((link: string, idx: number) => (
+                <Button
+                  key={idx}
+                  variant="outline"
+                  className="flex-1 gap-2 min-w-[140px]"
+                  onClick={() => window.open(link, "_blank")}
+                >
+                  <Navigation className="w-4 h-4" />
+                  {(routeDetail as any).mapLinks.length > 1 ? `Maps Parte ${idx + 1}` : "Abrir no Maps"}
+                </Button>
+              ))}
+            </div>
+          )}
 
           {/* Filtro por tipo de entrega */}
           {(() => {

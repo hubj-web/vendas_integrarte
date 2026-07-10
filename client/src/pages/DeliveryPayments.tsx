@@ -189,7 +189,6 @@ export default function DeliveryPayments() {
                     <TableHead className="text-muted-foreground">#</TableHead>
                     {routeFilter !== "all" && <TableHead className="text-muted-foreground">Ordem</TableHead>}
                     <TableHead className="text-muted-foreground">Cliente</TableHead>
-                    <TableHead className="text-muted-foreground">Endereço</TableHead>
                     <TableHead className="text-muted-foreground">Produtos</TableHead>
                     <TableHead className="text-muted-foreground">Status</TableHead>
                     <TableHead className="text-muted-foreground">Total</TableHead>
@@ -199,18 +198,27 @@ export default function DeliveryPayments() {
                 <TableBody>
                   {(pendingDeliveries as any[]).map((o: any) => {
                     const addr = o.deliveryAddress || [o.customerStreet, o.customerNumber, o.customerNeighborhood].filter(Boolean).join(", ");
+                    const productList: string[] = o.productList ?? [];
                     return (
-                      <TableRow key={o.id} className="border-border hover:bg-muted/20">
+                      <TableRow key={o.id} className="border-border hover:bg-muted/20 align-top">
                         <TableCell className="font-mono text-sm text-muted-foreground">#{o.id}</TableCell>
                         {routeFilter !== "all" && (
                           <TableCell className="text-sm font-semibold text-primary">{o.routePosition ?? "—"}</TableCell>
                         )}
-                        <TableCell>
+                        <TableCell className="min-w-[200px]">
                           <p className="font-medium text-sm">{o.customerName}</p>
                           <p className="text-xs text-muted-foreground">{o.customerPhone}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{addr || "—"}</p>
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{addr || "—"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-[240px] truncate" title={o.productSummary}>{o.productSummary || "—"}</TableCell>
+                        <TableCell className="min-w-[220px] max-w-[320px]">
+                          {productList.length > 0 ? (
+                            <ul className="text-xs text-foreground space-y-0.5">
+                              {productList.map((p, i) => <li key={i}>{p}</li>)}
+                            </ul>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
                         <TableCell><StatusBadge status={o.status} /></TableCell>
                         <TableCell className="font-semibold text-primary">{fmt(o.totalAmount)}</TableCell>
                         <TableCell className="text-right">
@@ -243,6 +251,7 @@ export default function DeliveryPayments() {
                   <TableRow className="border-border hover:bg-transparent">
                     <TableHead className="text-muted-foreground">#</TableHead>
                     <TableHead className="text-muted-foreground">Cliente</TableHead>
+                    <TableHead className="text-muted-foreground">Produtos</TableHead>
                     <TableHead className="text-muted-foreground">Pagamento</TableHead>
                     <TableHead className="text-muted-foreground">Status Pag.</TableHead>
                     <TableHead className="text-muted-foreground">Total</TableHead>
@@ -253,12 +262,24 @@ export default function DeliveryPayments() {
                 <TableBody>
                   {(pendingPayments as any[]).map((o: any) => {
                     const daysAgo = o.deliveredAt ? Math.floor((Date.now() - new Date(o.deliveredAt).getTime()) / 86400000) : null;
+                    const addr = o.deliveryAddress || [o.customerStreet, o.customerNumber, o.customerNeighborhood].filter(Boolean).join(", ");
+                    const productList: string[] = o.productList ?? [];
                     return (
-                      <TableRow key={o.id} className="border-border hover:bg-muted/20">
+                      <TableRow key={o.id} className="border-border hover:bg-muted/20 align-top">
                         <TableCell className="font-mono text-sm text-muted-foreground">#{o.id}</TableCell>
-                        <TableCell>
+                        <TableCell className="min-w-[200px]">
                           <p className="font-medium text-sm">{o.customerName}</p>
                           <p className="text-xs text-muted-foreground">{o.customerPhone}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{addr || "—"}</p>
+                        </TableCell>
+                        <TableCell className="min-w-[220px] max-w-[320px]">
+                          {productList.length > 0 ? (
+                            <ul className="text-xs text-foreground space-y-0.5">
+                              {productList.map((p, i) => <li key={i}>{p}</li>)}
+                            </ul>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-sm">{o.paymentMethod === "pix" ? "PIX" : "Dinheiro"}</TableCell>
                         <TableCell>

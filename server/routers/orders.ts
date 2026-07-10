@@ -239,6 +239,7 @@ export const ordersRouter = router({
       // Fetch products for each order in the page
       const orderIds = data.map(o => o.id);
       const productSummaryMap: Record<number, string> = {};
+      const productListMap: Record<number, string[]> = {};
 
       if (orderIds.length > 0) {
         // Fetch order items with flavors
@@ -314,6 +315,7 @@ export const ordersRouter = router({
 
         for (const order of data) {
           productSummaryMap[order.id] = productNamesMap[order.id]?.join(", ") ?? "—";
+          productListMap[order.id] = productNamesMap[order.id] ?? [];
         }
       }
 
@@ -321,6 +323,7 @@ export const ordersRouter = router({
       const enrichedData = data.map(o => ({
         ...o,
         productSummary: productSummaryMap[o.id] ?? "—",
+        productList: productListMap[o.id] ?? [],
       }));
 
       return { data: enrichedData, total };
@@ -630,14 +633,92 @@ export const ordersRouter = router({
   pendingPayments: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];
+
     const rows = await db.select({
-      id: orders.id, totalAmount: orders.totalAmount,
+      id: orders.id, totalAmount: orders.totalAmount, paymentMethod: orders.paymentMethod,
+      paymentStatus: orders.paymentStatus, status: orders.status,
       deliveryDate: orders.deliveryDate, createdAt: orders.createdAt,
+      deliveredAt: deliveryRecords.deliveredAt,
       customerName: customers.name, customerPhone: customers.phone,
+      customerStreet: customers.street, customerNumber: customers.number,
+      customerNeighborhood: customers.neighborhood, customerCity: customers.city,
+      deliveryAddress: orders.deliveryAddress,
     }).from(orders)
       .leftJoin(customers, eq(orders.customerId, customers.id))
-      .where(and(eq(orders.paymentStatus, "pending"), eq(orders.status, "delivered")));
-    return rows;
+      .leftJoin(deliveryRecords, eq(orders.id, deliveryRecords.orderId))
+      // Pedidos entregues com pagamento pendente OU parcial (ainda falta receber algo)
+      .where(and(
+        or(eq(orders.paymentStatus, "pending"), eq(orders.paymentStatus, "partial")),
+        eq(orders.status, "delivered")
+      ));
+
+    // Monta a lista de produtos comprados em cada pedido (mesmo padrão usado em list)
+    const orderIds = rows.map(o => o.id);
+    const productListMap: Record<number, string[]> = {};
+
+    if (orderIds.length > 0) {
+      const allOrderItems = await db.select({
+        id: orderItems.id, orderId: orderItems.orderId, productName: products.name,
+        quantity: orderItems.quantity,
+      }).from(orderItems)
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .where(inArray(orderItems.orderId, orderIds));
+
+      const allOrderItemIds = allOrderItems.map(i => i.id);
+      const flavorMap: Record<number, string[]> = {};
+      if (allOrderItemIds.length > 0) {
+        const flavorRows = await db.select({
+          orderItemId: orderItemFlavors.orderItemId, flavorName: orderItemFlavors.flavorName,
+        }).from(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId, allOrderItemIds));
+        for (const f of flavorRows) {
+          (flavorMap[f.orderItemId] ??= []).push(f.flavorName);
+        }
+      }
+
+      for (const item of allOrderItems) {
+        const flavors = flavorMap[item.id] ?? [];
+        const flavorStr = flavors.length > 0 ? ` (${flavors.join(", ")})` : "";
+        (productListMap[item.orderId] ??= []).push(`${item.productName}${flavorStr} (${item.quantity}x)`);
+      }
+
+      const mpRows = await db.select({
+        id: orderMinipizzas.id, orderId: orderMinipizzas.orderId,
+        typeName: minipizzaTypes.name, quantity: orderMinipizzas.quantity,
+      }).from(orderMinipizzas)
+        .leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
+        .where(inArray(orderMinipizzas.orderId, orderIds));
+
+      const mpIds = mpRows.map(m => m.id);
+      const mpFlavorMap: Record<number, string[]> = {};
+      if (mpIds.length > 0) {
+        const flavorRows = await db.select({
+          orderMinipizzaId: orderMinipizzaFlavors.orderMinipizzaId, flavorName: minipizzaFlavors.name,
+        }).from(orderMinipizzaFlavors)
+          .leftJoin(minipizzaFlavors, eq(orderMinipizzaFlavors.minipizzaFlavorId, minipizzaFlavors.id))
+          .where(inArray(orderMinipizzaFlavors.orderMinipizzaId, mpIds));
+        for (const f of flavorRows) {
+          (mpFlavorMap[f.orderMinipizzaId] ??= []).push(f.flavorName ?? "");
+        }
+      }
+
+      for (const mp of mpRows) {
+        const flavors = mpFlavorMap[mp.id] ?? [];
+        const flavorStr = flavors.length > 0 ? ` (${flavors.join(", ")})` : "";
+        (productListMap[mp.orderId] ??= []).push(`Minipizza ${mp.typeName ?? "—"}${flavorStr} (${mp.quantity}x)`);
+      }
+
+      const jRows = await db.select({
+        orderId: orderJellies.orderId, flavorName: jellyFlavors.name, quantity: orderJellies.quantity,
+      }).from(orderJellies)
+        .leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
+        .where(inArray(orderJellies.orderId, orderIds));
+
+      for (const j of jRows) {
+        (productListMap[j.orderId] ??= []).push(`Geleia ${j.flavorName} (${j.quantity}x)`);
+      }
+    }
+
+    return rows.map(o => ({ ...o, productList: productListMap[o.id] ?? [] }));
   }),
 
   bulkUpdateStatus: protectedProcedure

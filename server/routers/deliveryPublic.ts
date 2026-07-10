@@ -221,27 +221,26 @@ export const deliveryPublicRouter = router({
         }
       }
 
-      // Monta URL do Google Maps com endereços completos
-      const addresses = items
-        .map(i => buildAddress(i))
-        .filter(a => a.length > 0);
+      // Monta os links do Google Maps com endereços completos.
+      // O link de navegação do Google Maps aceita no máximo ~9 waypoints (10 paradas
+      // por link), então rotas maiores são divididas em múltiplos links ("partes"),
+      // cada uma começando de onde a anterior terminou.
+      const addressItems = items.filter(i => buildAddress(i).length > 0);
+      const chunkSize = 10;
+      const mapLinks: string[] = [];
 
-      let mapsUrl = "";
-      if (addresses.length > 0) {
-        // Usa o endereço de saída da rota como origem, se disponível
-        const origin = route[0].startingAddress
-          ? encodeURIComponent(route[0].startingAddress)
-          : encodeURIComponent(addresses[0]);
+      for (let i = 0; i < addressItems.length; i += chunkSize) {
+        const chunk = addressItems.slice(i, i + chunkSize);
+        const origin = i === 0
+          ? (route[0].startingAddress ? encodeURIComponent(route[0].startingAddress) : encodeURIComponent(buildAddress(chunk[0])))
+          : encodeURIComponent(buildAddress(addressItems[i - 1]));
+        const encodedChunk = chunk.map(it => encodeURIComponent(buildAddress(it)));
+        const dest = encodedChunk[encodedChunk.length - 1];
+        const waypoints = encodedChunk.slice(0, -1).join("|");
 
-        const encoded = addresses.map(a => encodeURIComponent(a));
-
-        if (encoded.length === 1) {
-          mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${encoded[0]}`;
-        } else {
-          const dest = encoded[encoded.length - 1];
-          const waypoints = encoded.slice(0, -1).join("|");
-          mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&waypoints=${waypoints}`;
-        }
+        let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}`;
+        if (waypoints) url += `&waypoints=${waypoints}`;
+        mapLinks.push(url);
       }
 
       // Adiciona o campo fullAddress e os produtos a cada item para facilitar exibição
@@ -254,7 +253,9 @@ export const deliveryPublicRouter = router({
       return {
         ...route[0],
         items: itemsWithAddress,
-        mapsUrl,
+        mapLinks,
+        // Mantido por compatibilidade: aponta para o primeiro link (ou único, se só houver um)
+        mapsUrl: mapLinks[0] ?? "",
       };
     }),
 
