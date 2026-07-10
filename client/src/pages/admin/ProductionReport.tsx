@@ -40,6 +40,13 @@ export default function ProductionReport() {
 
   const fmt = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
+  const formatUnit = (unit: string, quantity: number) => {
+    if (quantity < 2) return unit;
+    if (unit.toLowerCase() === "pacote") return "pacotes";
+    if (unit.toLowerCase() === "unidade") return "unidades";
+    return unit; // Fallback para outras unidades não mapeadas
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -134,10 +141,11 @@ export default function ProductionReport() {
                 <Table>
                   <TableHeader>
                     <TableRow className="border-border hover:bg-transparent bg-muted/10">
-                      <TableHead className="w-[30%]">Produto</TableHead>
-                      <TableHead>Sabores / Detalhes</TableHead>
-                      <TableHead className="text-center">Quantidade</TableHead>
-                      <TableHead className="text-right pr-6">Financeiro (Custo)</TableHead>
+                      <TableHead className="w-[25%]">Produto</TableHead>
+                      <TableHead className="w-[30%]">Sabores</TableHead>
+                      <TableHead className="w-[15%]">Detalhes</TableHead>
+                      <TableHead className="text-center w-[10%]">Qtd</TableHead>
+                      <TableHead className="text-right pr-6 w-[20%]">Financeiro (Custo)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -145,21 +153,20 @@ export default function ProductionReport() {
                       <TableRow key={id} className="border-border hover:bg-muted/5">
                         <TableCell className="font-medium align-top py-4">
                           {item.name}
-                          <div className="text-[10px] text-muted-foreground font-normal">{item.unit}</div>
                         </TableCell>
-                        <TableCell className="py-4">
+                        <TableCell className="py-4 align-top">
                           {Object.keys(item.flavors).length > 0 ? (
-                            <div className="grid grid-cols-1 gap-1">
-                              {Object.entries(item.flavors).map(([flavor, qty]: [string, any]) => (
-                                <div key={flavor} className="flex justify-between text-[10px] border-b border-border/30 pb-1">
-                                  <span className="text-muted-foreground">{flavor}</span>
-                                  <span className="font-semibold">{qty} {item.unit}</span>
-                                </div>
-                              ))}
+                            <div className="text-[10px] text-muted-foreground">
+                              {Object.keys(item.flavors).join(", ")}
                             </div>
                           ) : (
                             <span className="text-[10px] text-muted-foreground italic">Sem sabores</span>
                           )}
+                        </TableCell>
+                        <TableCell className="py-4 align-top">
+                          <div className="text-[10px] font-medium">
+                            {item.quantity} {formatUnit(item.unit, item.quantity)}
+                          </div>
                         </TableCell>
                         <TableCell className="text-center align-top py-4">
                           <span className="text-base font-bold text-primary">
