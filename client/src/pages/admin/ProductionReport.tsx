@@ -168,7 +168,10 @@ export default function ProductionReport() {
                         </TableCell>
                         <TableCell className="text-right pr-6 align-top py-4">
                           <div className="text-[10px] text-muted-foreground">
-                            Custo: <span className="text-orange-400/80">{fmt(item.cost)}</span>
+                            Unitário: <span className="text-primary/80">{fmt(item.cost / item.quantity)}</span>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            Custo Total: <span className="text-orange-400/80">{fmt(item.cost)}</span>
                           </div>
                         </TableCell>
                       </TableRow>
