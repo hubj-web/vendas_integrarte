@@ -428,19 +428,19 @@ export default function SellerNewOrder() {
     return (
       <div className="text-center py-16 text-muted-foreground">
         <p>Pedido não encontrado ou não pode ser editado.</p>
-        <Link href="/vendedor/meus-pedidos">
+        <Link href={returnPath}>
           <Button variant="outline" className="mt-4">Voltar</Button>
         </Link>
       </div>
     );
   }
 
-  // Show warning if order status is not "production"
-  if (isDisabled) {
+  // Show warning if order status is not "production" (admins bypass this)
+  if (isDisabled && !isAdminRoute) {
     return (
       <div className="text-center py-16 text-muted-foreground">
         <p>Apenas pedidos em produção podem ser editados.</p>
-        <Link href={`/vendedor/pedido/${editOrderId}`}>
+        <Link href={returnPath}>
           <Button variant="outline" className="mt-4">Ver Pedido</Button>
         </Link>
       </div>
@@ -451,7 +451,7 @@ export default function SellerNewOrder() {
     <div className="space-y-5 pb-10">
       <div className="flex items-center gap-3">
         {isEditMode && (
-          <Link href={`/vendedor/pedido/${editOrderId}`}>
+          <Link href={returnPath}>
             <button className="text-muted-foreground hover:text-foreground transition-colors">
               <ArrowLeft className="w-5 h-5" />
             </button>
