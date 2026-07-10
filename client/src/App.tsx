@@ -29,6 +29,7 @@ import DeliveryRoutes from "./pages/DeliveryRoutes";
 import DeliveryPayments from "./pages/DeliveryPayments";
 import Reports from "./pages/Reports";
 import Categories from "./pages/admin/Categories";
+import Customers from "./pages/admin/Customers";
 import Products from "./pages/admin/Products";
 import Suppliers from "./pages/admin/Suppliers";
 import ProductionReport from "./pages/admin/ProductionReport";
@@ -100,6 +101,9 @@ function Router() {
       {/* ── ADMIN CONFIG (most specific first) ── */}
       <Route path="/admin/config/categorias">
         <AdminGuard><AppLayout><Categories /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/config/clientes">
+        <AdminGuard><AppLayout><Customers /></AppLayout></AdminGuard>
       </Route>
       <Route path="/admin/config/produtos">
         <AdminGuard><AppLayout><Products /></AppLayout></AdminGuard>

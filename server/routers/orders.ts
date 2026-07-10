@@ -13,6 +13,11 @@ import { uploadReceiptToDrive } from "../google-drive";
 import { sendOrderNotification } from "../telegram";
 
 // ─── CUSTOMERS ────────────────────────────────────────────────────────────────
+const customersAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+  return next({ ctx });
+});
+
 const customersRouter = router({
   search: protectedProcedure
     .input(z.object({ query: z.string().min(1) }))
@@ -22,6 +27,60 @@ const customersRouter = router({
       return db.select().from(customers)
         .where(or(like(customers.name, `%${input.query}%`), like(customers.phone, `%${input.query}%`)))
         .limit(10);
+    }),
+
+  list: customersAdminProcedure
+    .input(z.object({
+      page: z.number().default(1),
+      pageSize: z.number().default(25),
+      query: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { items: [], total: 0 };
+      const { page, pageSize, query } = input;
+      const where = query
+        ? or(like(customers.name, `%${query}%`), like(customers.phone, `%${query}%`))
+        : undefined;
+
+      const [items, totalRows] = await Promise.all([
+        db.select().from(customers)
+          .where(where)
+          .orderBy(customers.name)
+          .limit(pageSize)
+          .offset((page - 1) * pageSize),
+        db.select({ count: sql<number>`count(*)` }).from(customers).where(where),
+      ]);
+
+      return { items, total: Number(totalRows[0]?.count ?? 0) };
+    }),
+
+  getById: customersAdminProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const [customer] = await db.select().from(customers).where(eq(customers.id, input.id));
+      const [orderCount] = await db.select({ count: sql<number>`count(*)` })
+        .from(orders).where(eq(orders.customerId, input.id));
+      return customer ? { ...customer, orderCount: Number(orderCount?.count ?? 0) } : null;
+    }),
+
+  delete: customersAdminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [orderCount] = await db.select({ count: sql<number>`count(*)` })
+        .from(orders).where(eq(orders.customerId, input.id));
+      if (Number(orderCount?.count ?? 0) > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Não é possível excluir: este cliente possui pedidos vinculados. Mantenha o cadastro para preservar o histórico.",
+        });
+      }
+      await db.delete(customers).where(eq(customers.id, input.id));
+      return { success: true };
     }),
 
   create: protectedProcedure
