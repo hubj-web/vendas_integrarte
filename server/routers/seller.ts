@@ -10,7 +10,7 @@ import {
   customers, deliveryMethods, jellyFlavors, minipizzaFlavors,
   minipizzaTypes, minipizzaTypeFlavorMatrix, orderItems, orderItemFlavors, orderJellies,
   orderMinipizzaFlavors, orderMinipizzas, orders, orderStatusHistory,
-  productCategories, productFlavors, productTypes, products, users,
+  productCategories, productFlavors, productTypes, products, users, routeOrders,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
@@ -538,7 +538,7 @@ export const sellerRouter = router({
       return { success: true };
     }),
 
-  /** Cancela um pedido próprio (apenas se ainda em produção) */
+  /** Cancela um pedido próprio (bloqueado apenas se já entregue/pago/cancelado) */
   cancelOrder: publicProcedure
     .input(z.object({ orderId: z.number(), sellerId: z.number(), cancelReason: z.string().min(1) }))
     .mutation(async ({ input }) => {
@@ -549,8 +549,8 @@ export const sellerRouter = router({
         .where(and(eq(orders.id, input.orderId), eq(orders.launcherId, input.sellerId)))
         .limit(1);
       if (!current[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
-      if (current[0].status !== "production") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Apenas pedidos em produção podem ser cancelados pelo vendedor." });
+      if (["delivered", "paid", "cancelled"].includes(current[0].status)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Este pedido já foi entregue, pago ou cancelado e não pode mais ser cancelado pelo vendedor." });
       }
       await db.update(orders).set({
         status: "cancelled",
@@ -561,9 +561,11 @@ export const sellerRouter = router({
       }).where(eq(orders.id, input.orderId));
       await db.insert(orderStatusHistory).values({
         orderId: input.orderId, userId: input.sellerId,
-        fromStatus: "production", toStatus: "cancelled",
+        fromStatus: current[0].status, toStatus: "cancelled",
         notes: input.cancelReason,
       });
+      // Ao cancelar, o pedido deixa de fazer parte de qualquer rota de entrega
+      await db.delete(routeOrders).where(eq(routeOrders.orderId, input.orderId));
       return { success: true };
     }),
 });

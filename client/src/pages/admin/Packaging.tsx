@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
@@ -6,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Package, MapPin, Phone, PackageCheck, PackageOpen, Truck } from "lucide-react";
+import { Package, MapPin, Phone, PackageCheck, PackageOpen, Truck, Eye } from "lucide-react";
 
 export default function Packaging() {
   const utils = trpc.useUtils();
@@ -125,7 +126,10 @@ export default function Packaging() {
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-foreground">Pedido #{order.orderId}</span>
+                      <Link href={`/admin/pedidos/${order.orderId}`} className="font-bold text-foreground hover:text-primary hover:underline flex items-center gap-1">
+                        Pedido #{order.orderId}
+                        <Eye className="w-3 h-3" />
+                      </Link>
                       <span className="font-semibold text-foreground">{order.customerName}</span>
                       {packaged
                         ? <Badge className="bg-green-600 hover:bg-green-600 gap-1"><PackageCheck className="w-3 h-3" /> Empacotado</Badge>

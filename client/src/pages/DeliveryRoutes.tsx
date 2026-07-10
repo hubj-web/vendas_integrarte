@@ -307,14 +307,16 @@ function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAd
       
       <div className="space-y-1.5">
         {route.orders.map((o, idx) => (
-          <div key={o.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/20 text-xs">
-            <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">{idx + 1}</div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium truncate">{o.customerName}</p>
-              <p className="text-[10px] text-muted-foreground truncate">{buildAddr(o)}</p>
+          <Link key={o.id} href={`/admin/pedidos/${o.orderId}`}>
+            <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/20 text-xs hover:bg-muted/40 cursor-pointer transition-colors">
+              <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">{idx + 1}</div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{o.customerName}</p>
+                <p className="text-[10px] text-muted-foreground truncate">{buildAddr(o)}</p>
+              </div>
+              <StatusBadge status={o.orderStatus ?? "production"} />
             </div>
-            <StatusBadge status={o.orderStatus ?? "production"} />
-          </div>
+          </Link>
         ))}
       </div>
     </div>

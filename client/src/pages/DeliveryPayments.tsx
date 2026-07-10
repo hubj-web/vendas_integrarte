@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -222,9 +223,16 @@ export default function DeliveryPayments() {
                         <TableCell><StatusBadge status={o.status} /></TableCell>
                         <TableCell className="font-semibold text-primary">{fmt(o.totalAmount)}</TableCell>
                         <TableCell className="text-right">
-                          <Button size="sm" className="bg-primary text-primary-foreground text-xs h-7" onClick={() => { setSelectedOrder(o); setDeliveryForm({ deliveryUserId: "", notes: "" }); setDeliveryPhoto(null); setDeliveryOpen(true); }}>
-                            Registrar Entrega
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <Link href={`/admin/pedidos/${o.id}`}>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Ver Detalhes">
+                                <Eye className="w-3.5 h-3.5" />
+                              </Button>
+                            </Link>
+                            <Button size="sm" className="bg-primary text-primary-foreground text-xs h-7" onClick={() => { setSelectedOrder(o); setDeliveryForm({ deliveryUserId: "", notes: "" }); setDeliveryPhoto(null); setDeliveryOpen(true); }}>
+                              Registrar Entrega
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -293,9 +301,16 @@ export default function DeliveryPayments() {
                         <TableCell className="font-semibold text-primary">{fmt(o.totalAmount)}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{o.deliveredAt ? new Date(o.deliveredAt).toLocaleDateString("pt-BR") : "—"}</TableCell>
                         <TableCell className="text-right">
-                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7" onClick={() => { setSelectedOrder(o); setPaymentForm({ method: o.paymentMethod ?? "pix", amount: o.totalAmount, notes: "" }); setPaymentPhoto(null); setPaymentOpen(true); }}>
-                            Confirmar Pagamento
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <Link href={`/admin/pedidos/${o.id}`}>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Ver Detalhes">
+                                <Eye className="w-3.5 h-3.5" />
+                              </Button>
+                            </Link>
+                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7" onClick={() => { setSelectedOrder(o); setPaymentForm({ method: o.paymentMethod ?? "pix", amount: o.totalAmount, notes: "" }); setPaymentPhoto(null); setPaymentOpen(true); }}>
+                              Confirmar Pagamento
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
