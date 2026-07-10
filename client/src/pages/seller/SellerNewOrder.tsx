@@ -174,7 +174,7 @@ export default function SellerNewOrder() {
         const newCart: CartItem[] = items.map((item, index) => {
           if (!item) return null;
           const flavors = (item as any).flavors ?? [];
-          const flavorNames = flavors.map((f: any) => f.flavorName ?? f.name || "Sabor");
+          const flavorNames = flavors.map((f: any) => (f.flavorName ?? f.name) || "Sabor");
           const flavorIds = flavors.map((f: any) => f.productFlavorId ?? f.id);
           const flavorSuffix = flavorNames.length > 0 ? ` (${flavorNames.join(", ")})` : "";
           return {
