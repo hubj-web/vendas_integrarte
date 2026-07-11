@@ -86,7 +86,16 @@ export default function DeliveryPayments() {
   const paymentPhotoRef = useRef<HTMLInputElement>(null);
 
   const { data: deliverers = [] } = trpc.users.list.useQuery({ search: undefined });
-  const deliveryUsers = deliverers.filter(u => u.role === "delivery");
+  const deliveryUsers = deliverers.filter(u => {
+    if (!u.active) return false;
+    if (u.role === "delivery") return true;
+    try {
+      const parsed = JSON.parse(u.roles ?? "[]");
+      return Array.isArray(parsed) && parsed.includes("delivery");
+    } catch {
+      return false;
+    }
+  });
 
   const fmt = (v: string) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(parseFloat(v));
 

@@ -189,7 +189,7 @@ const routesRouter = router({
   // Remove um único pedido da rota manualmente (ex: cliente pediu para não entregar
   // mais). O pedido volta para "produção" e as posições restantes são renumeradas.
   removeOrder: protectedProcedure
-    .input(z.object({ routeId: z.number(), orderId: z.number() }))
+    .input(z.object({ routeId: z.number(), orderId: z.number(), reason: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -207,7 +207,7 @@ const routesRouter = router({
         await db.update(orders).set({ status: "production" }).where(eq(orders.id, input.orderId));
         await db.insert(orderStatusHistory).values({
           orderId: input.orderId, userId: ctx.user.id, fromStatus: current.status, toStatus: "production",
-          notes: "Removido manualmente da rota",
+          notes: input.reason ?? "Removido manualmente da rota",
         });
       }
 

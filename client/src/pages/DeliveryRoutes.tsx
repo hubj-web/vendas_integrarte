@@ -7,12 +7,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import {
   MapPin, Truck, ExternalLink, ChevronDown, ChevronUp,
-  Loader2, Calendar, Zap, Trash2, CheckSquare, Square, X, UserPlus, RefreshCw, FileDown, ArrowRightLeft,
+  Loader2, Calendar, Zap, Trash2, CheckSquare, Square, X, UserPlus, RefreshCw, FileDown, ArrowRightLeft, CheckCircle2, PackageX,
 } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Link } from "wouter";
@@ -306,6 +308,9 @@ function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAd
   const [removingOrder, setRemovingOrder] = useState<{ orderId: number; customerName: string } | null>(null);
   const [movingOrder, setMovingOrder] = useState<{ orderId: number; customerName: string } | null>(null);
   const [targetRouteId, setTargetRouteId] = useState<string>("");
+  const [deliveringOrder, setDeliveringOrder] = useState<{ orderId: number; customerName: string } | null>(null);
+  const [failedOrder, setFailedOrder] = useState<{ orderId: number; customerName: string } | null>(null);
+  const [failedReason, setFailedReason] = useState("Cliente não estava em casa");
 
   const exportPdfMutation = trpc.delivery.routes.exportPdf.useMutation({
     onSuccess: (data) => {
@@ -315,12 +320,23 @@ function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAd
     onError: (e) => toast.error(e.message),
   });
 
+  const registerDeliveryMutation = trpc.delivery.deliveryRecords.register.useMutation({
+    onSuccess: () => {
+      utils.delivery.routes.getById.invalidate({ id: routeId });
+      toast.success("Pedido marcado como entregue!");
+      setDeliveringOrder(null);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const removeOrderMutation = trpc.delivery.routes.removeOrder.useMutation({
     onSuccess: () => {
       utils.delivery.routes.getById.invalidate({ id: routeId });
       utils.delivery.routes.list.invalidate();
-      toast.success("Pedido removido da rota — voltou para produção.");
+      toast.success(failedOrder ? "Pedido marcado como não entregue — voltou para produção." : "Pedido removido da rota — voltou para produção.");
       setRemovingOrder(null);
+      setFailedOrder(null);
+      setFailedReason("Cliente não estava em casa");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -393,6 +409,24 @@ function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAd
               </div>
             </Link>
             <StatusBadge status={o.orderStatus ?? "production"} />
+            {!["delivered", "paid", "cancelled"].includes(o.orderStatus ?? "") && (
+              <>
+                <Button
+                  variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-emerald-600"
+                  title="Marcar como entregue"
+                  onClick={() => setDeliveringOrder({ orderId: o.orderId!, customerName: o.customerName ?? `Pedido #${o.orderId}` })}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-orange-500"
+                  title="Não entregue (cliente ausente, etc.)"
+                  onClick={() => setFailedOrder({ orderId: o.orderId!, customerName: o.customerName ?? `Pedido #${o.orderId}` })}
+                >
+                  <PackageX className="w-3.5 h-3.5" />
+                </Button>
+              </>
+            )}
             {otherActiveRoutes.length > 0 && (
               <Button
                 variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-primary"
@@ -463,6 +497,61 @@ function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAd
             >
               {moveOrderMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
               Mover
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deliveringOrder} onOpenChange={(open) => !open && setDeliveringOrder(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Marcar como entregue?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Confirma que o pedido de <strong>{deliveringOrder?.customerName}</strong> foi entregue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-emerald-600 hover:bg-emerald-700"
+              disabled={registerDeliveryMutation.isPending}
+              onClick={() => deliveringOrder && registerDeliveryMutation.mutate({ orderId: deliveringOrder.orderId })}
+            >
+              Confirmar Entrega
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={!!failedOrder} onOpenChange={(open) => !open && setFailedOrder(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Pedido não entregue</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            O pedido de <strong>{failedOrder?.customerName}</strong> volta para "Em Produção" (sem sair
+            da fila) e pode ser incluído em outra rota depois.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="failed-reason">Motivo</Label>
+            <Input
+              id="failed-reason"
+              value={failedReason}
+              onChange={(e) => setFailedReason(e.target.value)}
+              placeholder="Ex: Cliente não estava em casa"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFailedOrder(null)}>Cancelar</Button>
+            <Button
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+              disabled={removeOrderMutation.isPending}
+              onClick={() => failedOrder && removeOrderMutation.mutate({
+                routeId, orderId: failedOrder.orderId, reason: failedReason || "Não entregue",
+              })}
+            >
+              {removeOrderMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+              Confirmar
             </Button>
           </DialogFooter>
         </DialogContent>
