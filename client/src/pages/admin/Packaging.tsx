@@ -93,7 +93,6 @@ export default function Packaging() {
   const [directMethodId, setDirectMethodId] = useState<string>("all");
 
   const { data: deliveryMethods = [] } = trpc.catalog.deliveryMethods.list.useQuery();
-  const noRouteMethods = deliveryMethods.filter(dm => !dm.requiresAddress);
 
   const { data: routesList = [], isLoading: loadingRoutes } = trpc.packaging.routes.useQuery({
     deliveryMethodId: deliveryMethodId !== "all" ? Number(deliveryMethodId) : undefined,
@@ -138,7 +137,7 @@ export default function Packaging() {
       <Tabs defaultValue="route">
         <TabsList className="bg-muted/30 mb-6">
           <TabsTrigger value="route" className="gap-1.5"><Truck className="w-3.5 h-3.5" /> Por Rota</TabsTrigger>
-          <TabsTrigger value="direct" className="gap-1.5"><HandHelping className="w-3.5 h-3.5" /> Sem Rota (Retirada/Entrega na Mão)</TabsTrigger>
+          <TabsTrigger value="direct" className="gap-1.5"><HandHelping className="w-3.5 h-3.5" /> Sem Rota</TabsTrigger>
         </TabsList>
 
         <TabsContent value="route">
@@ -216,11 +215,12 @@ export default function Packaging() {
 
         <TabsContent value="direct">
           <p className="text-sm text-muted-foreground mb-4">
-            Pedidos com formas de entrega que não usam rota (retirada no local, entrega na mão do vendedor/cliente, etc).
-            Eles precisam ser empacotados e entregues normalmente, só que sem passar por uma rota.
+            Pedidos que precisam ser entregues mas ainda não estão em nenhuma rota — seja porque
+            são retirada/entrega na mão (nunca usam rota), seja porque foram removidos manualmente
+            de alguma rota (ex: cliente pediu para adiar a entrega).
           </p>
 
-          {noRouteMethods.length > 1 && (
+          {deliveryMethods.length > 1 && (
             <div className="mb-6 max-w-xs">
               <label className="text-sm font-medium text-foreground mb-1.5 block">Tipo de entrega</label>
               <Select value={directMethodId} onValueChange={setDirectMethodId}>
@@ -229,7 +229,7 @@ export default function Packaging() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos os tipos</SelectItem>
-                  {noRouteMethods.map(dm => (
+                  {deliveryMethods.map(dm => (
                     <SelectItem key={dm.id} value={String(dm.id)}>{dm.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -248,7 +248,7 @@ export default function Packaging() {
               <HandHelping className="w-12 h-12 mx-auto mb-3 opacity-30" />
               <p className="text-lg font-medium">Nenhum pedido pendente aqui</p>
               <p className="text-sm mt-1">
-                Todos os pedidos de retirada/entrega na mão já foram empacotados e entregues.
+                Todos os pedidos sem rota já foram empacotados e entregues.
               </p>
             </div>
           )}

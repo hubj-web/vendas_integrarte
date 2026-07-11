@@ -117,15 +117,25 @@ export default function SellerOrderDetail() {
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0 space-y-2">
-          {order.items.map((item) => (
+          {order.items.map((item: any) => (
             <div key={item.id} className="flex justify-between text-sm">
-              <span className="text-foreground">{item.productName ?? `Produto #${item.productId}`} × {item.quantity}</span>
+              <div>
+                <span className="text-foreground">{item.productName ?? `Produto #${item.productId}`} × {item.quantity}</span>
+                {item.flavors && item.flavors.length > 0 && (
+                  <p className="text-xs text-muted-foreground">{item.flavors.join(", ")}</p>
+                )}
+              </div>
               <span className="text-muted-foreground">{fmt(item.subtotal)}</span>
             </div>
           ))}
-          {order.minipizzas.map((mp) => (
+          {order.minipizzas.map((mp: any) => (
             <div key={mp.id} className="flex justify-between text-sm">
-              <span className="text-foreground">Minipizza {mp.typeName} × {mp.quantity}</span>
+              <div>
+                <span className="text-foreground">Minipizza {mp.typeName} × {mp.quantity}</span>
+                {mp.flavors && mp.flavors.length > 0 && (
+                  <p className="text-xs text-muted-foreground">{mp.flavors.join(", ")}</p>
+                )}
+              </div>
               <span className="text-muted-foreground">{fmt(mp.subtotal)}</span>
             </div>
           ))}

@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { eq, and, desc, asc, inArray, ne } from "drizzle-orm";
+import { eq, and, desc, asc, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import PDFDocument from "pdfkit";
 import {
@@ -120,8 +120,10 @@ const routesRouter = router({
         input.orderIds.map((orderId, idx) => ({ routeId, orderId, position: idx + 1 }))
       );
 
-      // Update orders to in_route
-      await db.update(orders).set({ status: "in_route" }).where(inArray(orders.id, input.orderIds));
+      // O status do pedido NÃO muda ao entrar numa rota — continua "Em Produção" até
+      // ser empacotado, e só vira "Em Rota" de fato quando a rota for iniciada (o
+      // entregador sair para entrega). Isso reflete o fluxo real: inserir pedido →
+      // criar rota → empacotar → sair para entrega → entregue.
 
       return { success: true, routeId };
     }),
@@ -131,7 +133,7 @@ const routesRouter = router({
       id: z.number(),
       status: z.enum(["planned", "in_progress", "completed"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
@@ -140,6 +142,30 @@ const routesRouter = router({
       if (input.status === "completed") updateData.completedAt = new Date();
 
       await db.update(deliveryRoutes).set(updateData).where(eq(deliveryRoutes.id, input.id));
+
+      // Ao iniciar a rota (entregador saiu para entrega), os pedidos dela passam de
+      // fato para "Em Rota" — antes disso (rota só criada/planejada), o pedido fica
+      // em produção/empacotado, aguardando a saída.
+      if (input.status === "in_progress") {
+        const routeOrderRows = await db.select({ orderId: routeOrders.orderId, status: orders.status })
+          .from(routeOrders)
+          .leftJoin(orders, eq(routeOrders.orderId, orders.id))
+          .where(eq(routeOrders.routeId, input.id));
+
+        const toUpdate = routeOrderRows.filter(o => o.status === "production" || o.status === "packaged");
+        if (toUpdate.length > 0) {
+          await db.update(orders).set({ status: "in_route" })
+            .where(inArray(orders.id, toUpdate.map(o => o.orderId)));
+          await db.insert(orderStatusHistory).values(
+            toUpdate.map(o => ({
+              orderId: o.orderId, userId: ctx.user.id,
+              fromStatus: o.status, toStatus: "in_route",
+              notes: "Rota iniciada — saiu para entrega",
+            }))
+          );
+        }
+      }
+
       return { success: true };
     }),
 
@@ -195,6 +221,68 @@ const routesRouter = router({
           await db.update(routeOrders).set({ position: i + 1 }).where(eq(routeOrders.id, remaining[i].id));
         }
       }
+
+      return { success: true };
+    }),
+
+  // Move um pedido de uma rota para outra (ex: cliente só pode receber no horário
+  // de saída de outro entregador). Sai da rota de origem e entra no fim da rota de
+  // destino, mantendo o status "Em Rota" (não volta para produção).
+  moveOrder: protectedProcedure
+    .input(z.object({ fromRouteId: z.number(), toRouteId: z.number(), orderId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      if (input.fromRouteId === input.toRouteId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A rota de destino precisa ser diferente da atual." });
+      }
+
+      const [current] = await db.select({ status: orders.status }).from(orders).where(eq(orders.id, input.orderId));
+      if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
+      if (["delivered", "paid", "cancelled"].includes(current.status)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Este pedido já foi finalizado e não pode ser movido de rota." });
+      }
+
+      const [alreadyInTarget] = await db.select({ id: routeOrders.id }).from(routeOrders)
+        .where(and(eq(routeOrders.routeId, input.toRouteId), eq(routeOrders.orderId, input.orderId)));
+      if (alreadyInTarget) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Este pedido já está na rota de destino." });
+      }
+
+      // Remove da rota de origem
+      await db.delete(routeOrders).where(and(
+        eq(routeOrders.routeId, input.fromRouteId),
+        eq(routeOrders.orderId, input.orderId)
+      ));
+
+      // Renumera as posições restantes da rota de origem
+      const remainingSource = await db.select({ id: routeOrders.id, position: routeOrders.position })
+        .from(routeOrders)
+        .where(eq(routeOrders.routeId, input.fromRouteId))
+        .orderBy(asc(routeOrders.position));
+      for (let i = 0; i < remainingSource.length; i++) {
+        if (remainingSource[i].position !== i + 1) {
+          await db.update(routeOrders).set({ position: i + 1 }).where(eq(routeOrders.id, remainingSource[i].id));
+        }
+      }
+
+      // Adiciona no fim da rota de destino
+      const [{ maxPosition } = { maxPosition: 0 }] = await db.select({
+        maxPosition: sql<number>`coalesce(max(${routeOrders.position}), 0)`,
+      }).from(routeOrders).where(eq(routeOrders.routeId, input.toRouteId));
+
+      await db.insert(routeOrders).values({
+        routeId: input.toRouteId, orderId: input.orderId, position: maxPosition + 1,
+      });
+
+      // O status continua "in_route" (ainda está em uma rota, só mudou qual). Se por
+      // acaso o pedido já estava "packaged", também não precisa mudar — ele já foi
+      // preparado e só está trocando de rota/horário de saída.
+      await db.insert(orderStatusHistory).values({
+        orderId: input.orderId, userId: ctx.user.id, fromStatus: current.status, toStatus: current.status,
+        notes: `Movido da rota #${input.fromRouteId} para a rota #${input.toRouteId}`,
+      });
 
       return { success: true };
     }),
@@ -411,11 +499,18 @@ const routesRouter = router({
       // Remove delivery_routes entries
       await db.delete(deliveryRoutes).where(inArray(deliveryRoutes.id, input.routeIds));
 
-      // Return orders to production status
+      // Return orders to production status — exceto os que já foram finalizados
+      // (entregues/pagos/cancelados), que devem manter seu status final.
       if (orderIds.length > 0) {
-        await db.update(orders)
-          .set({ status: "production" })
-          .where(inArray(orders.id, orderIds));
+        const finalized = await db.select({ id: orders.id }).from(orders)
+          .where(and(inArray(orders.id, orderIds), inArray(orders.status, ["delivered", "paid", "cancelled"])));
+        const finalizedIds = new Set(finalized.map(f => f.id));
+        const toRevert = orderIds.filter(id => !finalizedIds.has(id));
+        if (toRevert.length > 0) {
+          await db.update(orders)
+            .set({ status: "production" })
+            .where(inArray(orders.id, toRevert));
+        }
       }
 
       return { success: true, deletedCount: input.routeIds.length, orderIds };

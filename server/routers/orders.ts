@@ -363,13 +363,21 @@ export const ordersRouter = router({
       if (!orderRows[0]) throw new TRPCError({ code: "NOT_FOUND" });
       const order = orderRows[0];
 
-      const items = await db.select({
+      const itemRows = await db.select({
         id: orderItems.id, quantity: orderItems.quantity,
         unitPrice: orderItems.unitPrice, subtotal: orderItems.subtotal,
         productId: orderItems.productId, productName: products.name, unit: products.unit,
       }).from(orderItems)
         .leftJoin(products, eq(orderItems.productId, products.id))
         .where(eq(orderItems.orderId, input.id));
+
+      const items = await Promise.all(itemRows.map(async it => {
+        const flavors = await db.select({ name: productFlavors.name })
+          .from(orderItemFlavors)
+          .leftJoin(productFlavors, eq(orderItemFlavors.productFlavorId, productFlavors.id))
+          .where(eq(orderItemFlavors.orderItemId, it.id));
+        return { ...it, flavors: flavors.map(f => f.name) };
+      }));
 
       const mpRows = await db.select({
         id: orderMinipizzas.id, quantity: orderMinipizzas.quantity,

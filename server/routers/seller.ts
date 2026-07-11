@@ -387,9 +387,11 @@ export const sellerRouter = router({
       
       // Fetch flavor info for each order item
       const itemsWithFlavors = await Promise.all(items.map(async (item) => {
-        const flavorsData = await db.select().from(orderItemFlavors)
+        const flavorRows = await db.select({ name: productFlavors.name })
+          .from(orderItemFlavors)
+          .leftJoin(productFlavors, eq(orderItemFlavors.productFlavorId, productFlavors.id))
           .where(eq(orderItemFlavors.orderItemId, item.id));
-        return { ...item, flavors: flavorsData };
+        return { ...item, flavors: flavorRows.map(f => f.name) };
       }));
       
       // Mapear minipizzas para incluir sabores no formato esperado pelo recibo

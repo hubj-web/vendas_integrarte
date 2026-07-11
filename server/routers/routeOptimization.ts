@@ -713,7 +713,8 @@ export const routeOptimizationRouter = router({
             distanceFromPrevious: distFromPrev.toFixed(2),
           });
 
-          await db.update(orders).set({ status: "in_route" }).where(eq(orders.id, order.id));
+          // O status do pedido só vira "Em Rota" quando a rota for de fato iniciada
+          // (entregador sair para entrega) — não na criação da rota.
         }
       }
 

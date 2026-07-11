@@ -154,6 +154,9 @@ export default function OrderDetail() {
               <div key={item.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                 <div>
                   <p className="text-sm font-medium">{item.productName}</p>
+                  {item.flavors && item.flavors.length > 0 && (
+                    <p className="text-xs text-muted-foreground">{item.flavors.join(", ")}</p>
+                  )}
                   <p className="text-xs text-muted-foreground">{item.unit} · {fmt(item.unitPrice)} / un.</p>
                 </div>
                 <div className="text-right">

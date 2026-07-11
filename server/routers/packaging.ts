@@ -51,7 +51,7 @@ export const packagingRouter = router({
         .map(route => {
           const relevant = orderRows.filter(o =>
             o.routeId === route.id &&
-            (o.status === "in_route" || o.status === "packaged") &&
+            (o.status === "production" || o.status === "in_route" || o.status === "packaged") &&
             (!input?.deliveryMethodId || o.deliveryMethodId === input.deliveryMethodId)
           );
           return {
@@ -97,7 +97,7 @@ export const packagingRouter = router({
         .orderBy(asc(routeOrders.position));
 
       const relevant = orderRows.filter(o =>
-        (o.status === "in_route" || o.status === "packaged") &&
+        (o.status === "production" || o.status === "in_route" || o.status === "packaged") &&
         (!input.deliveryMethodId || o.deliveryMethodId === input.deliveryMethodId)
       );
       if (relevant.length === 0) return { route, orders: [] };
@@ -204,11 +204,13 @@ export const packagingRouter = router({
         if (current.status !== "packaged") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Este pedido não está marcado como empacotado." });
         }
-        // Volta para "em rota" se o pedido pertence a uma rota de entrega, ou para
-        // "produção" se for um pedido sem rota (retirada / entrega na mão).
-        const [routeLink] = await db.select({ id: routeOrders.id }).from(routeOrders)
+        // Volta para "em rota" se a rota já foi iniciada (entregador já saiu), ou para
+        // "produção" se a rota ainda não começou (ou o pedido nem está numa rota —
+        // caso de retirada / entrega na mão).
+        const [routeLink] = await db.select({ routeStatus: deliveryRoutes.status }).from(routeOrders)
+          .leftJoin(deliveryRoutes, eq(routeOrders.routeId, deliveryRoutes.id))
           .where(eq(routeOrders.orderId, input.orderId)).limit(1);
-        const revertStatus = routeLink ? "in_route" : "production";
+        const revertStatus = routeLink?.routeStatus === "in_progress" ? "in_route" : "production";
         await db.update(orders).set({ status: revertStatus }).where(eq(orders.id, input.orderId));
         await db.insert(orderStatusHistory).values({
           orderId: input.orderId, userId: ctx.user.id, fromStatus: current.status, toStatus: revertStatus,
@@ -218,8 +220,9 @@ export const packagingRouter = router({
       return { success: true };
     }),
 
-  // Pedidos que não passam por rota de entrega (retirada, entrega na mão do
-  // vendedor/cliente etc — formas de entrega marcadas como "não precisa de endereço").
+  // Pedidos que precisam ser entregues mas NÃO estão vinculados a nenhuma rota —
+  // seja porque são de um tipo que nunca usa rota (retirada, entrega na mão), seja
+  // porque foram removidos manualmente de uma rota (ex: cliente pediu para adiar).
   // Esses pedidos precisam ser empacotados e entregues normalmente, só que sem rota.
   directOrders: adminProcedure
     .input(z.object({ deliveryMethodId: z.number().optional() }).optional())
@@ -227,29 +230,28 @@ export const packagingRouter = router({
       const db = await getDb();
       if (!db) return [];
 
-      const methodsRows = await db.select({ id: deliveryMethods.id })
-        .from(deliveryMethods).where(eq(deliveryMethods.requiresAddress, false));
-      const noRouteMethodIds = methodsRows.map(m => m.id);
-      if (noRouteMethodIds.length === 0) return [];
-
       const orderRows = await db.select({
         orderId: orders.id, status: orders.status,
         deliveryMethodId: orders.deliveryMethodId, deliveryMethodName: deliveryMethods.name,
         deliveryAddress: orders.deliveryAddress, notes: orders.notes,
         customerName: customers.name, customerPhone: customers.phone,
+        routeOrderId: routeOrders.id,
       })
         .from(orders)
         .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
         .leftJoin(customers, eq(orders.customerId, customers.id))
+        .leftJoin(routeOrders, eq(routeOrders.orderId, orders.id))
         .where(and(
           inArray(orders.status, ["production", "packaged"]),
-          inArray(orders.deliveryMethodId, noRouteMethodIds),
           input?.deliveryMethodId ? eq(orders.deliveryMethodId, input.deliveryMethodId) : undefined
         ));
 
-      if (orderRows.length === 0) return [];
+      // Mantém só os que não estão vinculados a nenhuma rota (routeOrderId nulo)
+      const unroutedOrders = orderRows.filter(o => !o.routeOrderId);
 
-      const orderIds = orderRows.map(o => o.orderId);
+      if (unroutedOrders.length === 0) return [];
+
+      const orderIds = unroutedOrders.map(o => o.orderId);
 
       const itemRows = await db.select({
         id: orderItems.id, orderId: orderItems.orderId,
@@ -312,6 +314,6 @@ export const packagingRouter = router({
         (itemsByOrder[j.orderId] ??= []).push({ label: `Geleia ${j.flavorName}`, quantity: j.quantity });
       }
 
-      return orderRows.map(o => ({ ...o, items: itemsByOrder[o.orderId] ?? [] }));
+      return unroutedOrders.map(o => ({ ...o, items: itemsByOrder[o.orderId] ?? [] }));
     }),
 });

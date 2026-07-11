@@ -5,13 +5,14 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import {
   MapPin, Truck, ExternalLink, ChevronDown, ChevronUp,
-  Loader2, Calendar, Zap, Trash2, CheckSquare, Square, X, UserPlus, RefreshCw, FileDown,
+  Loader2, Calendar, Zap, Trash2, CheckSquare, Square, X, UserPlus, RefreshCw, FileDown, ArrowRightLeft,
 } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Link } from "wouter";
@@ -60,7 +61,11 @@ export default function DeliveryRoutes() {
   const { data: deliverers = [] } = trpc.users.list.useQuery({ search: undefined });
 
   const updateStatusMutation = trpc.delivery.routes.updateStatus.useMutation({
-    onSuccess: () => { utils.delivery.routes.list.invalidate(); toast.success("Status atualizado!"); },
+    onSuccess: () => {
+      utils.delivery.routes.list.invalidate();
+      utils.delivery.routes.getById.invalidate();
+      toast.success("Status atualizado!");
+    },
   });
 
   const assignDelivererMutation = trpc.routeOptimization.assignDeliverer.useMutation({
@@ -246,7 +251,16 @@ export default function DeliveryRoutes() {
                           </Button>
                         )}
                         {!selectionMode && isAdmin && route.status === "planned" && (
-                          <Button size="sm" variant="outline" className="h-8 text-xs px-2" onClick={() => updateStatusMutation.mutate({ id: route.id, status: "in_progress" })}>Iniciar</Button>
+                          <Button
+                            size="sm" variant="outline" className="h-8 text-xs px-2"
+                            onClick={() => {
+                              if (window.confirm("Iniciar esta rota? Todos os pedidos dela serão marcados como \"Em Rota\" (saiu para entrega).")) {
+                                updateStatusMutation.mutate({ id: route.id, status: "in_progress" });
+                              }
+                            }}
+                          >
+                            Iniciar
+                          </Button>
                         )}
                         {!selectionMode && (
                           <button onClick={() => setExpandedRoute(expandedRoute === route.id ? null : route.id)} className="text-muted-foreground hover:text-foreground p-1">
@@ -286,7 +300,12 @@ export default function DeliveryRoutes() {
 function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAddress: string }) {
   const utils = trpc.useUtils();
   const { data: route, isLoading } = trpc.delivery.routes.getById.useQuery({ id: routeId });
+  const { data: allRoutes = [] } = trpc.delivery.routes.list.useQuery();
+  const otherActiveRoutes = allRoutes.filter(r => r.id !== routeId && (r.status === "planned" || r.status === "in_progress"));
+
   const [removingOrder, setRemovingOrder] = useState<{ orderId: number; customerName: string } | null>(null);
+  const [movingOrder, setMovingOrder] = useState<{ orderId: number; customerName: string } | null>(null);
+  const [targetRouteId, setTargetRouteId] = useState<string>("");
 
   const exportPdfMutation = trpc.delivery.routes.exportPdf.useMutation({
     onSuccess: (data) => {
@@ -302,6 +321,18 @@ function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAd
       utils.delivery.routes.list.invalidate();
       toast.success("Pedido removido da rota — voltou para produção.");
       setRemovingOrder(null);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const moveOrderMutation = trpc.delivery.routes.moveOrder.useMutation({
+    onSuccess: () => {
+      utils.delivery.routes.getById.invalidate({ id: routeId });
+      utils.delivery.routes.getById.invalidate({ id: Number(targetRouteId) });
+      utils.delivery.routes.list.invalidate();
+      toast.success("Pedido movido para a outra rota!");
+      setMovingOrder(null);
+      setTargetRouteId("");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -362,6 +393,15 @@ function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAd
               </div>
             </Link>
             <StatusBadge status={o.orderStatus ?? "production"} />
+            {otherActiveRoutes.length > 0 && (
+              <Button
+                variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-primary"
+                title="Mover para outra rota"
+                onClick={() => { setMovingOrder({ orderId: o.orderId!, customerName: o.customerName ?? `Pedido #${o.orderId}` }); setTargetRouteId(""); }}
+              >
+                <ArrowRightLeft className="w-3.5 h-3.5" />
+              </Button>
+            )}
             <Button
               variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-red-500"
               title="Remover pedido da rota"
@@ -394,6 +434,39 @@ function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAd
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={!!movingOrder} onOpenChange={(open) => !open && setMovingOrder(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mover pedido para outra rota</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Mover <strong>{movingOrder?.customerName}</strong> desta rota para:
+          </p>
+          <Select value={targetRouteId} onValueChange={setTargetRouteId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Selecione a rota de destino" />
+            </SelectTrigger>
+            <SelectContent>
+              {otherActiveRoutes.map(r => (
+                <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMovingOrder(null)}>Cancelar</Button>
+            <Button
+              disabled={!targetRouteId || moveOrderMutation.isPending}
+              onClick={() => movingOrder && moveOrderMutation.mutate({
+                fromRouteId: routeId, toRouteId: Number(targetRouteId), orderId: movingOrder.orderId,
+              })}
+            >
+              {moveOrderMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+              Mover
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
