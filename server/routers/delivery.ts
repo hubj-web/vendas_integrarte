@@ -383,16 +383,25 @@ const routesRouter = router({
       }
 
       const buildAddr = (s: typeof stops[number]) => {
+        // Prioriza o endereço estruturado do cadastro do cliente (rua + número são
+        // o dado mais confiável, mantido atualizado na tela de Clientes). O campo
+        // "deliveryAddress" do pedido é texto livre digitado na hora da venda e pode
+        // estar incompleto (ex: sem o número) — por isso só é usado como fallback.
+        if (s.customerStreet && s.customerNumber) {
+          const parts = [
+            `${s.customerStreet}, ${s.customerNumber}`,
+            s.customerComplement, s.customerNeighborhood, s.customerCity, s.customerZipCode,
+          ].filter(Boolean);
+          return parts.join(", ");
+        }
         if (s.deliveryAddress) {
-          // Se o complemento existir e ainda não estiver incluído no texto salvo, anexa.
           if (s.customerComplement && !s.deliveryAddress.toLowerCase().includes(s.customerComplement.toLowerCase())) {
             return `${s.deliveryAddress} — ${s.customerComplement}`;
           }
           return s.deliveryAddress;
         }
         const parts = [
-          s.customerStreet && s.customerNumber ? `${s.customerStreet}, ${s.customerNumber}` : s.customerStreet,
-          s.customerComplement, s.customerNeighborhood, s.customerCity, s.customerZipCode,
+          s.customerStreet, s.customerComplement, s.customerNeighborhood, s.customerCity, s.customerZipCode,
         ].filter(Boolean);
         return parts.join(", ");
       };
@@ -432,53 +441,100 @@ const routesRouter = router({
           );
 
         let y = 90;
+        const textWidth = pageWidth - 40;
 
         stops.forEach((s, idx) => {
           const items = itemsByOrder[s.orderId!] ?? [];
-          const blockHeight = 60 + items.length * 12 + (s.notes ? 14 : 0);
+
+          // Mede a altura real de cada bloco de texto ANTES de desenhar — como o
+          // endereço/nome podem quebrar em mais de uma linha, não dá pra usar
+          // posições fixas (isso causava sobreposição de texto em endereços longos).
+          doc.fontSize(11).font("Helvetica-Bold");
+          const nameText = `${s.customerName ?? "—"}  (Pedido #${s.orderId})`;
+          const nameHeight = doc.heightOfString(nameText, { width: textWidth });
+
+          doc.fontSize(9).font("Helvetica");
+          const infoText = `Tel: ${s.customerPhone ?? "—"}   |   ${s.deliveryMethodName ?? "—"}   |   ${paymentLabel(s.paymentMethod)} — ${s.paymentStatus === "paid" ? "Pago" : "A receber"}: R$ ${parseFloat(s.totalAmount ?? "0").toFixed(2)}`;
+          const infoHeight = doc.heightOfString(infoText, { width: textWidth });
+
+          const addrText = `Endereço: ${buildAddr(s) || "—"}`;
+          const addrHeight = doc.heightOfString(addrText, { width: textWidth });
+
+          const refText = s.locationReference ? `Ponto de referência: ${s.locationReference}` : "";
+          let refHeight = 0;
+          if (refText) {
+            doc.fontSize(8);
+            refHeight = doc.heightOfString(refText, { width: textWidth }) + 4;
+            doc.fontSize(9);
+          }
+
+          let itemsBlockHeight = 0;
+          if (items.length > 0) {
+            itemsBlockHeight = 12;
+            for (const item of items) {
+              itemsBlockHeight += doc.heightOfString(`• ${item}`, { width: pageWidth - 46 }) + 2;
+            }
+          }
+
+          const notesText = s.notes ? `Obs: ${s.notes}` : "";
+          let notesHeight = 0;
+          if (notesText) {
+            doc.fontSize(8);
+            notesHeight = doc.heightOfString(notesText, { width: textWidth }) + 6;
+            doc.fontSize(9);
+          }
+
+          const blockHeight = nameHeight + 4 + infoHeight + 4 + addrHeight + refHeight + itemsBlockHeight + notesHeight + 20;
 
           if (y + blockHeight > doc.page.height - 40) {
             doc.addPage();
             y = 40;
           }
 
-          // Número da parada
-          doc.circle(42, y + 10, 10).fill(green);
+          const blockTop = y;
+
+          // Número da parada — círculo um pouco maior e caixa de texto mais larga,
+          // pra números de 2 dígitos (10, 11, 12...) caberem certinho e não sumirem.
+          const circleRadius = 11;
+          doc.circle(42, blockTop + 10, circleRadius).fill(green);
           doc.fillColor("#FFFFFF").fontSize(10).font("Helvetica-Bold")
-            .text(String(idx + 1), 42 - 5, y + 5, { width: 10, align: "center" });
+            .text(String(idx + 1), 42 - circleRadius, blockTop + 5, { width: circleRadius * 2, align: "center" });
 
           doc.fillColor("#1B1B1B").fontSize(11).font("Helvetica-Bold")
-            .text(`${s.customerName ?? "—"}  (Pedido #${s.orderId})`, 62, y, { width: pageWidth - 40 });
+            .text(nameText, 62, blockTop, { width: textWidth });
+          let curY = blockTop + nameHeight + 4;
 
           doc.fontSize(9).font("Helvetica").fillColor(mutedText)
-            .text(`Tel: ${s.customerPhone ?? "—"}   |   ${s.deliveryMethodName ?? "—"}   |   ${paymentLabel(s.paymentMethod)} — ${s.paymentStatus === "paid" ? "Pago" : "A receber"}: R$ ${parseFloat(s.totalAmount ?? "0").toFixed(2)}`,
-              62, y + 15, { width: pageWidth - 40 });
+            .text(infoText, 62, curY, { width: textWidth });
+          curY += infoHeight + 4;
 
           doc.fontSize(9).font("Helvetica").fillColor("#1B1B1B")
-            .text(`Endereço: ${buildAddr(s) || "—"}`, 62, y + 28, { width: pageWidth - 40 });
+            .text(addrText, 62, curY, { width: textWidth });
+          curY += addrHeight;
 
-          let itemY = y + 41;
-          if (s.locationReference) {
-            doc.fontSize(8).fillColor(mutedText).text(`Ponto de referência: ${s.locationReference}`, 62, itemY, { width: pageWidth - 40 });
-            itemY += 12;
+          if (refText) {
+            doc.fontSize(8).fillColor(mutedText).text(refText, 62, curY, { width: textWidth });
+            curY += refHeight;
           }
 
           if (items.length > 0) {
-            doc.fontSize(9).font("Helvetica-Bold").fillColor("#1B1B1B").text("Itens:", 62, itemY);
-            itemY += 12;
+            doc.fontSize(9).font("Helvetica-Bold").fillColor("#1B1B1B").text("Itens:", 62, curY);
+            curY += 12;
+            doc.font("Helvetica");
             for (const item of items) {
-              doc.fontSize(9).font("Helvetica").text(`• ${item}`, 68, itemY, { width: pageWidth - 46 });
-              itemY += 12;
+              const h = doc.heightOfString(`• ${item}`, { width: pageWidth - 46 });
+              doc.fontSize(9).text(`• ${item}`, 68, curY, { width: pageWidth - 46 });
+              curY += h + 2;
             }
           }
 
-          if (s.notes) {
-            doc.fontSize(8).font("Helvetica-Oblique").fillColor(mutedText).text(`Obs: ${s.notes}`, 62, itemY, { width: pageWidth - 40 });
-            itemY += 14;
+          if (notesText) {
+            doc.fontSize(8).font("Helvetica-Oblique").fillColor(mutedText).text(notesText, 62, curY, { width: textWidth });
+            curY += notesHeight;
           }
 
-          doc.moveTo(30, itemY + 4).lineTo(30 + pageWidth, itemY + 4).strokeColor("#DDDDDD").stroke();
-          y = itemY + 14;
+          doc.moveTo(30, curY + 6).lineTo(30 + pageWidth, curY + 6).strokeColor("#DDDDDD").stroke();
+          y = curY + 16;
         });
 
         doc.end();

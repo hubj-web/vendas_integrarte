@@ -70,6 +70,17 @@ function buildDisplayAddress(item: {
   customerCity: string | null;
   customerZipCode?: string | null;
 }): string {
+  // Prioriza o endereço estruturado do cadastro do cliente (rua + número são o dado
+  // mais confiável, mantido atualizado na tela de Clientes). O "deliveryAddress" do
+  // pedido é texto livre digitado na hora da venda e pode estar incompleto (ex: sem
+  // o número) — por isso só é usado como fallback.
+  if (item.customerStreet && item.customerNumber) {
+    const parts = [
+      `${item.customerStreet}, ${item.customerNumber}`,
+      item.customerComplement, item.customerNeighborhood, item.customerCity, item.customerZipCode,
+    ].filter(Boolean);
+    return parts.join(", ");
+  }
   if (item.deliveryAddress && item.deliveryAddress.trim()) {
     const base = item.deliveryAddress.trim();
     if (item.customerComplement && !base.toLowerCase().includes(item.customerComplement.toLowerCase())) {
@@ -78,8 +89,7 @@ function buildDisplayAddress(item: {
     return base;
   }
   const parts = [
-    item.customerStreet && item.customerNumber ? `${item.customerStreet}, ${item.customerNumber}` : item.customerStreet,
-    item.customerComplement, item.customerNeighborhood, item.customerCity, item.customerZipCode,
+    item.customerStreet, item.customerComplement, item.customerNeighborhood, item.customerCity, item.customerZipCode,
   ].filter(Boolean);
   return parts.join(", ");
 }
