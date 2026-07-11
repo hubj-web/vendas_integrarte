@@ -383,7 +383,13 @@ const routesRouter = router({
       }
 
       const buildAddr = (s: typeof stops[number]) => {
-        if (s.deliveryAddress) return s.deliveryAddress;
+        if (s.deliveryAddress) {
+          // Se o complemento existir e ainda não estiver incluído no texto salvo, anexa.
+          if (s.customerComplement && !s.deliveryAddress.toLowerCase().includes(s.customerComplement.toLowerCase())) {
+            return `${s.deliveryAddress} — ${s.customerComplement}`;
+          }
+          return s.deliveryAddress;
+        }
         const parts = [
           s.customerStreet && s.customerNumber ? `${s.customerStreet}, ${s.customerNumber}` : s.customerStreet,
           s.customerComplement, s.customerNeighborhood, s.customerCity, s.customerZipCode,

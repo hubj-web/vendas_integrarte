@@ -58,6 +58,32 @@ function buildAddress(item: {
   return "";
 }
 
+/** Endereço para EXIBIR ao entregador (inclui complemento — apto, bloco, etc.).
+ * Diferente de buildAddress(), que é usado só para montar o link do Maps e por
+ * isso omite complemento de propósito (atrapalharia a geocodificação). */
+function buildDisplayAddress(item: {
+  deliveryAddress: string | null;
+  customerStreet: string | null;
+  customerNumber: string | null;
+  customerComplement?: string | null;
+  customerNeighborhood: string | null;
+  customerCity: string | null;
+  customerZipCode?: string | null;
+}): string {
+  if (item.deliveryAddress && item.deliveryAddress.trim()) {
+    const base = item.deliveryAddress.trim();
+    if (item.customerComplement && !base.toLowerCase().includes(item.customerComplement.toLowerCase())) {
+      return `${base} — ${item.customerComplement}`;
+    }
+    return base;
+  }
+  const parts = [
+    item.customerStreet && item.customerNumber ? `${item.customerStreet}, ${item.customerNumber}` : item.customerStreet,
+    item.customerComplement, item.customerNeighborhood, item.customerCity, item.customerZipCode,
+  ].filter(Boolean);
+  return parts.join(", ");
+}
+
 export const deliveryPublicRouter = router({
   /** Lista todos os entregadores ativos */
   listDeliverers: publicProcedure.query(async () => {
@@ -139,6 +165,7 @@ export const deliveryPublicRouter = router({
           customerPhone: customers.phone,
           customerStreet: customers.street,
           customerNumber: customers.number,
+          customerComplement: customers.complement,
           customerNeighborhood: customers.neighborhood,
           customerCity: customers.city,
           customerZipCode: customers.zipCode,
@@ -246,7 +273,7 @@ export const deliveryPublicRouter = router({
       // Adiciona o campo fullAddress e os produtos a cada item para facilitar exibição
       const itemsWithAddress = items.map(i => ({
         ...i,
-        fullAddress: buildAddress(i),
+        fullAddress: buildDisplayAddress(i),
         products: productsByOrder[i.orderId] ?? [],
       }));
 
