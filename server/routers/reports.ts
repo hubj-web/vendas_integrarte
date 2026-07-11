@@ -1,11 +1,12 @@
 import { TRPCError } from "@trpc/server";
 import { eq, and, gte, lte, desc, sql, count, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
+import PDFDocument from "pdfkit";
 import {
   orders, orderItems, orderMinipizzas, orderJellies,
   customers, users, deliveryRecords, paymentRecords,
   products, minipizzaTypes, minipizzaFlavors, jellyFlavors,
-  orderItemFlavors, orderMinipizzaFlavors,
+  orderItemFlavors, orderMinipizzaFlavors, productCategories,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -14,6 +15,119 @@ const adminOrLauncherProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role === "delivery") throw new TRPCError({ code: "FORBIDDEN" });
   return next({ ctx });
 });
+
+async function computeFinancialReport(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, dateFrom: string, dateTo: string) {
+  const from = new Date(dateFrom + "T00:00:00");
+  const to = new Date(dateTo + "T23:59:59");
+
+  // Recebimentos efetivos no período (baseado em quando o pagamento foi registrado)
+  const paymentRows = await db.select({
+    amount: paymentRecords.amount, paymentMethod: paymentRecords.paymentMethod,
+  }).from(paymentRecords)
+    .where(and(gte(paymentRecords.paidAt, from), lte(paymentRecords.paidAt, to)));
+
+  let pixReceived = 0;
+  let cashReceived = 0;
+  for (const p of paymentRows) {
+    const amt = parseFloat(p.amount);
+    if (p.paymentMethod === "pix") pixReceived += amt;
+    else cashReceived += amt;
+  }
+  const totalReceived = pixReceived + cashReceived;
+
+  // Faturamento, custo e lucro dos pedidos vendidos no período (mesmo critério do
+  // relatório de Vendas: exclui cancelados e pedidos de clientes internos/estoque).
+  const orderRows = await db.select({
+    id: orders.id, totalAmount: orders.totalAmount,
+  })
+    .from(orders)
+    .leftJoin(customers, eq(orders.customerId, customers.id))
+    .where(and(
+      sql`${orders.status} != 'cancelled'`,
+      sql`(${customers.isInternal} = false OR ${customers.isInternal} IS NULL)`,
+      or(
+        and(gte(orders.deliveryDate, from), lte(orders.deliveryDate, to)),
+        and(isNull(orders.deliveryDate), gte(orders.createdAt, from), lte(orders.createdAt, to))
+      )
+    ));
+
+  const totalRevenue = orderRows.reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
+  let totalCost = 0;
+
+  // Lucro por categoria (produtos comuns são agrupados pela categoria cadastrada;
+  // minipizzas e geleias, por não terem categoria própria no sistema, viram duas
+  // categorias fixas "Minipizzas" e "Geleias").
+  const categoryMap: Record<string, { category: string; revenue: number; cost: number }> = {};
+  const addToCategory = (category: string, revenue: number, cost: number) => {
+    if (!categoryMap[category]) categoryMap[category] = { category, revenue: 0, cost: 0 };
+    categoryMap[category].revenue += revenue;
+    categoryMap[category].cost += cost;
+  };
+
+  if (orderRows.length > 0) {
+    const orderIds = orderRows.map(o => o.id);
+
+    const itemRows = await db.select({
+      quantity: orderItems.quantity, unitPrice: orderItems.unitPrice, cost: products.cost,
+      categoryName: productCategories.name,
+    }).from(orderItems)
+      .leftJoin(products, eq(orderItems.productId, products.id))
+      .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+      .where(inArray(orderItems.orderId, orderIds));
+    for (const it of itemRows) {
+      const cost = it.quantity * parseFloat(it.cost ?? "0");
+      const revenue = it.quantity * parseFloat(it.unitPrice ?? "0");
+      totalCost += cost;
+      addToCategory(it.categoryName ?? "Sem Categoria", revenue, cost);
+    }
+
+    const mpRows = await db.select({
+      quantity: orderMinipizzas.quantity, unitPrice: orderMinipizzas.unitPrice, cost: minipizzaTypes.cost,
+    }).from(orderMinipizzas)
+      .leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
+      .where(inArray(orderMinipizzas.orderId, orderIds));
+    for (const mp of mpRows) {
+      const cost = mp.quantity * parseFloat(mp.cost ?? "0");
+      const revenue = mp.quantity * parseFloat(mp.unitPrice ?? "0");
+      totalCost += cost;
+      addToCategory("Minipizzas", revenue, cost);
+    }
+
+    const jRows = await db.select({
+      quantity: orderJellies.quantity, unitPrice: orderJellies.unitPrice, cost: jellyFlavors.cost,
+    }).from(orderJellies)
+      .leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
+      .where(inArray(orderJellies.orderId, orderIds));
+    for (const j of jRows) {
+      const cost = j.quantity * parseFloat(j.cost ?? "0");
+      const revenue = j.quantity * parseFloat(j.unitPrice ?? "0");
+      totalCost += cost;
+      addToCategory("Geleias", revenue, cost);
+    }
+  }
+
+  const profitByCategory = Object.values(categoryMap)
+    .map(c => ({ ...c, profit: c.revenue - c.cost }))
+    .sort((a, b) => b.profit - a.profit);
+
+  const profit = totalRevenue - totalCost;
+
+  // Pedidos entregues com pagamento pendente ou parcial (ainda falta receber)
+  const pendingOrders = await db.select({
+    id: orders.id, totalAmount: orders.totalAmount,
+    customerName: customers.name,
+  }).from(orders)
+    .leftJoin(customers, eq(orders.customerId, customers.id))
+    .where(and(
+      or(eq(orders.paymentStatus, "pending"), eq(orders.paymentStatus, "partial")),
+      eq(orders.status, "delivered"),
+      sql`(${customers.isInternal} = false OR ${customers.isInternal} IS NULL)`
+    ));
+
+  const totalPending = pendingOrders.reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
+
+  return { totalReceived, pixReceived, cashReceived, totalPending, pendingOrders, totalRevenue, totalCost, profit, profitByCategory };
+}
 
 export const reportsRouter = router({
   dashboard: protectedProcedure.query(async ({ ctx }) => {
@@ -256,40 +370,131 @@ export const reportsRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return null;
+      return computeFinancialReport(db, input.dateFrom, input.dateTo);
+    }),
 
-      const from = new Date(input.dateFrom + "T00:00:00");
-      const to = new Date(input.dateTo + "T23:59:59");
+  financialPdf: adminOrLauncherProcedure
+    .input(z.object({
+      dateFrom: z.string(),
+      dateTo: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // Recebimentos efetivos no período (baseado em quando o pagamento foi registrado)
-      const paymentRows = await db.select({
-        amount: paymentRecords.amount, paymentMethod: paymentRecords.paymentMethod,
-      }).from(paymentRecords)
-        .where(and(gte(paymentRecords.paidAt, from), lte(paymentRecords.paidAt, to)));
+      const report = await computeFinancialReport(db, input.dateFrom, input.dateTo);
+      const fmtMoney = (v: number) => `R$ ${v.toFixed(2).replace(".", ",")}`;
+      const fmtDate = (d: string) => {
+        const [y, m, day] = d.split("-");
+        return `${day}/${m}/${y}`;
+      };
 
-      let pixReceived = 0;
-      let cashReceived = 0;
-      for (const p of paymentRows) {
-        const amt = parseFloat(p.amount);
-        if (p.paymentMethod === "pix") pixReceived += amt;
-        else cashReceived += amt;
-      }
-      const totalReceived = pixReceived + cashReceived;
+      return new Promise<{ base64: string; filename: string; mimeType: string }>((resolve, reject) => {
+        const doc = new PDFDocument({
+          size: "A4", margin: 40,
+          info: { Title: "Relatório Financeiro - Integrarte", Author: "Sistema Integrarte" },
+        });
 
-      // Pedidos entregues com pagamento pendente ou parcial (ainda falta receber)
-      const pendingOrders = await db.select({
-        id: orders.id, totalAmount: orders.totalAmount,
-        customerName: customers.name,
-      }).from(orders)
-        .leftJoin(customers, eq(orders.customerId, customers.id))
-        .where(and(
-          or(eq(orders.paymentStatus, "pending"), eq(orders.paymentStatus, "partial")),
-          eq(orders.status, "delivered"),
-          sql`(${customers.isInternal} = false OR ${customers.isInternal} IS NULL)`
-        ));
+        const chunks: Buffer[] = [];
+        doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+        doc.on("end", () => {
+          const buffer = Buffer.concat(chunks);
+          resolve({
+            base64: buffer.toString("base64"),
+            filename: `financeiro_${input.dateFrom}_a_${input.dateTo}.pdf`,
+            mimeType: "application/pdf",
+          });
+        });
+        doc.on("error", reject);
 
-      const totalPending = pendingOrders.reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
+        const green = "#2D6A4F";
+        const red = "#C0392B";
+        const mutedText = "#555555";
+        const pageWidth = doc.page.width - 80;
 
-      return { totalReceived, pixReceived, cashReceived, totalPending, pendingOrders };
+        // Cabeçalho
+        doc.rect(40, 40, pageWidth, 46).fill(green);
+        doc.fillColor("#FFFFFF").fontSize(16).font("Helvetica-Bold")
+          .text("Relatório Financeiro — Integrarte", 50, 52, { width: pageWidth - 20 });
+        doc.fontSize(9).font("Helvetica")
+          .text(`Período: ${fmtDate(input.dateFrom)} a ${fmtDate(input.dateTo)}   |   Gerado em: ${new Date().toLocaleString("pt-BR")}`,
+            50, 72, { width: pageWidth - 20 });
+
+        let y = 105;
+
+        // Cards de resumo (2 colunas x 3 linhas)
+        const cards = [
+          { label: "Total Recebido", value: report.totalReceived },
+          { label: "Recebido em PIX", value: report.pixReceived },
+          { label: "Recebido em Dinheiro", value: report.cashReceived },
+          { label: "Pendente de Pagamento", value: report.totalPending },
+          { label: "Custo (período vendido)", value: report.totalCost },
+          { label: "Lucro", value: report.profit, highlight: true },
+        ];
+
+        const cardW = (pageWidth - 20) / 2;
+        cards.forEach((card, idx) => {
+          const col = idx % 2;
+          const row = Math.floor(idx / 2);
+          const x = 40 + col * (cardW + 20);
+          const cardY = y + row * 55;
+
+          doc.roundedRect(x, cardY, cardW, 45, 4).strokeColor("#DDDDDD").lineWidth(1).stroke();
+          doc.fillColor(mutedText).fontSize(8).font("Helvetica").text(card.label, x + 10, cardY + 8);
+          doc.fillColor(card.highlight ? (card.value >= 0 ? green : red) : "#1B1B1B")
+            .fontSize(14).font("Helvetica-Bold")
+            .text(fmtMoney(card.value), x + 10, cardY + 20);
+        });
+
+        y += Math.ceil(cards.length / 2) * 55 + 15;
+
+        if (report.totalRevenue > 0) {
+          const margin = (report.profit / report.totalRevenue) * 100;
+          doc.fillColor(mutedText).fontSize(9).font("Helvetica")
+            .text(`Faturamento do período: ${fmtMoney(report.totalRevenue)}   |   Margem de lucro: ${margin.toFixed(1)}%`, 40, y);
+          y += 25;
+        }
+
+        // Tabela: Lucro por categoria
+        if (report.profitByCategory.length > 0) {
+          doc.fillColor("#1B1B1B").fontSize(12).font("Helvetica-Bold").text("Lucro por Categoria", 40, y);
+          y += 20;
+
+          const cols = [
+            { label: "Categoria", width: pageWidth * 0.28 },
+            { label: "Faturamento", width: pageWidth * 0.18 },
+            { label: "Custo", width: pageWidth * 0.18 },
+            { label: "Lucro", width: pageWidth * 0.18 },
+            { label: "Margem", width: pageWidth * 0.18 },
+          ];
+
+          doc.rect(40, y, pageWidth, 18).fill(green);
+          let x = 40;
+          doc.fillColor("#FFFFFF").fontSize(8).font("Helvetica-Bold");
+          for (const col of cols) {
+            doc.text(col.label, x + 4, y + 5, { width: col.width - 8 });
+            x += col.width;
+          }
+          y += 18;
+
+          for (const cat of report.profitByCategory) {
+            if (y > doc.page.height - 60) { doc.addPage(); y = 40; }
+            const margin = cat.revenue > 0 ? (cat.profit / cat.revenue) * 100 : 0;
+            x = 40;
+            doc.rect(40, y, pageWidth, 18).fillAndStroke("#FFFFFF", "#EEEEEE");
+            doc.fillColor("#1B1B1B").fontSize(8).font("Helvetica");
+            const rowValues = [cat.category, fmtMoney(cat.revenue), fmtMoney(cat.cost), fmtMoney(cat.profit), `${margin.toFixed(0)}%`];
+            rowValues.forEach((val, i) => {
+              doc.fillColor(i === 3 ? (cat.profit >= 0 ? green : red) : "#1B1B1B");
+              doc.text(val, x + 4, y + 5, { width: cols[i].width - 8 });
+              x += cols[i].width;
+            });
+            y += 18;
+          }
+        }
+
+        doc.end();
+      });
     }),
 
   // ─── ORDERS LIST (for reports table) ────────────────────────────────────────

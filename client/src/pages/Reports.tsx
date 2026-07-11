@@ -13,7 +13,26 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
 } from "recharts";
-import { TrendingUp, Package, Truck, DollarSign, Users, Calendar } from "lucide-react";
+import { TrendingUp, Package, Truck, DollarSign, Users, Calendar, Loader2, FileDown } from "lucide-react";
+import { toast } from "sonner";
+
+function downloadBase64File(base64: string, filename: string, mimeType: string) {
+  const byteCharacters = atob(base64);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  const blob = new Blob([byteArray], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 const COLORS = ["#a78bfa", "#60a5fa", "#34d399", "#f59e0b", "#f87171", "#c084fc"];
 
@@ -50,6 +69,14 @@ export default function Reports() {
   const { data: salesReport, isLoading: loadingSales } = trpc.reports.sales.useQuery({ dateFrom: applied.from, dateTo: applied.to });
   const { data: deliveryReport, isLoading: loadingDelivery } = trpc.reports.deliveries.useQuery({ dateFrom: applied.from, dateTo: applied.to });
   const { data: financialReport, isLoading: loadingFinancial } = trpc.reports.financial.useQuery({ dateFrom: applied.from, dateTo: applied.to });
+
+  const financialPdfMutation = trpc.reports.financialPdf.useMutation({
+    onSuccess: (data) => {
+      downloadBase64File(data.base64, data.filename, data.mimeType);
+      toast.success("PDF gerado!");
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
 
   function applyFilter() {
@@ -137,7 +164,7 @@ export default function Reports() {
                           {salesReport.topProducts.slice(0, 8).map((p: any, i: number) => (
                             <TableRow key={i} className="border-border hover:bg-muted/20">
                               <TableCell className="text-sm font-medium">{p.name}</TableCell>
-                              <TableCell className="text-sm text-muted-foreground">{p.qty}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{p.quantity}</TableCell>
                               <TableCell className="text-sm text-primary font-semibold">{fmt(p.revenue)}</TableCell>
                             </TableRow>
                           ))}
@@ -145,8 +172,16 @@ export default function Reports() {
                       </Table>
                       <ResponsiveContainer width="100%" height={200}>
                         <PieChart>
-                          <Pie data={salesReport.topProducts.slice(0, 6)} dataKey="revenue" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                            {salesReport.topProducts.slice(0, 6).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                          <Pie data={(() => {
+                            const top = salesReport.topProducts.slice(0, 6);
+                            const rest = salesReport.topProducts.slice(6);
+                            const restTotal = rest.reduce((acc: number, p: any) => acc + p.revenue, 0);
+                            return restTotal > 0 ? [...top, { name: "Outros", revenue: restTotal }] : top;
+                          })()} dataKey="revenue" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                            {(() => {
+                              const count = Math.min(salesReport.topProducts.length, 6) + (salesReport.topProducts.length > 6 ? 1 : 0);
+                              return Array.from({ length: count }).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />);
+                            })()}
                           </Pie>
                           <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8 }} />
                         </PieChart>
@@ -200,7 +235,16 @@ export default function Reports() {
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                 <StatCard title="Total Recebido" value={fmt(financialReport.totalReceived)} icon={DollarSign} color="bg-primary/10 text-primary" />
                 <StatCard title="PIX" value={fmt(financialReport.pixReceived)} icon={TrendingUp} color="bg-emerald-500/10 text-emerald-400" />
+                <StatCard title="Dinheiro" value={fmt(financialReport.cashReceived)} icon={DollarSign} color="bg-teal-500/10 text-teal-400" />
                 <StatCard title="Pendente" value={fmt(financialReport.totalPending)} icon={Package} color="bg-orange-500/10 text-orange-400" sub={`${(financialReport.pendingOrders?.length || 0)} pedidos`} />
+                <StatCard title="Custo" value={fmt(financialReport.totalCost)} icon={Package} color="bg-red-500/10 text-red-400" sub="Do período vendido" />
+                <StatCard
+                  title="Lucro"
+                  value={fmt(financialReport.profit)}
+                  icon={TrendingUp}
+                  color={financialReport.profit >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}
+                  sub={financialReport.totalRevenue > 0 ? `Margem: ${((financialReport.profit / financialReport.totalRevenue) * 100).toFixed(0)}%` : undefined}
+                />
               </div>
 
               <Card className="bg-card border-border">
@@ -231,6 +275,49 @@ export default function Reports() {
                     </div>
                   </CardContent>
                 </Card>
+
+              {financialReport.profitByCategory && financialReport.profitByCategory.length > 0 && (
+                <Card className="bg-card border-border">
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Lucro por Categoria</CardTitle></CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-border hover:bg-transparent">
+                          <TableHead className="text-muted-foreground text-xs">Categoria</TableHead>
+                          <TableHead className="text-muted-foreground text-xs">Faturamento</TableHead>
+                          <TableHead className="text-muted-foreground text-xs">Custo</TableHead>
+                          <TableHead className="text-muted-foreground text-xs">Lucro</TableHead>
+                          <TableHead className="text-muted-foreground text-xs">Margem</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {financialReport.profitByCategory.map((c: any, i: number) => (
+                          <TableRow key={i} className="border-border hover:bg-muted/20">
+                            <TableCell className="text-sm font-medium">{c.category}</TableCell>
+                            <TableCell className="text-sm">{fmt(c.revenue)}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{fmt(c.cost)}</TableCell>
+                            <TableCell className={`text-sm font-semibold ${c.profit >= 0 ? "text-emerald-500" : "text-red-500"}`}>{fmt(c.profit)}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {c.revenue > 0 ? `${((c.profit / c.revenue) * 100).toFixed(0)}%` : "—"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="flex justify-end">
+                <Button
+                  variant="outline" size="sm" className="gap-2"
+                  disabled={financialPdfMutation.isPending}
+                  onClick={() => financialPdfMutation.mutate({ dateFrom: applied.from, dateTo: applied.to })}
+                >
+                  {financialPdfMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+                  Exportar Relatório Financeiro em PDF
+                </Button>
+              </div>
             </div>
           ) : null}
         </TabsContent>
