@@ -10,7 +10,7 @@ import {
   customers, deliveryMethods, jellyFlavors, minipizzaFlavors,
   minipizzaTypes, minipizzaTypeFlavorMatrix, orderItems, orderItemFlavors, orderJellies,
   orderMinipizzaFlavors, orderMinipizzas, orders, orderStatusHistory,
-  productCategories, productFlavors, productTypes, products, users, routeOrders,
+  productCategories, productFlavors, productTypes, products, users, routeOrders, paymentRecords,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
@@ -536,6 +536,24 @@ export const sellerRouter = router({
       await db.update(orders)
         .set({ paymentStatus: input.paymentStatus })
         .where(eq(orders.id, input.orderId));
+
+      // Se marcou como "pago" e ainda não existe nenhum registro de pagamento pra esse
+      // pedido, cria um automaticamente — senão o valor nunca entra no Relatório
+      // Financeiro (que soma a partir dos registros de pagamento, não do status).
+      if (input.paymentStatus === "paid") {
+        const [existing] = await db.select({ id: paymentRecords.id }).from(paymentRecords)
+          .where(eq(paymentRecords.orderId, input.orderId)).limit(1);
+        if (!existing) {
+          await db.insert(paymentRecords).values({
+            orderId: input.orderId,
+            paymentMethod: current[0].paymentMethod as "cash" | "pix",
+            amount: current[0].totalAmount,
+            paidAt: new Date(),
+            registeredBy: input.sellerId,
+            notes: "Registrado automaticamente ao marcar como pago",
+          });
+        }
+      }
 
       return { success: true };
     }),

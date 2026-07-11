@@ -627,6 +627,22 @@ export const ordersRouter = router({
         notes: input.cancelReason ?? input.notes,
       });
 
+      // Idem: garante que o pagamento apareça no Relatório Financeiro
+      if (input.status === "paid") {
+        const [existing] = await db.select({ id: paymentRecords.id }).from(paymentRecords)
+          .where(eq(paymentRecords.orderId, input.id)).limit(1);
+        if (!existing) {
+          await db.insert(paymentRecords).values({
+            orderId: input.id,
+            paymentMethod: current[0].paymentMethod as "cash" | "pix",
+            amount: current[0].totalAmount,
+            paidAt: new Date(),
+            registeredBy: ctx.user.id,
+            notes: "Registrado automaticamente ao marcar pedido como pago",
+          });
+        }
+      }
+
       // Ao cancelar, o pedido deixa de fazer parte de qualquer rota de entrega
       // (senão continuaria aparecendo como parada, contando na distância e nos links do Maps).
       if (input.status === "cancelled") {
@@ -641,10 +657,30 @@ export const ordersRouter = router({
       id: z.number(),
       paymentStatus: z.enum(["pending", "paid", "partial", "cancelled"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [current] = await db.select().from(orders).where(eq(orders.id, input.id));
+      if (!current) throw new TRPCError({ code: "NOT_FOUND" });
+
       await db.update(orders).set({ paymentStatus: input.paymentStatus }).where(eq(orders.id, input.id));
+
+      // Idem: garante que o pagamento apareça no Relatório Financeiro
+      if (input.paymentStatus === "paid") {
+        const [existing] = await db.select({ id: paymentRecords.id }).from(paymentRecords)
+          .where(eq(paymentRecords.orderId, input.id)).limit(1);
+        if (!existing) {
+          await db.insert(paymentRecords).values({
+            orderId: input.id,
+            paymentMethod: current.paymentMethod as "cash" | "pix",
+            amount: current.totalAmount,
+            paidAt: new Date(),
+            registeredBy: ctx.user.id,
+            notes: "Registrado automaticamente ao marcar como pago",
+          });
+        }
+      }
+
       return { success: true };
     }),
 
@@ -789,10 +825,33 @@ export const ordersRouter = router({
       ids: z.array(z.number()),
       paymentStatus: z.enum(["pending", "paid", "partial", "cancelled"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       await db.update(orders).set({ paymentStatus: input.paymentStatus }).where(inArray(orders.id, input.ids));
+
+      // Idem: garante que os pagamentos apareçam no Relatório Financeiro
+      if (input.paymentStatus === "paid" && input.ids.length > 0) {
+        const ordersData = await db.select().from(orders).where(inArray(orders.id, input.ids));
+        const alreadyRecorded = await db.select({ orderId: paymentRecords.orderId }).from(paymentRecords)
+          .where(inArray(paymentRecords.orderId, input.ids));
+        const recordedIds = new Set(alreadyRecorded.map(r => r.orderId));
+
+        const toInsert = ordersData
+          .filter(o => !recordedIds.has(o.id))
+          .map(o => ({
+            orderId: o.id,
+            paymentMethod: o.paymentMethod as "cash" | "pix",
+            amount: o.totalAmount,
+            paidAt: new Date(),
+            registeredBy: ctx.user.id,
+            notes: "Registrado automaticamente ao marcar como pago (ação em massa)",
+          }));
+        if (toInsert.length > 0) {
+          await db.insert(paymentRecords).values(toInsert);
+        }
+      }
+
       return { success: true };
     }),
 
