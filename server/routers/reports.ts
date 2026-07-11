@@ -25,46 +25,251 @@ export const reportsRouter = router({
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
+    const weekStart = new Date(today);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+
     const allOrders = await db.select({
       id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
       totalAmount: orders.totalAmount, createdAt: orders.createdAt,
     }).from(orders);
 
-    const todayOrders = allOrders.filter(o => o.createdAt >= today && o.createdAt < tomorrow);
-    const pendingPayments = allOrders.filter(o => o.status === "delivered" && o.paymentStatus === "pending");
+    const activeOrders = allOrders.filter(o => o.status !== "cancelled");
+
+    const todayOrders = activeOrders.filter(o => o.createdAt >= today && o.createdAt < tomorrow);
+    const weekOrders = activeOrders.filter(o => o.createdAt >= weekStart);
+    const monthOrders = activeOrders.filter(o => o.createdAt >= monthStart);
+
+    const pendingPayments = allOrders.filter(o => o.status === "delivered" && (o.paymentStatus === "pending" || o.paymentStatus === "partial"));
     const inProduction = allOrders.filter(o => o.status === "production");
-    const inRoute = allOrders.filter(o => o.status === "in_route" || o.status === "packaged");
+    const inRoute = allOrders.filter(o => o.status === "in_route");
+    const packaged = allOrders.filter(o => o.status === "packaged");
 
-    const todayRevenue = todayOrders
-      .filter(o => o.status !== "cancelled")
-      .reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
+    const sum = (list: typeof allOrders) => list.reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
 
-    const totalRevenue = allOrders
-      .filter(o => o.status !== "cancelled")
-      .reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
-
-    const totalOrders = allOrders.filter(o => o.status !== "cancelled").length;
-
-    const revenueByStatus: Record<string, number> = {};
-    allOrders.forEach(o => {
-      if (o.status === "cancelled") return;
-      revenueByStatus[o.status] = (revenueByStatus[o.status] || 0) + parseFloat(o.totalAmount);
-    });
+    const pendingAmount = sum(pendingPayments);
+    const todayRevenue = sum(todayOrders);
+    const weekRevenue = sum(weekOrders);
+    const monthRevenue = sum(monthOrders);
+    const totalRevenue = sum(activeOrders);
 
     const deliveryUsers = await db.select().from(users).where(eq(users.role, "delivery"));
 
+    const recentOrdersRaw = await db.select({
+      id: orders.id, status: orders.status, totalAmount: orders.totalAmount,
+      createdAt: orders.createdAt, customerName: customers.name,
+    })
+      .from(orders)
+      .leftJoin(customers, eq(orders.customerId, customers.id))
+      .orderBy(desc(orders.createdAt))
+      .limit(8);
+
     return {
-      todayOrders: todayOrders.length,
+      todayOrdersCount: todayOrders.length,
       todayRevenue,
-      totalOrders,
+      weekOrdersCount: weekOrders.length,
+      weekRevenue,
+      monthOrdersCount: monthOrders.length,
+      monthRevenue,
+      totalOrders: activeOrders.length,
       totalRevenue,
-      pendingPayments: pendingPayments.length,
-      inProduction: inProduction.length,
-      inRoute: inRoute.length,
-      revenueByStatus,
-      deliveryUsers: deliveryUsers.length,
+      pendingPaymentsCount: pendingPayments.length,
+      pendingAmount,
+      inProductionCount: inProduction.length,
+      inRouteCount: inRoute.length,
+      packagedCount: packaged.length,
+      deliveryUsersCount: deliveryUsers.length,
+      recentOrders: recentOrdersRaw,
     };
   }),
+
+  // ─── SALES REPORT ────────────────────────────────────────────────────────────
+  sales: adminOrLauncherProcedure
+    .input(z.object({
+      dateFrom: z.string(),
+      dateTo: z.string(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return null;
+
+      const from = new Date(input.dateFrom + "T00:00:00");
+      const to = new Date(input.dateTo + "T23:59:59");
+
+      // Pedidos no período (por data de entrega, ou criação se não houver data de entrega),
+      // sempre excluindo cancelados.
+      const orderRows = await db.select({
+        id: orders.id, totalAmount: orders.totalAmount,
+        launcherId: orders.launcherId, launcherName: users.name,
+      })
+        .from(orders)
+        .leftJoin(users, eq(orders.launcherId, users.id))
+        .where(and(
+          sql`${orders.status} != 'cancelled'`,
+          or(
+            and(gte(orders.deliveryDate, from), lte(orders.deliveryDate, to)),
+            and(isNull(orders.deliveryDate), gte(orders.createdAt, from), lte(orders.createdAt, to))
+          )
+        ));
+
+      const totalRevenue = orderRows.reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
+      const totalOrders = orderRows.length;
+      const avgTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+      // Vendas por vendedor
+      const byLauncherMap: Record<number, { name: string; count: number; total: number }> = {};
+      for (const o of orderRows) {
+        const id = o.launcherId ?? 0;
+        if (!byLauncherMap[id]) byLauncherMap[id] = { name: o.launcherName ?? "Desconhecido", count: 0, total: 0 };
+        byLauncherMap[id].count += 1;
+        byLauncherMap[id].total += parseFloat(o.totalAmount);
+      }
+      const byLauncher = Object.values(byLauncherMap).sort((a, b) => b.total - a.total);
+
+      if (orderRows.length === 0) {
+        return { totalRevenue: 0, totalOrders: 0, avgTicket: 0, byLauncher: [], topProducts: [] };
+      }
+
+      const orderIds = orderRows.map(o => o.id);
+
+      // Produtos mais vendidos (produtos comuns + minipizzas + geleias, consolidados por nome)
+      const productMap: Record<string, { name: string; quantity: number; revenue: number }> = {};
+
+      const itemRows = await db.select({
+        productName: products.name, quantity: orderItems.quantity,
+        unitPrice: orderItems.unitPrice,
+      }).from(orderItems)
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .where(inArray(orderItems.orderId, orderIds));
+      for (const it of itemRows) {
+        const name = it.productName ?? "Produto";
+        if (!productMap[name]) productMap[name] = { name, quantity: 0, revenue: 0 };
+        productMap[name].quantity += it.quantity;
+        productMap[name].revenue += it.quantity * parseFloat(it.unitPrice);
+      }
+
+      const mpRows = await db.select({
+        typeName: minipizzaTypes.name, quantity: orderMinipizzas.quantity,
+        unitPrice: orderMinipizzas.unitPrice,
+      }).from(orderMinipizzas)
+        .leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
+        .where(inArray(orderMinipizzas.orderId, orderIds));
+      for (const mp of mpRows) {
+        const name = `Minipizza ${mp.typeName ?? "—"}`;
+        if (!productMap[name]) productMap[name] = { name, quantity: 0, revenue: 0 };
+        productMap[name].quantity += mp.quantity;
+        productMap[name].revenue += mp.quantity * parseFloat(mp.unitPrice);
+      }
+
+      const jRows = await db.select({
+        flavorName: jellyFlavors.name, quantity: orderJellies.quantity,
+        unitPrice: orderJellies.unitPrice,
+      }).from(orderJellies)
+        .leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
+        .where(inArray(orderJellies.orderId, orderIds));
+      for (const j of jRows) {
+        const name = `Geleia ${j.flavorName ?? "—"}`;
+        if (!productMap[name]) productMap[name] = { name, quantity: 0, revenue: 0 };
+        productMap[name].quantity += j.quantity;
+        productMap[name].revenue += j.quantity * parseFloat(j.unitPrice);
+      }
+
+      const topProducts = Object.values(productMap).sort((a, b) => b.revenue - a.revenue);
+
+      return { totalRevenue, totalOrders, avgTicket, byLauncher, topProducts };
+    }),
+
+  // ─── DELIVERY REPORT ─────────────────────────────────────────────────────────
+  deliveries: adminOrLauncherProcedure
+    .input(z.object({
+      dateFrom: z.string(),
+      dateTo: z.string(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return null;
+
+      const from = new Date(input.dateFrom + "T00:00:00");
+      const to = new Date(input.dateTo + "T23:59:59");
+
+      const orderRows = await db.select({ id: orders.id, status: orders.status })
+        .from(orders)
+        .where(and(
+          sql`${orders.status} != 'cancelled'`,
+          or(
+            and(gte(orders.deliveryDate, from), lte(orders.deliveryDate, to)),
+            and(isNull(orders.deliveryDate), gte(orders.createdAt, from), lte(orders.createdAt, to))
+          )
+        ));
+
+      const totalOrders = orderRows.length;
+      const deliveredCount = orderRows.filter(o => o.status === "delivered" || o.status === "paid").length;
+      const deliveryRate = totalOrders > 0 ? (deliveredCount / totalOrders) * 100 : 0;
+
+      let byDeliverer: { name: string; count: number }[] = [];
+      if (orderRows.length > 0) {
+        const orderIds = orderRows.map(o => o.id);
+        const records = await db.select({
+          delivererName: users.name,
+        }).from(deliveryRecords)
+          .leftJoin(users, eq(deliveryRecords.deliveryUserId, users.id))
+          .where(inArray(deliveryRecords.orderId, orderIds));
+
+        const map: Record<string, number> = {};
+        for (const r of records) {
+          const name = r.delivererName ?? "Desconhecido";
+          map[name] = (map[name] ?? 0) + 1;
+        }
+        byDeliverer = Object.entries(map).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+      }
+
+      return { totalOrders, deliveredCount, deliveryRate, byDeliverer };
+    }),
+
+  // ─── FINANCIAL REPORT ────────────────────────────────────────────────────────
+  financial: adminOrLauncherProcedure
+    .input(z.object({
+      dateFrom: z.string(),
+      dateTo: z.string(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return null;
+
+      const from = new Date(input.dateFrom + "T00:00:00");
+      const to = new Date(input.dateTo + "T23:59:59");
+
+      // Recebimentos efetivos no período (baseado em quando o pagamento foi registrado)
+      const paymentRows = await db.select({
+        amount: paymentRecords.amount, paymentMethod: paymentRecords.paymentMethod,
+      }).from(paymentRecords)
+        .where(and(gte(paymentRecords.paidAt, from), lte(paymentRecords.paidAt, to)));
+
+      let pixReceived = 0;
+      let cashReceived = 0;
+      for (const p of paymentRows) {
+        const amt = parseFloat(p.amount);
+        if (p.paymentMethod === "pix") pixReceived += amt;
+        else cashReceived += amt;
+      }
+      const totalReceived = pixReceived + cashReceived;
+
+      // Pedidos entregues com pagamento pendente ou parcial (ainda falta receber)
+      const pendingOrders = await db.select({
+        id: orders.id, totalAmount: orders.totalAmount,
+        customerName: customers.name,
+      }).from(orders)
+        .leftJoin(customers, eq(orders.customerId, customers.id))
+        .where(and(
+          or(eq(orders.paymentStatus, "pending"), eq(orders.paymentStatus, "partial")),
+          eq(orders.status, "delivered")
+        ));
+
+      const totalPending = pendingOrders.reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
+
+      return { totalReceived, pixReceived, cashReceived, totalPending, pendingOrders };
+    }),
 
   // ─── ORDERS LIST (for reports table) ────────────────────────────────────────
   ordersList: adminOrLauncherProcedure

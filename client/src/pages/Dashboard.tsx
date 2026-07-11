@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { PageHeader } from "@/components/ui/page-header";
@@ -8,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 import {
   ShoppingBag, CreditCard, Package, Truck,
-  TrendingUp, AlertCircle, ArrowRight, Plus,
+  TrendingUp, AlertCircle, ArrowRight, Plus, CalendarDays, PackageCheck,
 } from "lucide-react";
 
 function StatCard({ title, value, sub, icon: Icon, color }: {
@@ -36,17 +37,25 @@ function StatCard({ title, value, sub, icon: Icon, color }: {
 export default function Dashboard() {
   const { user } = useLocalAuth();
   const { data, isLoading } = trpc.reports.dashboard.useQuery();
+  const [period, setPeriod] = useState<"today" | "week" | "month">("today");
 
   const role = user?.role;
   const greeting = role === "admin" ? "Administrador" : role === "launcher" ? "Vendedor" : "Entregador";
 
   const fmt = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
+  const periodLabels = { today: "Hoje", week: "Esta Semana", month: "Este Mês" };
+  const periodData = data ? {
+    today: { orders: data.todayOrdersCount, revenue: data.todayRevenue },
+    week: { orders: data.weekOrdersCount, revenue: data.weekRevenue },
+    month: { orders: data.monthOrdersCount, revenue: data.monthRevenue },
+  }[period] : { orders: 0, revenue: 0 };
+
   return (
     <div>
       <PageHeader
         title={`Olá, ${user?.name?.split(" ")[0] ?? greeting}!`}
-        description="Visão geral do sistema hoje"
+        description="Visão geral do sistema"
         actions={
           role !== "delivery" ? (
             <Link href="/admin/pedidos/novo">
@@ -58,6 +67,23 @@ export default function Dashboard() {
           ) : undefined
         }
       />
+
+      {!isLoading && data && (
+        <div className="flex items-center gap-2 mb-4">
+          <CalendarDays className="w-4 h-4 text-muted-foreground" />
+          {(["today", "week", "month"] as const).map(p => (
+            <Button
+              key={p}
+              size="sm"
+              variant={period === p ? "default" : "outline"}
+              className={period === p ? "bg-primary text-primary-foreground h-7 text-xs" : "h-7 text-xs"}
+              onClick={() => setPeriod(p)}
+            >
+              {periodLabels[p]}
+            </Button>
+          ))}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -72,16 +98,16 @@ export default function Dashboard() {
         </div>
       ) : data ? (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <StatCard
-              title="Pedidos Hoje"
-              value={data.todayOrdersCount}
+              title={`Pedidos — ${periodLabels[period]}`}
+              value={periodData.orders}
               icon={ShoppingBag}
               color="bg-blue-500/15 text-blue-400"
             />
             <StatCard
-              title="Faturamento Hoje"
-              value={fmt(data.todayRevenue)}
+              title={`Faturamento — ${periodLabels[period]}`}
+              value={fmt(periodData.revenue)}
               icon={TrendingUp}
               color="bg-primary/15 text-primary"
             />
@@ -93,11 +119,38 @@ export default function Dashboard() {
               color="bg-orange-500/15 text-orange-400"
             />
             <StatCard
+              title="Total de Pedidos"
+              value={data.totalOrders}
+              sub={fmt(data.totalRevenue)}
+              icon={CreditCard}
+              color="bg-purple-500/15 text-purple-400"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <StatCard
               title="Em Produção"
               value={data.inProductionCount}
-              sub={`${data.inRouteCount} em rota`}
               icon={Package}
               color="bg-emerald-500/15 text-emerald-400"
+            />
+            <StatCard
+              title="Em Rota"
+              value={data.inRouteCount}
+              icon={Truck}
+              color="bg-cyan-500/15 text-cyan-400"
+            />
+            <StatCard
+              title="Empacotados"
+              value={data.packagedCount}
+              icon={PackageCheck}
+              color="bg-teal-500/15 text-teal-400"
+            />
+            <StatCard
+              title="Entregadores Ativos"
+              value={data.deliveryUsersCount}
+              icon={Truck}
+              color="bg-indigo-500/15 text-indigo-400"
             />
           </div>
 
