@@ -59,7 +59,19 @@ export const reportsRouter = router({
     const monthRevenue = sum(monthOrders);
     const totalRevenue = sum(activeOrders);
 
-    const deliveryUsers = await db.select().from(users).where(eq(users.role, "delivery"));
+    // Considera tanto usuários com role principal "delivery" quanto os que têm
+    // "delivery" como uma das funções adicionais (campo roles, JSON), e só os ativos.
+    const allUsers = await db.select({ role: users.role, roles: users.roles, active: users.active }).from(users);
+    const deliveryUsersCount = allUsers.filter(u => {
+      if (!u.active) return false;
+      if (u.role === "delivery") return true;
+      try {
+        const parsed = JSON.parse(u.roles ?? "[]");
+        return Array.isArray(parsed) && parsed.includes("delivery");
+      } catch {
+        return false;
+      }
+    }).length;
 
     const recentOrdersRaw = await db.select({
       id: orders.id, status: orders.status, totalAmount: orders.totalAmount,
@@ -84,7 +96,7 @@ export const reportsRouter = router({
       inProductionCount: inProduction.length,
       inRouteCount: inRoute.length,
       packagedCount: packaged.length,
-      deliveryUsersCount: deliveryUsers.length,
+      deliveryUsersCount,
       recentOrders: recentOrdersRaw,
     };
   }),
