@@ -839,15 +839,26 @@ export const routeOptimizationRouter = router({
         orderDetails.push(row);
       }
 
-      // Calcular matriz de distância
+      // Calcular matriz de distância (com fallback euclidiano se a API do Google falhar)
       console.log(`[RecalcularDistâncias] Calculando matriz para ${points.length} pontos...`);
-      const distanceMatrix = await calculateDistanceMatrix(points);
+      let distanceMatrix = await calculateDistanceMatrix(points);
+      let usedFallback = false;
 
       if (!distanceMatrix) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Falha ao calcular matriz de distância.",
-        });
+        usedFallback = true;
+        console.warn("[RecalcularDistâncias] Falha ao calcular matriz via Google. Usando fallback euclidiano.");
+        const n = points.length;
+        distanceMatrix = Array.from({ length: n }, (_, i) =>
+          Array.from({ length: n }, (_, j) => {
+            if (i === j) return 0;
+            return Math.round(
+              Math.sqrt(
+                Math.pow(points[i].latitude - points[j].latitude, 2) +
+                Math.pow(points[i].longitude - points[j].longitude, 2)
+              ) * 111000
+            );
+          })
+        );
       }
 
       // Ordenar paradas pelo vizinho mais próximo
@@ -890,12 +901,14 @@ export const routeOptimizationRouter = router({
         })
         .where(eq(deliveryRoutes.id, input.routeId));
 
-      console.log(`[RecalcularDistâncias] Rota #${input.routeId}: ${(totalDistance / 1000).toFixed(1)} km reais.`);
+      console.log(`[RecalcularDistâncias] Rota #${input.routeId}: ${(totalDistance / 1000).toFixed(1)} km ${usedFallback ? "(aproximado)" : "reais"}.`);
 
       return {
         success: true,
         totalDistance: (totalDistance / 1000).toFixed(2),
-        message: `Distâncias recalculadas com sucesso! Total: ${(totalDistance / 1000).toFixed(1)} km reais de estrada.`,
+        message: usedFallback
+          ? `Distâncias recalculadas! Total: ${(totalDistance / 1000).toFixed(1)} km (estimativa aproximada — a API de mapas não respondeu no momento).`
+          : `Distâncias recalculadas com sucesso! Total: ${(totalDistance / 1000).toFixed(1)} km reais de estrada.`,
       };
     }),
 
