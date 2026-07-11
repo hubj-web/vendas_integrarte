@@ -1,9 +1,13 @@
 import { TRPCError } from "@trpc/server";
 import { eq, and, desc, asc, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
+import PDFDocument from "pdfkit";
 import {
   deliveryRoutes, routeOrders, orders, customers, users,
-  deliveryRecords, paymentRecords, deliveryMethods,
+  deliveryRecords, paymentRecords, deliveryMethods, orderStatusHistory,
+  orderItems, orderItemFlavors, products, productFlavors,
+  orderMinipizzas, orderMinipizzaFlavors, minipizzaTypes, minipizzaFlavors,
+  orderJellies, jellyFlavors,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -156,7 +160,238 @@ const routesRouter = router({
       return { success: true };
     }),
 
-  // Delete routes (returns orders to production)
+  // Remove um único pedido da rota manualmente (ex: cliente pediu para não entregar
+  // mais). O pedido volta para "produção" e as posições restantes são renumeradas.
+  removeOrder: protectedProcedure
+    .input(z.object({ routeId: z.number(), orderId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [current] = await db.select({ status: orders.status }).from(orders).where(eq(orders.id, input.orderId));
+      if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
+
+      await db.delete(routeOrders).where(and(
+        eq(routeOrders.routeId, input.routeId),
+        eq(routeOrders.orderId, input.orderId)
+      ));
+
+      // Só volta para "produção" se o pedido ainda não foi entregue/pago/cancelado
+      if (!["delivered", "paid", "cancelled"].includes(current.status)) {
+        await db.update(orders).set({ status: "production" }).where(eq(orders.id, input.orderId));
+        await db.insert(orderStatusHistory).values({
+          orderId: input.orderId, userId: ctx.user.id, fromStatus: current.status, toStatus: "production",
+          notes: "Removido manualmente da rota",
+        });
+      }
+
+      // Renumera as posições restantes para não deixar "buracos" na sequência
+      const remaining = await db.select({ id: routeOrders.id, position: routeOrders.position })
+        .from(routeOrders)
+        .where(eq(routeOrders.routeId, input.routeId))
+        .orderBy(asc(routeOrders.position));
+      for (let i = 0; i < remaining.length; i++) {
+        if (remaining[i].position !== i + 1) {
+          await db.update(routeOrders).set({ position: i + 1 }).where(eq(routeOrders.id, remaining[i].id));
+        }
+      }
+
+      return { success: true };
+    }),
+
+  // Gera um PDF com todos os pedidos da rota, na ordem de visita, com os dados
+  // completos do cliente e os itens do pedido — para o entregador imprimir.
+  exportPdf: protectedProcedure
+    .input(z.object({ routeId: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [route] = await db.select({
+        id: deliveryRoutes.id, name: deliveryRoutes.name,
+        deliveryDate: deliveryRoutes.deliveryDate,
+        deliveryUserName: users.name, startingAddress: deliveryRoutes.startingAddress,
+      })
+        .from(deliveryRoutes)
+        .leftJoin(users, eq(deliveryRoutes.deliveryUserId, users.id))
+        .where(eq(deliveryRoutes.id, input.routeId));
+      if (!route) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const stops = await db.select({
+        position: routeOrders.position, orderId: orders.id,
+        status: orders.status, totalAmount: orders.totalAmount,
+        paymentMethod: orders.paymentMethod, paymentStatus: orders.paymentStatus,
+        notes: orders.notes, deliveryAddress: orders.deliveryAddress,
+        deliveryMethodName: deliveryMethods.name,
+        customerName: customers.name, customerPhone: customers.phone,
+        customerStreet: customers.street, customerNumber: customers.number,
+        customerComplement: customers.complement, customerNeighborhood: customers.neighborhood,
+        customerCity: customers.city, customerZipCode: customers.zipCode,
+        locationReference: customers.locationReference,
+      })
+        .from(routeOrders)
+        .leftJoin(orders, eq(routeOrders.orderId, orders.id))
+        .leftJoin(customers, eq(orders.customerId, customers.id))
+        .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
+        .where(and(eq(routeOrders.routeId, input.routeId), ne(orders.status, "cancelled")))
+        .orderBy(asc(routeOrders.position));
+
+      if (stops.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Rota sem pedidos para imprimir." });
+
+      const orderIds = stops.map(s => s.orderId!);
+      const itemsByOrder: Record<number, string[]> = {};
+
+      const itemRows = await db.select({
+        orderId: orderItems.orderId,
+        id: orderItems.id, productName: products.name, quantity: orderItems.quantity,
+      }).from(orderItems)
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .where(inArray(orderItems.orderId, orderIds));
+      const itemIds = itemRows.map(i => i.id);
+      const flavorMap: Record<number, string[]> = {};
+      if (itemIds.length > 0) {
+        const flavorRows = await db.select({
+          orderItemId: orderItemFlavors.orderItemId, flavorName: productFlavors.name,
+        }).from(orderItemFlavors)
+          .leftJoin(productFlavors, eq(orderItemFlavors.productFlavorId, productFlavors.id))
+          .where(inArray(orderItemFlavors.orderItemId, itemIds));
+        for (const f of flavorRows) (flavorMap[f.orderItemId] ??= []).push(f.flavorName ?? "");
+      }
+      for (const it of itemRows) {
+        const flavors = flavorMap[it.id] ?? [];
+        const flavorStr = flavors.length > 0 ? ` (${flavors.join(", ")})` : "";
+        (itemsByOrder[it.orderId] ??= []).push(`${it.quantity}x ${it.productName}${flavorStr}`);
+      }
+
+      const mpRows = await db.select({
+        id: orderMinipizzas.id, orderId: orderMinipizzas.orderId,
+        typeName: minipizzaTypes.name, quantity: orderMinipizzas.quantity,
+      }).from(orderMinipizzas)
+        .leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
+        .where(inArray(orderMinipizzas.orderId, orderIds));
+      const mpIds = mpRows.map(m => m.id);
+      const mpFlavorMap: Record<number, string[]> = {};
+      if (mpIds.length > 0) {
+        const flavorRows = await db.select({
+          orderMinipizzaId: orderMinipizzaFlavors.orderMinipizzaId, flavorName: minipizzaFlavors.name,
+        }).from(orderMinipizzaFlavors)
+          .leftJoin(minipizzaFlavors, eq(orderMinipizzaFlavors.minipizzaFlavorId, minipizzaFlavors.id))
+          .where(inArray(orderMinipizzaFlavors.orderMinipizzaId, mpIds));
+        for (const f of flavorRows) (mpFlavorMap[f.orderMinipizzaId] ??= []).push(f.flavorName ?? "");
+      }
+      for (const mp of mpRows) {
+        const flavors = mpFlavorMap[mp.id] ?? [];
+        const flavorStr = flavors.length > 0 ? ` — ${flavors.join(", ")}` : "";
+        (itemsByOrder[mp.orderId] ??= []).push(`${mp.quantity}x Minipizza ${mp.typeName ?? "—"}${flavorStr}`);
+      }
+
+      const jRows = await db.select({
+        orderId: orderJellies.orderId, flavorName: jellyFlavors.name, quantity: orderJellies.quantity,
+      }).from(orderJellies)
+        .leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
+        .where(inArray(orderJellies.orderId, orderIds));
+      for (const j of jRows) {
+        (itemsByOrder[j.orderId] ??= []).push(`${j.quantity}x Geleia ${j.flavorName}`);
+      }
+
+      const buildAddr = (s: typeof stops[number]) => {
+        if (s.deliveryAddress) return s.deliveryAddress;
+        const parts = [
+          s.customerStreet && s.customerNumber ? `${s.customerStreet}, ${s.customerNumber}` : s.customerStreet,
+          s.customerComplement, s.customerNeighborhood, s.customerCity, s.customerZipCode,
+        ].filter(Boolean);
+        return parts.join(", ");
+      };
+
+      const paymentLabel = (m: string | null) => m === "pix" ? "PIX" : m === "cash" ? "Dinheiro" : (m ?? "—");
+
+      return new Promise<{ base64: string; filename: string; mimeType: string }>((resolve, reject) => {
+        const doc = new PDFDocument({
+          size: "A4", margin: 30,
+          info: { Title: `Rota - ${route.name}`, Author: "Sistema Integrarte" },
+        });
+
+        const chunks: Buffer[] = [];
+        doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+        doc.on("end", () => {
+          const buffer = Buffer.concat(chunks);
+          resolve({
+            base64: buffer.toString("base64"),
+            filename: `rota_${route.name.replace(/[^\w-]+/g, "_")}.pdf`,
+            mimeType: "application/pdf",
+          });
+        });
+        doc.on("error", reject);
+
+        const green = "#2D6A4F";
+        const mutedText = "#555555";
+        const pageWidth = doc.page.width - 60;
+
+        // Cabeçalho
+        doc.rect(30, 30, pageWidth, 44).fill(green);
+        doc.fillColor("#FFFFFF").fontSize(16).font("Helvetica-Bold")
+          .text(route.name, 40, 40, { width: pageWidth - 20 });
+        doc.fontSize(9).font("Helvetica")
+          .text(
+            `${route.deliveryDate ? new Date(route.deliveryDate).toLocaleDateString("pt-BR") : ""}  |  Entregador: ${route.deliveryUserName ?? "—"}  |  ${stops.length} parada(s)`,
+            40, 58, { width: pageWidth - 20 }
+          );
+
+        let y = 90;
+
+        stops.forEach((s, idx) => {
+          const items = itemsByOrder[s.orderId!] ?? [];
+          const blockHeight = 60 + items.length * 12 + (s.notes ? 14 : 0);
+
+          if (y + blockHeight > doc.page.height - 40) {
+            doc.addPage();
+            y = 40;
+          }
+
+          // Número da parada
+          doc.circle(42, y + 10, 10).fill(green);
+          doc.fillColor("#FFFFFF").fontSize(10).font("Helvetica-Bold")
+            .text(String(idx + 1), 42 - 5, y + 5, { width: 10, align: "center" });
+
+          doc.fillColor("#1B1B1B").fontSize(11).font("Helvetica-Bold")
+            .text(`${s.customerName ?? "—"}  (Pedido #${s.orderId})`, 62, y, { width: pageWidth - 40 });
+
+          doc.fontSize(9).font("Helvetica").fillColor(mutedText)
+            .text(`Tel: ${s.customerPhone ?? "—"}   |   ${s.deliveryMethodName ?? "—"}   |   ${paymentLabel(s.paymentMethod)} — ${s.paymentStatus === "paid" ? "Pago" : "A receber"}: R$ ${parseFloat(s.totalAmount ?? "0").toFixed(2)}`,
+              62, y + 15, { width: pageWidth - 40 });
+
+          doc.fontSize(9).font("Helvetica").fillColor("#1B1B1B")
+            .text(`Endereço: ${buildAddr(s) || "—"}`, 62, y + 28, { width: pageWidth - 40 });
+
+          let itemY = y + 41;
+          if (s.locationReference) {
+            doc.fontSize(8).fillColor(mutedText).text(`Ponto de referência: ${s.locationReference}`, 62, itemY, { width: pageWidth - 40 });
+            itemY += 12;
+          }
+
+          if (items.length > 0) {
+            doc.fontSize(9).font("Helvetica-Bold").fillColor("#1B1B1B").text("Itens:", 62, itemY);
+            itemY += 12;
+            for (const item of items) {
+              doc.fontSize(9).font("Helvetica").text(`• ${item}`, 68, itemY, { width: pageWidth - 46 });
+              itemY += 12;
+            }
+          }
+
+          if (s.notes) {
+            doc.fontSize(8).font("Helvetica-Oblique").fillColor(mutedText).text(`Obs: ${s.notes}`, 62, itemY, { width: pageWidth - 40 });
+            itemY += 14;
+          }
+
+          doc.moveTo(30, itemY + 4).lineTo(30 + pageWidth, itemY + 4).strokeColor("#DDDDDD").stroke();
+          y = itemY + 14;
+        });
+
+        doc.end();
+      });
+    }),
+
+
   delete: protectedProcedure
     .input(z.object({ routeIds: z.array(z.number()) }))
     .mutation(async ({ input }) => {

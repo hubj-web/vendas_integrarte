@@ -11,10 +11,28 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import {
   MapPin, Truck, ExternalLink, ChevronDown, ChevronUp,
-  Loader2, Calendar, Zap, Trash2, CheckSquare, Square, X, UserPlus, RefreshCw,
+  Loader2, Calendar, Zap, Trash2, CheckSquare, Square, X, UserPlus, RefreshCw, FileDown,
 } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Link } from "wouter";
+
+function downloadBase64File(base64: string, filename: string, mimeType: string) {
+  const byteCharacters = atob(base64);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  const blob = new Blob([byteArray], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 const monthNames = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -266,7 +284,27 @@ export default function DeliveryRoutes() {
 }
 
 function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAddress: string }) {
+  const utils = trpc.useUtils();
   const { data: route, isLoading } = trpc.delivery.routes.getById.useQuery({ id: routeId });
+  const [removingOrder, setRemovingOrder] = useState<{ orderId: number; customerName: string } | null>(null);
+
+  const exportPdfMutation = trpc.delivery.routes.exportPdf.useMutation({
+    onSuccess: (data) => {
+      downloadBase64File(data.base64, data.filename, data.mimeType);
+      toast.success("PDF gerado!");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const removeOrderMutation = trpc.delivery.routes.removeOrder.useMutation({
+    onSuccess: () => {
+      utils.delivery.routes.getById.invalidate({ id: routeId });
+      utils.delivery.routes.list.invalidate();
+      toast.success("Pedido removido da rota — voltou para produção.");
+      setRemovingOrder(null);
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   if (isLoading) return <div className="mt-3 py-4 text-center"><Loader2 className="w-4 h-4 animate-spin mx-auto text-muted-foreground" /></div>;
   if (!route) return null;
@@ -303,22 +341,59 @@ function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAd
             <ExternalLink className="w-3 h-3" /> MAPS {mapLinks.length > 1 ? `PARTE ${idx + 1}` : ""}
           </Button>
         ))}
+        <Button
+          size="sm" variant="outline" className="text-[10px] h-7 gap-1.5"
+          disabled={exportPdfMutation.isPending}
+          onClick={() => exportPdfMutation.mutate({ routeId })}
+        >
+          {exportPdfMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileDown className="w-3 h-3" />}
+          BAIXAR PDF
+        </Button>
       </div>
       
       <div className="space-y-1.5">
         {route.orders.map((o, idx) => (
-          <Link key={o.id} href={`/admin/pedidos/${o.orderId}`}>
-            <div className="flex items-center gap-3 p-2 rounded-lg bg-muted/20 text-xs hover:bg-muted/40 cursor-pointer transition-colors">
-              <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">{idx + 1}</div>
+          <div key={o.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/20 text-xs hover:bg-muted/40 transition-colors">
+            <Link href={`/admin/pedidos/${o.orderId}`} className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary flex-shrink-0">{idx + 1}</div>
               <div className="flex-1 min-w-0">
                 <p className="font-medium truncate">{o.customerName}</p>
                 <p className="text-[10px] text-muted-foreground truncate">{buildAddr(o)}</p>
               </div>
-              <StatusBadge status={o.orderStatus ?? "production"} />
-            </div>
-          </Link>
+            </Link>
+            <StatusBadge status={o.orderStatus ?? "production"} />
+            <Button
+              variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-red-500"
+              title="Remover pedido da rota"
+              onClick={() => setRemovingOrder({ orderId: o.orderId!, customerName: o.customerName ?? `Pedido #${o.orderId}` })}
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          </div>
         ))}
       </div>
+
+      <AlertDialog open={!!removingOrder} onOpenChange={(open) => !open && setRemovingOrder(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover pedido da rota?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja remover <strong>{removingOrder?.customerName}</strong> desta rota?
+              O pedido volta para "Em Produção" e pode ser incluído em outra rota depois.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-500 hover:bg-red-600"
+              disabled={removeOrderMutation.isPending}
+              onClick={() => removingOrder && removeOrderMutation.mutate({ routeId, orderId: removingOrder.orderId })}
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
