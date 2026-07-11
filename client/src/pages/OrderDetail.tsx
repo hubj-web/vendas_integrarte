@@ -19,7 +19,8 @@ import { OrderReceiptButton } from "@/components/OrderReceipt";
 
 const statusFlow: Record<string, string[]> = {
   production: ["in_route", "cancelled"],
-  in_route: ["delivered", "cancelled"],
+  in_route: ["packaged", "delivered", "cancelled"],
+  packaged: ["delivered", "cancelled"],
   delivered: ["paid", "cancelled"],
   paid: ["cancelled"],
   cancelled: [],
@@ -28,6 +29,7 @@ const statusFlow: Record<string, string[]> = {
 const statusLabels: Record<string, string> = {
   production: "Em Produção",
   in_route: "Enviar para Rota",
+  packaged: "Marcar como Empacotado",
   delivered: "Marcar como Entregue",
   paid: "Marcar como Pago",
   cancelled: "Cancelar Pedido",
