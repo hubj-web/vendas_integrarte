@@ -33,15 +33,20 @@ export const reportsRouter = router({
     const allOrders = await db.select({
       id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
       totalAmount: orders.totalAmount, createdAt: orders.createdAt,
-    }).from(orders);
+      isInternal: customers.isInternal,
+    })
+      .from(orders)
+      .leftJoin(customers, eq(orders.customerId, customers.id));
 
-    const activeOrders = allOrders.filter(o => o.status !== "cancelled");
+    // Pedidos de clientes internos (ex: "Integrarte - Estoque") não são vendas reais —
+    // continuam contando na produção, mas ficam fora de faturamento/contagem de vendas.
+    const activeOrders = allOrders.filter(o => o.status !== "cancelled" && !o.isInternal);
 
     const todayOrders = activeOrders.filter(o => o.createdAt >= today && o.createdAt < tomorrow);
     const weekOrders = activeOrders.filter(o => o.createdAt >= weekStart);
     const monthOrders = activeOrders.filter(o => o.createdAt >= monthStart);
 
-    const pendingPayments = allOrders.filter(o => o.status === "delivered" && (o.paymentStatus === "pending" || o.paymentStatus === "partial"));
+    const pendingPayments = allOrders.filter(o => o.status === "delivered" && !o.isInternal && (o.paymentStatus === "pending" || o.paymentStatus === "partial"));
     const inProduction = allOrders.filter(o => o.status === "production");
     const inRoute = allOrders.filter(o => o.status === "in_route");
     const packaged = allOrders.filter(o => o.status === "packaged");
@@ -98,15 +103,18 @@ export const reportsRouter = router({
       const to = new Date(input.dateTo + "T23:59:59");
 
       // Pedidos no período (por data de entrega, ou criação se não houver data de entrega),
-      // sempre excluindo cancelados.
+      // sempre excluindo cancelados e pedidos de clientes internos (ex: "Integrarte - Estoque",
+      // que não são vendas reais).
       const orderRows = await db.select({
         id: orders.id, totalAmount: orders.totalAmount,
         launcherId: orders.launcherId, launcherName: users.name,
       })
         .from(orders)
         .leftJoin(users, eq(orders.launcherId, users.id))
+        .leftJoin(customers, eq(orders.customerId, customers.id))
         .where(and(
           sql`${orders.status} != 'cancelled'`,
+          sql`(${customers.isInternal} = false OR ${customers.isInternal} IS NULL)`,
           or(
             and(gte(orders.deliveryDate, from), lte(orders.deliveryDate, to)),
             and(isNull(orders.deliveryDate), gte(orders.createdAt, from), lte(orders.createdAt, to))
@@ -263,7 +271,8 @@ export const reportsRouter = router({
         .leftJoin(customers, eq(orders.customerId, customers.id))
         .where(and(
           or(eq(orders.paymentStatus, "pending"), eq(orders.paymentStatus, "partial")),
-          eq(orders.status, "delivered")
+          eq(orders.status, "delivered"),
+          sql`(${customers.isInternal} = false OR ${customers.isInternal} IS NULL)`
         ));
 
       const totalPending = pendingOrders.reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);

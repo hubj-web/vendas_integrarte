@@ -5,9 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Contact, Phone, MapPin, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, Contact, Phone, MapPin, Search, ChevronLeft, ChevronRight, Building2 } from "lucide-react";
 
 type Customer = {
   id: number;
@@ -21,6 +22,7 @@ type Customer = {
   neighborhood: string | null;
   city: string | null;
   zipCode: string | null;
+  isInternal: boolean;
 };
 
 type FormData = {
@@ -34,11 +36,12 @@ type FormData = {
   neighborhood: string;
   city: string;
   zipCode: string;
+  isInternal: boolean;
 };
 
 const emptyForm: FormData = {
   name: "", phone: "", locationReference: "", customerReference: "", street: "",
-  number: "", complement: "", neighborhood: "", city: "", zipCode: "",
+  number: "", complement: "", neighborhood: "", city: "", zipCode: "", isInternal: false,
 };
 
 const PAGE_SIZE = 25;
@@ -95,6 +98,7 @@ export default function Customers() {
       neighborhood: c.neighborhood ?? "",
       city: c.city ?? "",
       zipCode: c.zipCode ?? "",
+      isInternal: c.isInternal ?? false,
     });
     setDialogOpen(true);
   }
@@ -119,6 +123,7 @@ export default function Customers() {
       neighborhood: form.neighborhood || undefined,
       city: form.city || undefined,
       zipCode: form.zipCode || undefined,
+      isInternal: form.isInternal,
     };
 
     if (editingCustomer) {
@@ -182,9 +187,16 @@ export default function Customers() {
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {customersList.map((c) => (
-              <div key={c.id} className="flex flex-col p-4 rounded-xl border bg-white shadow-sm">
+              <div key={c.id} className={`flex flex-col p-4 rounded-xl border shadow-sm ${c.isInternal ? "bg-amber-50 border-amber-200" : "bg-white"}`}>
                 <div className="flex items-start justify-between mb-2">
-                  <span className="font-bold text-gray-900 truncate">{c.name}</span>
+                  <span className="font-bold text-gray-900 truncate flex items-center gap-1.5">
+                    {c.name}
+                    {c.isInternal && (
+                      <Badge variant="outline" className="text-[10px] gap-1 border-amber-400 text-amber-700 bg-amber-100">
+                        <Building2 className="w-3 h-3" /> Interno
+                      </Badge>
+                    )}
+                  </span>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600" onClick={() => openEdit(c)}>
                       <Pencil className="w-4 h-4" />
@@ -341,6 +353,24 @@ export default function Customers() {
                   className="mt-1"
                 />
               </div>
+            </div>
+
+            <div className="flex items-start justify-between gap-4 p-3 rounded-lg border bg-muted/30">
+              <div>
+                <Label htmlFor="cus-internal" className="flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5" /> Cliente Interno
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Use para pedidos de estoque/reforço (ex: "Integrarte - Estoque"). Esses pedidos
+                  continuam contando no Relatório de Produção, mas não entram como venda no
+                  Dashboard nem nos Relatórios de Vendas.
+                </p>
+              </div>
+              <Switch
+                id="cus-internal"
+                checked={form.isInternal}
+                onCheckedChange={(checked) => setForm(f => ({ ...f, isInternal: checked }))}
+              />
             </div>
           </div>
           <DialogFooter>

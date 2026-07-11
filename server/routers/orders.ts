@@ -95,6 +95,7 @@ const customersRouter = router({
       neighborhood: z.string().optional(),
       city: z.string().optional(),
       zipCode: z.string().optional(),
+      isInternal: z.boolean().optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -116,6 +117,7 @@ const customersRouter = router({
       neighborhood: z.string().optional(),
       city: z.string().optional(),
       zipCode: z.string().optional(),
+      isInternal: z.boolean().optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -652,10 +654,12 @@ export const ordersRouter = router({
     }).from(orders)
       .leftJoin(customers, eq(orders.customerId, customers.id))
       .leftJoin(deliveryRecords, eq(orders.id, deliveryRecords.orderId))
-      // Pedidos entregues com pagamento pendente OU parcial (ainda falta receber algo)
+      // Pedidos entregues com pagamento pendente OU parcial (ainda falta receber algo),
+      // exceto de clientes internos (ex: pedidos de estoque não geram cobrança real)
       .where(and(
         or(eq(orders.paymentStatus, "pending"), eq(orders.paymentStatus, "partial")),
-        eq(orders.status, "delivered")
+        eq(orders.status, "delivered"),
+        sql`(${customers.isInternal} = false OR ${customers.isInternal} IS NULL)`
       ));
 
     // Monta a lista de produtos comprados em cada pedido (mesmo padrão usado em list)

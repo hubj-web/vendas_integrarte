@@ -187,6 +187,7 @@ export const customers = mysqlTable("customers", {
   neighborhood: varchar("neighborhood", { length: 100 }),
   city: varchar("city", { length: 100 }),
   zipCode: varchar("zipCode", { length: 10 }),
+  isInternal: boolean("isInternal").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
