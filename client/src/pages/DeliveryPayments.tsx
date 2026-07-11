@@ -24,6 +24,7 @@ export default function DeliveryPayments() {
 
   const [deliveryMethodFilter, setDeliveryMethodFilter] = useState<string>("all");
   const [routeFilter, setRouteFilter] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<"route" | "name" | "total_desc" | "total_asc" | "recent">("route");
 
   const { data: deliveryMethods = [] } = trpc.catalog.deliveryMethods.list.useQuery();
   const { data: routesList = [] } = trpc.delivery.routes.list.useQuery({});
@@ -32,13 +33,36 @@ export default function DeliveryPayments() {
 
   // Orders in_route/packaged = pending delivery; delivered + payment pending = pending payment
   const { data: allOrders = [], isLoading: loadingDel } = trpc.orders.list.useQuery({
-    pageSize: 200,
+    pageSize: 500,
+    statusIn: ["in_route", "packaged"],
     deliveryMethodId: deliveryMethodFilter !== "all" ? Number(deliveryMethodFilter) : undefined,
     routeId: routeFilter !== "all" ? Number(routeFilter) : undefined,
   });
-  const pendingDeliveries = ((allOrders as any).data ?? allOrders).filter(
-    (o: any) => o.status === "in_route" || o.status === "packaged"
-  );
+  const pendingDeliveries = (() => {
+    const list = (allOrders as any).data ?? allOrders;
+    const sorted = [...list];
+    switch (sortBy) {
+      case "name":
+        sorted.sort((a: any, b: any) => (a.customerName ?? "").localeCompare(b.customerName ?? ""));
+        break;
+      case "total_desc":
+        sorted.sort((a: any, b: any) => parseFloat(b.totalAmount) - parseFloat(a.totalAmount));
+        break;
+      case "total_asc":
+        sorted.sort((a: any, b: any) => parseFloat(a.totalAmount) - parseFloat(b.totalAmount));
+        break;
+      case "recent":
+        sorted.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        break;
+      case "route":
+      default:
+        if (routeFilter !== "all") {
+          sorted.sort((a: any, b: any) => (a.routePosition ?? 0) - (b.routePosition ?? 0));
+        }
+        break;
+    }
+    return sorted;
+  })();
   const { data: pendingPayments = [], isLoading: loadingPay } = trpc.orders.pendingPayments.useQuery();
 
   const registerDeliveryMutation = trpc.delivery.deliveryRecords.register.useMutation({
@@ -130,7 +154,7 @@ export default function DeliveryPayments() {
     <div>
       <PageHeader title="Entregas e Pagamentos" description="Registre entregas e confirme pagamentos" />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 max-w-xl">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 max-w-2xl">
         <div>
           <Label className="text-xs text-muted-foreground mb-1 block">Tipo de entrega</Label>
           <Select value={deliveryMethodFilter} onValueChange={setDeliveryMethodFilter}>
@@ -156,6 +180,21 @@ export default function DeliveryPayments() {
               {activeRoutes.map(r => (
                 <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground mb-1 block">Ordenar por</Label>
+          <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
+            <SelectTrigger className="h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="route">Ordem da rota (padrão)</SelectItem>
+              <SelectItem value="name">Nome do cliente</SelectItem>
+              <SelectItem value="total_desc">Maior valor</SelectItem>
+              <SelectItem value="total_asc">Menor valor</SelectItem>
+              <SelectItem value="recent">Mais recentes</SelectItem>
             </SelectContent>
           </Select>
         </div>

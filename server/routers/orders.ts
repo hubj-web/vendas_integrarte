@@ -159,6 +159,7 @@ export const ordersRouter = router({
       page: z.number().default(1),
       pageSize: z.number().default(25),
       status: z.string().optional(),
+      statusIn: z.array(z.string()).optional(),
       paymentStatus: z.string().optional(),
       launcherId: z.number().optional(),
       deliveryMethodId: z.number().optional(),
@@ -209,6 +210,7 @@ export const ordersRouter = router({
           if (!["in_route", "packaged", "delivered"].includes(o.status)) return false;
         }
         if (input?.status && o.status !== input.status) return false;
+        if (input?.statusIn && input.statusIn.length > 0 && !input.statusIn.includes(o.status)) return false;
         if (input?.paymentStatus && o.paymentStatus !== input.paymentStatus) return false;
         if (input?.launcherId && o.launcherId !== input.launcherId) return false;
         if (input?.deliveryMethodId && o.deliveryMethodId !== input.deliveryMethodId) return false;

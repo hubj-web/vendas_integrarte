@@ -193,8 +193,8 @@ export const packagingRouter = router({
       if (!current) throw new TRPCError({ code: "NOT_FOUND" });
 
       if (input.packaged) {
-        if (current.status !== "in_route") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Só é possível empacotar pedidos que já estão em uma rota (status 'Em Rota')." });
+        if (current.status !== "in_route" && current.status !== "production") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Só é possível empacotar pedidos em produção ou já em uma rota." });
         }
         await db.update(orders).set({ status: "packaged" }).where(eq(orders.id, input.orderId));
         await db.insert(orderStatusHistory).values({
@@ -204,12 +204,114 @@ export const packagingRouter = router({
         if (current.status !== "packaged") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Este pedido não está marcado como empacotado." });
         }
-        await db.update(orders).set({ status: "in_route" }).where(eq(orders.id, input.orderId));
+        // Volta para "em rota" se o pedido pertence a uma rota de entrega, ou para
+        // "produção" se for um pedido sem rota (retirada / entrega na mão).
+        const [routeLink] = await db.select({ id: routeOrders.id }).from(routeOrders)
+          .where(eq(routeOrders.orderId, input.orderId)).limit(1);
+        const revertStatus = routeLink ? "in_route" : "production";
+        await db.update(orders).set({ status: revertStatus }).where(eq(orders.id, input.orderId));
         await db.insert(orderStatusHistory).values({
-          orderId: input.orderId, userId: ctx.user.id, fromStatus: current.status, toStatus: "in_route",
+          orderId: input.orderId, userId: ctx.user.id, fromStatus: current.status, toStatus: revertStatus,
         });
       }
 
       return { success: true };
+    }),
+
+  // Pedidos que não passam por rota de entrega (retirada, entrega na mão do
+  // vendedor/cliente etc — formas de entrega marcadas como "não precisa de endereço").
+  // Esses pedidos precisam ser empacotados e entregues normalmente, só que sem rota.
+  directOrders: adminProcedure
+    .input(z.object({ deliveryMethodId: z.number().optional() }).optional())
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+
+      const methodsRows = await db.select({ id: deliveryMethods.id })
+        .from(deliveryMethods).where(eq(deliveryMethods.requiresAddress, false));
+      const noRouteMethodIds = methodsRows.map(m => m.id);
+      if (noRouteMethodIds.length === 0) return [];
+
+      const orderRows = await db.select({
+        orderId: orders.id, status: orders.status,
+        deliveryMethodId: orders.deliveryMethodId, deliveryMethodName: deliveryMethods.name,
+        deliveryAddress: orders.deliveryAddress, notes: orders.notes,
+        customerName: customers.name, customerPhone: customers.phone,
+      })
+        .from(orders)
+        .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
+        .leftJoin(customers, eq(orders.customerId, customers.id))
+        .where(and(
+          inArray(orders.status, ["production", "packaged"]),
+          inArray(orders.deliveryMethodId, noRouteMethodIds),
+          input?.deliveryMethodId ? eq(orders.deliveryMethodId, input.deliveryMethodId) : undefined
+        ));
+
+      if (orderRows.length === 0) return [];
+
+      const orderIds = orderRows.map(o => o.orderId);
+
+      const itemRows = await db.select({
+        id: orderItems.id, orderId: orderItems.orderId,
+        productName: products.name, quantity: orderItems.quantity,
+      }).from(orderItems)
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .where(inArray(orderItems.orderId, orderIds));
+
+      const itemIds = itemRows.map(i => i.id);
+      const itemFlavorMap: Record<number, string[]> = {};
+      if (itemIds.length > 0) {
+        const flavorRows = await db.select({
+          orderItemId: orderItemFlavors.orderItemId, flavorName: productFlavors.name,
+        }).from(orderItemFlavors)
+          .leftJoin(productFlavors, eq(orderItemFlavors.productFlavorId, productFlavors.id))
+          .where(inArray(orderItemFlavors.orderItemId, itemIds));
+        for (const f of flavorRows) {
+          (itemFlavorMap[f.orderItemId] ??= []).push(f.flavorName ?? "");
+        }
+      }
+
+      const mpRows = await db.select({
+        id: orderMinipizzas.id, orderId: orderMinipizzas.orderId,
+        typeName: minipizzaTypes.name, quantity: orderMinipizzas.quantity,
+      }).from(orderMinipizzas)
+        .leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
+        .where(inArray(orderMinipizzas.orderId, orderIds));
+
+      const mpIds = mpRows.map(m => m.id);
+      const mpFlavorMap: Record<number, string[]> = {};
+      if (mpIds.length > 0) {
+        const flavorRows = await db.select({
+          orderMinipizzaId: orderMinipizzaFlavors.orderMinipizzaId, flavorName: minipizzaFlavors.name,
+        }).from(orderMinipizzaFlavors)
+          .leftJoin(minipizzaFlavors, eq(orderMinipizzaFlavors.minipizzaFlavorId, minipizzaFlavors.id))
+          .where(inArray(orderMinipizzaFlavors.orderMinipizzaId, mpIds));
+        for (const f of flavorRows) {
+          (mpFlavorMap[f.orderMinipizzaId] ??= []).push(f.flavorName ?? "");
+        }
+      }
+
+      const jRows = await db.select({
+        orderId: orderJellies.orderId, flavorName: jellyFlavors.name, quantity: orderJellies.quantity,
+      }).from(orderJellies)
+        .leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
+        .where(inArray(orderJellies.orderId, orderIds));
+
+      const itemsByOrder: Record<number, { label: string; quantity: number }[]> = {};
+      for (const it of itemRows) {
+        const flavors = itemFlavorMap[it.id] ?? [];
+        const flavorStr = flavors.length > 0 ? ` (${flavors.join(", ")})` : "";
+        (itemsByOrder[it.orderId] ??= []).push({ label: `${it.productName}${flavorStr}`, quantity: it.quantity });
+      }
+      for (const mp of mpRows) {
+        const flavors = mpFlavorMap[mp.id] ?? [];
+        const flavorStr = flavors.length > 0 ? ` — ${flavors.join(", ")}` : "";
+        (itemsByOrder[mp.orderId] ??= []).push({ label: `Minipizza ${mp.typeName ?? "—"}${flavorStr}`, quantity: mp.quantity });
+      }
+      for (const j of jRows) {
+        (itemsByOrder[j.orderId] ??= []).push({ label: `Geleia ${j.flavorName}`, quantity: j.quantity });
+      }
+
+      return orderRows.map(o => ({ ...o, items: itemsByOrder[o.orderId] ?? [] }));
     }),
 });

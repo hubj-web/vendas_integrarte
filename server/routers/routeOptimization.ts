@@ -252,6 +252,175 @@ function balanceRoutesByDistance(
 }
 
 /**
+ * Agrupa pedidos do mesmo bairro em um único grupo "atômico" (não são separados entre
+ * rotas), e distribui esses grupos entre as rotas buscando o menor KM total possível.
+ * Bairros maiores são processados primeiro (para não ficarem "sobrando" no final e
+ * forçarem desbalanceamento). Pedidos sem bairro cadastrado viram grupos individuais.
+ */
+/**
+ * Normaliza o nome de um bairro para comparação: remove acentos, pontuação,
+ * espaços duplicados e deixa em minúsculas. Assim "Santa Mônica", "santa monica"
+ * e "Santa  Mônica " são todos reconhecidos como o mesmo bairro.
+ */
+function normalizeNeighborhood(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return raw
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // remove acentos
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ") // pontuação vira espaço (ex: "Santa Monica/Finotti")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Distância de edição (Levenshtein) simples, usada para detectar erros de digitação. */
+function levenshtein(a: string, b: string): number {
+  const dp: number[][] = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+function groupOrderIndicesByNeighborhood(ordersToProcess: OrderWithLocation[]): number[][] {
+  const groups: Record<string, number[]> = {};
+  const keyForIndex: string[] = [];
+
+  ordersToProcess.forEach((o, i) => {
+    const normalized = normalizeNeighborhood(o.customerNeighborhood);
+    const key = normalized || `__sem_bairro_${i}`;
+    keyForIndex[i] = key;
+    (groups[key] ??= []).push(i);
+  });
+
+  // Junta bairros com nomes bem parecidos (provável erro de digitação, ex:
+  // "santa monicaa" vs "santa monica") no maior grupo correspondente, desde que
+  // os nomes tenham tamanho razoável (evita juntar bairros curtos e genéricos por engano).
+  const keys = Object.keys(groups).filter(k => !k.startsWith("__sem_bairro_"));
+  const merged = new Set<string>();
+  for (let i = 0; i < keys.length; i++) {
+    const a = keys[i];
+    if (merged.has(a) || a.length < 5) continue;
+    for (let j = i + 1; j < keys.length; j++) {
+      const b = keys[j];
+      if (merged.has(b) || b.length < 5) continue;
+      const dist = levenshtein(a, b);
+      if (dist <= 2) {
+        // Junta o menor grupo dentro do maior (mantém o nome do maior como referência)
+        const [bigger, smaller] = groups[a].length >= groups[b].length ? [a, b] : [b, a];
+        groups[bigger].push(...groups[smaller]);
+        delete groups[smaller];
+        merged.add(smaller);
+      }
+    }
+  }
+
+  return Object.values(groups);
+}
+
+function balanceRoutesByNeighborhood(
+  ordersToProcess: OrderWithLocation[],
+  originIndex: number,
+  distanceMatrix: number[][],
+  numRoutes: number
+): number[][] {
+  // routeGroups[r] = lista de grupos (bairros) atribuídos à rota r; cada grupo é uma
+  // lista de índices de matriz. Mantemos os grupos separados (em vez de já juntar tudo
+  // num array só) para permitir reequilibrar depois, movendo bairros inteiros entre rotas.
+  const routeGroups: number[][][] = Array.from({ length: numRoutes }, () => []);
+
+  const routeDistance = (r: number): number => {
+    const flat = routeGroups[r].flat();
+    if (flat.length === 0) return 0;
+    const ordered = orderStopsByNearestNeighbor(flat, originIndex, distanceMatrix);
+    return calculateRouteTotalDistance(ordered, originIndex, distanceMatrix);
+  };
+
+  // 1) Atribuição inicial: bairros maiores primeiro, cada um vai inteiro para a rota
+  //    que resultar no menor KM total após incluí-lo.
+  const groups = groupOrderIndicesByNeighborhood(ordersToProcess)
+    .sort((a, b) => b.length - a.length);
+
+  for (const group of groups) {
+    const groupMatrixIndices = group.map(i => i + 1);
+
+    let bestRoute = 0;
+    let bestNewDistance = Infinity;
+
+    for (let r = 0; r < numRoutes; r++) {
+      const simulatedFlat = [...routeGroups[r].flat(), ...groupMatrixIndices];
+      const simulatedOrdered = orderStopsByNearestNeighbor(simulatedFlat, originIndex, distanceMatrix);
+      const simulatedDistance = calculateRouteTotalDistance(simulatedOrdered, originIndex, distanceMatrix);
+
+      if (simulatedDistance < bestNewDistance) {
+        bestNewDistance = simulatedDistance;
+        bestRoute = r;
+      }
+    }
+
+    routeGroups[bestRoute].push(groupMatrixIndices);
+  }
+
+  // 2) Reequilíbrio: se ainda houver rotas com KM muito diferente entre si, tenta mover
+  //    o bairro (grupo inteiro) da rota mais carregada para a mais vazia — mas só efetiva
+  //    a troca se isso realmente reduzir a diferença entre elas. Bairros nunca são
+  //    divididos: ou o bairro inteiro muda de rota, ou fica onde está.
+  if (numRoutes > 1) {
+    const MAX_ITERATIONS = 30;
+    for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+      const distances = routeGroups.map((_, r) => routeDistance(r));
+      const maxRoute = distances.indexOf(Math.max(...distances));
+      const minRoute = distances.indexOf(Math.min(...distances));
+
+      if (maxRoute === minRoute || routeGroups[maxRoute].length <= 1) break;
+
+      const currentGap = distances[maxRoute] - distances[minRoute];
+
+      // Testa mover cada bairro da rota mais carregada para a mais vazia,
+      // e fica com a opção que resultar no menor gap entre as duas rotas.
+      let bestGroupIdx = -1;
+      let bestGap = currentGap;
+
+      for (let g = 0; g < routeGroups[maxRoute].length; g++) {
+        const group = routeGroups[maxRoute][g];
+        const newMaxFlat = routeGroups[maxRoute].filter((_, idx) => idx !== g).flat();
+        const newMinFlat = [...routeGroups[minRoute].flat(), ...group];
+
+        const newMaxDist = newMaxFlat.length > 0
+          ? calculateRouteTotalDistance(orderStopsByNearestNeighbor(newMaxFlat, originIndex, distanceMatrix), originIndex, distanceMatrix)
+          : 0;
+        const newMinDist = calculateRouteTotalDistance(orderStopsByNearestNeighbor(newMinFlat, originIndex, distanceMatrix), originIndex, distanceMatrix);
+
+        const newGap = Math.abs(newMaxDist - newMinDist);
+        if (newGap < bestGap) {
+          bestGap = newGap;
+          bestGroupIdx = g;
+        }
+      }
+
+      if (bestGroupIdx === -1) break; // nenhuma troca melhora o equilíbrio — para por aqui
+
+      const [moved] = routeGroups[maxRoute].splice(bestGroupIdx, 1);
+      routeGroups[minRoute].push(moved);
+    }
+  }
+
+  // 3) Ordenar paradas dentro de cada rota usando vizinho mais próximo
+  const clusters = routeGroups.map(groups => {
+    const flat = groups.flat();
+    return flat.length > 0 ? orderStopsByNearestNeighbor(flat, originIndex, distanceMatrix) : flat;
+  });
+
+  // Converter de índice de matriz de volta para índice de ordersToProcess (0-based)
+  return clusters.map(cluster => cluster.map(matrixIdx => matrixIdx - 1));
+}
+
+/**
  * Agrupamento simples por proximidade geográfica (fallback quando Distance Matrix falha)
  */
 function clusterOrdersByProximity(
@@ -446,187 +615,66 @@ export const routeOptimizationRouter = router({
         }
       }
 
-      // 4. Tentar otimização via Google Maps Route Optimization API
-      const vehicles = Array.from({ length: numRoutes }, (_, i) => ({
-        id: i,
-        displayName: `${input.routeNamePrefix} #${i + 1}`,
-        startLocation: originCoords,
-        endLocation: originCoords,
-      }));
-
-      let optimizationResult: any = null;
-      let useGoogleApi = false;
-
-      if (googleMapsClient.isConfigured()) {
-        try {
-          console.log(`[Roteirização] Chamando Google Maps Route Optimization API (${shipments.length} shipments, ${vehicles.length} vehicles)...`);
-          optimizationResult = await googleMapsClient.optimizeRoutes(shipments, vehicles, {
-            trafficAware: true,
-          });
-          if (optimizationResult && optimizationResult.routes && optimizationResult.routes.length > 0) {
-            useGoogleApi = true;
-            console.log(`[Roteirização] Google Maps retornou ${optimizationResult.routes.length} rotas otimizadas.`);
-          } else if (optimizationResult && optimizationResult.routes && optimizationResult.routes.length === 0) {
-            console.warn("[Roteirização] Google Maps retornou 0 rotas. Usando fallback local.");
-          }
-        } catch (error: any) {
-          console.error(`[Roteirização] Google Maps API falhou: ${error.message || error}. Usando fallback local.`);
-        }
-      } else {
-        console.warn("[Roteirização] Google Maps API não configurada. Usando fallback local.");
-      }
-
-      // 5. Gerar clusters de rota
+      // 4. Gerar clusters de rota — SEMPRE agrupando por bairro primeiro (pedidos do
+      // mesmo bairro nunca são separados entre rotas diferentes), usando a matriz de
+      // distância real (via Google Distance Matrix) quando disponível, ou distância
+      // euclidiana como fallback. Não usamos mais a Route Optimization API do Google
+      // para decidir o agrupamento entre veículos, porque ela não tem noção de bairro
+      // e podia separar entregas vizinhas em rotas diferentes.
       let routeClusters: number[][];
       let routeMetrics: { totalDistanceMeters: number; visits: { shipmentIndex: number; distanceMeters: number }[] }[];
       const originIdx = 0; // origem é sempre o índice 0 na matriz
 
-      if (useGoogleApi && optimizationResult?.routes) {
-        // Usar rotas do Google Maps - extrair distâncias dos transitions
-        routeClusters = optimizationResult.routes.map((route: any) =>
-          route.visits.map((visit: any) => visit.shipmentIndex)
-        );
-
-        routeMetrics = optimizationResult.routes.map((route: any) => {
-          // A API retorna transitions entre cada parada
-          // O transition[i] é a distância da posição anterior até a visita[i]
-          // O último transition é da última visita de volta à origem
-          let totalDist = 0;
-          const visits = route.visits.map((visit: any, i: number) => {
-            const transitionDist = route.transitions?.[i]?.distanceMeters || 0;
-            totalDist += transitionDist;
-            return {
-              shipmentIndex: visit.shipmentIndex,
-              distanceMeters: transitionDist,
-            };
-          });
-
-          // Adicionar a distância de volta à origem (último transition)
-          if (route.transitions && route.transitions.length > 0) {
-            const returnDist = route.transitions[route.transitions.length - 1]?.distanceMeters || 0;
-            totalDist += returnDist;
-          }
-
-          return {
-            totalDistanceMeters: Math.round(totalDist),
-            visits,
-          };
-        });
-      } else if (useDistanceMatrix && distanceMatrix) {
-        // Usar matriz de distância real para balanceamento e ordenação
-        console.log(`[Roteirização] Usando matriz de distância real para balanceamento (${numRoutes} rotas).`);
-
-        routeClusters = balanceRoutesByDistance(
-          ordersToProcess,
-          allPoints,
-          originIdx,
-          distanceMatrix,
-          numRoutes
-        );
-
-        routeMetrics = routeClusters.map((cluster) => {
-          let totalDist = 0;
-          // cluster contém índices de ordersToProcess (0-based); na matriz de
-          // distância a origem ocupa o índice 0, então o pedido i está no índice i+1.
-          const visits = cluster.map((orderIdx, i) => {
-            let distFromPrev: number;
-            if (i === 0) {
-              distFromPrev = distanceMatrix[originIdx][orderIdx + 1];
-            } else {
-              distFromPrev = distanceMatrix[cluster[i - 1] + 1][orderIdx + 1];
-            }
-            totalDist += distFromPrev;
-            return {
-              shipmentIndex: orderIdx,
-              distanceMeters: distFromPrev,
-            };
-          });
-
-          // Adicionar distância de volta à origem
-          if (cluster.length > 0) {
-            totalDist += distanceMatrix[cluster[cluster.length - 1] + 1][originIdx];
-          }
-
-          return {
-            totalDistanceMeters: Math.round(totalDist),
-            visits,
-          };
-        });
-
-        console.log(`[Roteirização] Fallback com matriz real gerou ${routeClusters.length} rotas.`);
+      let matrixForClustering: number[][];
+      if (useDistanceMatrix && distanceMatrix) {
+        console.log(`[Roteirização] Agrupando por bairro usando distância real de estrada (${numRoutes} rotas).`);
+        matrixForClustering = distanceMatrix;
       } else {
-        // Fallback: agrupamento por proximidade geográfica com distância euclidiana
-        console.log(`[Roteirização] Usando agrupamento por proximidade euclidiana (${numRoutes} rotas).`);
-        routeClusters = clusterOrdersByProximity(ordersToProcess, originCoords, numRoutes);
-
-        // Matriz euclidiana temporária sobre allPoints (índice 0 = origem, índice i+1 = ordersToProcess[i])
-        const tempMatrix: number[][] = (() => {
-          const n = allPoints.length;
-          return Array.from({ length: n }, (_, i) =>
-            Array.from({ length: n }, (_, j) => {
-              if (i === j) return 0;
-              return Math.round(
-                Math.sqrt(
-                  Math.pow(allPoints[i].latitude - allPoints[j].latitude, 2) +
-                  Math.pow(allPoints[i].longitude - allPoints[j].longitude, 2)
-                ) * 111000
-              );
-            })
-          );
-        })();
-
-        // Ordenar paradas usando vizinho mais próximo com distância euclidiana.
-        // clusters contêm índices de ordersToProcess (0-based); orderStopsByNearestNeighbor
-        // espera índices de matriz (origem = 0, pedido i = i+1), então convertemos na ida e na volta.
-        routeClusters = routeClusters.map((cluster) => {
-          const matrixIndices = cluster.map(idx => idx + 1);
-          const orderedMatrixIndices = orderStopsByNearestNeighbor(matrixIndices, originIdx, tempMatrix);
-          return orderedMatrixIndices.map(matrixIdx => matrixIdx - 1);
-        });
-
-        // Calcular métricas aproximadas
-        routeMetrics = routeClusters.map((cluster) => {
-          let totalDist = 0;
-          const visits = cluster.map((orderIdx, i) => {
-            let distFromPrev: number;
-            if (i === 0) {
-              distFromPrev = Math.round(
-                Math.sqrt(
-                  Math.pow(ordersToProcess[orderIdx].latitude! - originCoords.latitude, 2) +
-                  Math.pow(ordersToProcess[orderIdx].longitude! - originCoords.longitude, 2)
-                ) * 111000
-              );
-            } else {
-              distFromPrev = Math.round(
-                Math.sqrt(
-                  Math.pow(ordersToProcess[orderIdx].latitude! - ordersToProcess[cluster[i - 1]].latitude!, 2) +
-                  Math.pow(ordersToProcess[orderIdx].longitude! - ordersToProcess[cluster[i - 1]].longitude!, 2)
-                ) * 111000
-              );
-            }
-            totalDist += distFromPrev;
-            return {
-              shipmentIndex: orderIdx,
-              distanceMeters: distFromPrev,
-            };
-          });
-
-          // Adicionar distância de volta à origem
-          if (cluster.length > 0) {
-            totalDist += Math.round(
+        console.log(`[Roteirização] Agrupando por bairro usando distância euclidiana (${numRoutes} rotas).`);
+        const n = allPoints.length;
+        matrixForClustering = Array.from({ length: n }, (_, i) =>
+          Array.from({ length: n }, (_, j) => {
+            if (i === j) return 0;
+            return Math.round(
               Math.sqrt(
-                Math.pow(ordersToProcess[cluster[cluster.length - 1]].latitude! - originCoords.latitude, 2) +
-                Math.pow(ordersToProcess[cluster[cluster.length - 1]].longitude! - originCoords.longitude, 2)
+                Math.pow(allPoints[i].latitude - allPoints[j].latitude, 2) +
+                Math.pow(allPoints[i].longitude - allPoints[j].longitude, 2)
               ) * 111000
             );
-          }
+          })
+        );
+      }
 
+      routeClusters = balanceRoutesByNeighborhood(ordersToProcess, originIdx, matrixForClustering, numRoutes);
+
+      routeMetrics = routeClusters.map((cluster) => {
+        let totalDist = 0;
+        // cluster contém índices de ordersToProcess (0-based); na matriz de
+        // distância a origem ocupa o índice 0, então o pedido i está no índice i+1.
+        const visits = cluster.map((orderIdx, i) => {
+          let distFromPrev: number;
+          if (i === 0) {
+            distFromPrev = matrixForClustering[originIdx][orderIdx + 1];
+          } else {
+            distFromPrev = matrixForClustering[cluster[i - 1] + 1][orderIdx + 1];
+          }
+          totalDist += distFromPrev;
           return {
-            totalDistanceMeters: Math.round(totalDist),
-            visits,
+            shipmentIndex: orderIdx,
+            distanceMeters: distFromPrev,
           };
         });
-      }
+
+        // Adicionar distância de volta à origem
+        if (cluster.length > 0) {
+          totalDist += matrixForClustering[cluster[cluster.length - 1] + 1][originIdx];
+        }
+
+        return {
+          totalDistanceMeters: Math.round(totalDist),
+          visits,
+        };
+      });
 
       // 6. Salva as rotas no banco
       const createdRouteIds: number[] = [];
@@ -641,7 +689,7 @@ export const routeOptimizationRouter = router({
         const totalDistance = metrics.totalDistanceMeters / 1000;
 
         const [newRoute] = await db.insert(deliveryRoutes).values({
-          name: vehicles[i]?.displayName || `${input.routeNamePrefix} #${i + 1}`,
+          name: `${input.routeNamePrefix} #${i + 1}`,
           deliveryDate: now,
           deliveryUserId: 0,
           startingAddress: input.startingAddress,
@@ -681,13 +729,9 @@ export const routeOptimizationRouter = router({
         totalRoutes: createdRouteIds.length,
         totalOrders: input.selectedOrderIds.length,
         routeIds: createdRouteIds,
-        message: `${createdRouteIds.length} rota(s) criada(s) com sucesso!${
-          useGoogleApi
-            ? " (otimizadas pelo Google Maps)"
-            : useDistanceMatrix
-              ? " (balanceadas por distância real de estrada)"
-              : " (agrupadas por proximidade)"
-        }`,
+        message: `${createdRouteIds.length} rota(s) criada(s) com sucesso! (agrupadas por bairro${
+          useDistanceMatrix ? ", com distância real de estrada" : ""
+        })`,
       };
     }),
 
