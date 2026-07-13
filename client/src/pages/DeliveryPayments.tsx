@@ -34,7 +34,7 @@ export default function DeliveryPayments() {
   // Orders in_route/packaged = pending delivery; delivered + payment pending = pending payment
   const { data: allOrders = [], isLoading: loadingDel } = trpc.orders.list.useQuery({
     pageSize: 500,
-    statusIn: ["in_route", "packaged"],
+    statusIn: ["production", "in_route", "packaged"],
     deliveryMethodId: deliveryMethodFilter !== "all" ? Number(deliveryMethodFilter) : undefined,
     routeId: routeFilter !== "all" ? Number(routeFilter) : undefined,
   });
@@ -164,11 +164,11 @@ export default function DeliveryPayments() {
       <PageHeader title="Entregas e Pagamentos" description="Registre entregas e confirme pagamentos" />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 max-w-2xl">
-        <div>
+        <div className="min-w-0">
           <Label className="text-xs text-muted-foreground mb-1 block">Tipo de entrega</Label>
           <Select value={deliveryMethodFilter} onValueChange={setDeliveryMethodFilter}>
-            <SelectTrigger className="h-9">
-              <SelectValue placeholder="Todos os tipos" />
+            <SelectTrigger className="h-9 w-full">
+              <SelectValue placeholder="Todos os tipos" className="truncate" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os tipos</SelectItem>
@@ -178,11 +178,11 @@ export default function DeliveryPayments() {
             </SelectContent>
           </Select>
         </div>
-        <div>
+        <div className="min-w-0">
           <Label className="text-xs text-muted-foreground mb-1 block">Rota</Label>
           <Select value={routeFilter} onValueChange={setRouteFilter}>
-            <SelectTrigger className="h-9">
-              <SelectValue placeholder="Todas as rotas" />
+            <SelectTrigger className="h-9 w-full">
+              <SelectValue placeholder="Todas as rotas" className="truncate" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas as rotas</SelectItem>
@@ -192,11 +192,11 @@ export default function DeliveryPayments() {
             </SelectContent>
           </Select>
         </div>
-        <div>
+        <div className="min-w-0">
           <Label className="text-xs text-muted-foreground mb-1 block">Ordenar por</Label>
           <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
-            <SelectTrigger className="h-9">
-              <SelectValue />
+            <SelectTrigger className="h-9 w-full">
+              <SelectValue className="truncate" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="route">Ordem da rota (padrão)</SelectItem>
@@ -241,7 +241,7 @@ export default function DeliveryPayments() {
                     <TableHead className="text-muted-foreground">Produtos</TableHead>
                     <TableHead className="text-muted-foreground">Status</TableHead>
                     <TableHead className="text-muted-foreground">Total</TableHead>
-                    <TableHead className="text-right text-muted-foreground">Ação</TableHead>
+                    <TableHead className="text-right text-muted-foreground sticky right-0 bg-card">Ação</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -249,7 +249,7 @@ export default function DeliveryPayments() {
                     const addr = o.deliveryAddress || [o.customerStreet, o.customerNumber, o.customerNeighborhood].filter(Boolean).join(", ");
                     const productList: string[] = o.productList ?? [];
                     return (
-                      <TableRow key={o.id} className="border-border hover:bg-muted/20 align-top">
+                      <TableRow key={o.id} className="border-border hover:bg-muted/20 align-top group">
                         <TableCell className="font-mono text-sm text-muted-foreground">#{o.id}</TableCell>
                         {routeFilter !== "all" && (
                           <TableCell className="text-sm font-semibold text-primary">{o.routePosition ?? "—"}</TableCell>
@@ -270,7 +270,7 @@ export default function DeliveryPayments() {
                         </TableCell>
                         <TableCell><StatusBadge status={o.status} /></TableCell>
                         <TableCell className="font-semibold text-primary">{fmt(o.totalAmount)}</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-right sticky right-0 bg-card group-hover:bg-muted/20">
                           <div className="flex items-center justify-end gap-1">
                             <Link href={`/admin/pedidos/${o.id}`}>
                               <Button variant="ghost" size="icon" className="h-7 w-7" title="Ver Detalhes">
@@ -312,7 +312,7 @@ export default function DeliveryPayments() {
                     <TableHead className="text-muted-foreground">Status Pag.</TableHead>
                     <TableHead className="text-muted-foreground">Total</TableHead>
                     <TableHead className="text-muted-foreground">Entregue em</TableHead>
-                    <TableHead className="text-right text-muted-foreground">Ação</TableHead>
+                    <TableHead className="text-right text-muted-foreground sticky right-0 bg-card">Ação</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -321,7 +321,7 @@ export default function DeliveryPayments() {
                     const addr = o.deliveryAddress || [o.customerStreet, o.customerNumber, o.customerNeighborhood].filter(Boolean).join(", ");
                     const productList: string[] = o.productList ?? [];
                     return (
-                      <TableRow key={o.id} className="border-border hover:bg-muted/20 align-top">
+                      <TableRow key={o.id} className="border-border hover:bg-muted/20 align-top group">
                         <TableCell className="font-mono text-sm text-muted-foreground">#{o.id}</TableCell>
                         <TableCell className="min-w-[200px]">
                           <p className="font-medium text-sm">{o.customerName}</p>
@@ -348,7 +348,7 @@ export default function DeliveryPayments() {
                         </TableCell>
                         <TableCell className="font-semibold text-primary">{fmt(o.totalAmount)}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{o.deliveredAt ? new Date(o.deliveredAt).toLocaleDateString("pt-BR") : "—"}</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-right sticky right-0 bg-card group-hover:bg-muted/20">
                           <div className="flex items-center justify-end gap-1">
                             <Link href={`/admin/pedidos/${o.id}`}>
                               <Button variant="ghost" size="icon" className="h-7 w-7" title="Ver Detalhes">

@@ -160,7 +160,7 @@ function Router() {
         <AdminGuard><AppLayout><ProductionReport /></AppLayout></AdminGuard>
       </Route>
       <Route path="/admin/exportar">
-        <AdminGuard><Exports /></AdminGuard>
+        <AdminGuard><AppLayout><Exports /></AppLayout></AdminGuard>
       </Route>
       <Route path="/admin/dashboard">
         <AdminGuard><AppLayout><Dashboard /></AppLayout></AdminGuard>

@@ -244,7 +244,7 @@ export default function Orders() {
               <TableHead className="text-muted-foreground">Total</TableHead>
               <TableHead className="text-muted-foreground">Data</TableHead>
               <TableHead className="text-muted-foreground">Produtos</TableHead>
-              <TableHead className="text-right text-muted-foreground">Ver</TableHead>
+              <TableHead className="text-right text-muted-foreground sticky right-0 bg-card">Ver</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -264,7 +264,7 @@ export default function Orders() {
               </TableRow>
             ) : (
               orders.map(o => (
-                <TableRow key={o.id} className="border-border hover:bg-muted/20">
+                <TableRow key={o.id} className="border-border hover:bg-muted/20 group">
                   <TableCell>
                     <Checkbox checked={selectedIds.includes(o.id)} onCheckedChange={() => toggleSelect(o.id)} />
                   </TableCell>
@@ -294,7 +294,7 @@ export default function Orders() {
                       </span>
                     </div>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right sticky right-0 bg-card group-hover:bg-muted/20">
                     <div className="flex items-center justify-end gap-1">
 
                       <Link href={`/admin/pedidos/${o.id}`}>
