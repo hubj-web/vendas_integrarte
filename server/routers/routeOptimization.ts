@@ -466,6 +466,176 @@ function clusterOrdersByProximity(
 
 // ─── ROUTER ──────────────────────────────────────────────────────────────────
 
+export async function recalculateAndSaveRouteDistances(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  routeId: number
+) {
+  if (!googleMapsClient.isConfigured()) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Google Maps API não configurada. Configure GOOGLE_MAPS_API_KEY.",
+    });
+  }
+
+  // Buscar dados da rota
+  const route = await db.select()
+    .from(deliveryRoutes)
+    .where(eq(deliveryRoutes.id, routeId))
+    .limit(1);
+
+  if (!route[0]) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Rota não encontrada." });
+  }
+
+  const routeData = route[0];
+
+  // Buscar pedidos da rota em ordem
+  const routeOrderRows = await db
+    .select({
+      id: routeOrders.id,
+      orderId: routeOrders.orderId,
+      position: routeOrders.position,
+      distanceFromPrevious: routeOrders.distanceFromPrevious,
+      customerStreet: customers.street,
+      customerNumber: customers.number,
+      customerNeighborhood: customers.neighborhood,
+      customerCity: customers.city,
+      deliveryAddress: orders.deliveryAddress,
+    })
+    .from(routeOrders)
+    .leftJoin(orders, eq(routeOrders.orderId, orders.id))
+    .leftJoin(customers, eq(orders.customerId, customers.id))
+    .where(and(eq(routeOrders.routeId, routeId), ne(orders.status, "cancelled")))
+    .orderBy(asc(routeOrders.position));
+
+  if (routeOrderRows.length === 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Rota sem pedidos." });
+  }
+
+  // Limpeza: remove da rota qualquer pedido que já tenha sido cancelado
+  // (pode acontecer de vínculos antigos terem ficado presos antes desta correção).
+  const cancelledInRoute = await db.select({ orderId: routeOrders.orderId })
+    .from(routeOrders)
+    .leftJoin(orders, eq(routeOrders.orderId, orders.id))
+    .where(and(eq(routeOrders.routeId, routeId), eq(orders.status, "cancelled")));
+
+  if (cancelledInRoute.length > 0) {
+    await db.delete(routeOrders).where(and(
+      eq(routeOrders.routeId, routeId),
+      inArray(routeOrders.orderId, cancelledInRoute.map(c => c.orderId))
+    ));
+  }
+
+  // Geocodificar a origem
+  const originCoords = await googleMapsClient.geocode(routeData.startingAddress || "Uberlândia, MG");
+  if (!originCoords) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Não foi possível geocodificar o endereço de origem.",
+    });
+  }
+
+  // Geocodificar cada pedido
+  const points: { latitude: number; longitude: number }[] = [originCoords];
+  const orderDetails: typeof routeOrderRows = [];
+
+  for (const row of routeOrderRows) {
+    const addr = row.deliveryAddress && row.deliveryAddress.length > 10
+      ? row.deliveryAddress
+      : [row.customerStreet, row.customerNumber, row.customerNeighborhood, row.customerCity, "MG"].filter(Boolean).join(", ");
+
+    let coords = await googleMapsClient.geocode(addr);
+
+    if (!coords && row.customerNeighborhood) {
+      const neighborhood = row.customerNeighborhood.toLowerCase().trim();
+      const fallback = NEIGHBORHOOD_COORDS[neighborhood];
+      if (fallback) coords = { latitude: fallback.lat, longitude: fallback.lng };
+    }
+
+    if (!coords) {
+      coords = {
+        latitude: -18.9186 + (Math.random() - 0.5) * 0.01,
+        longitude: -48.2772 + (Math.random() - 0.5) * 0.01
+      };
+    }
+
+    points.push(coords);
+    orderDetails.push(row);
+  }
+
+  // Calcular matriz de distância (com fallback euclidiano se a API do Google falhar)
+  console.log(`[RecalcularDistâncias] Calculando matriz para ${points.length} pontos...`);
+  let distanceMatrix = await calculateDistanceMatrix(points);
+  let usedFallback = false;
+
+  if (!distanceMatrix) {
+    usedFallback = true;
+    console.warn("[RecalcularDistâncias] Falha ao calcular matriz via Google. Usando fallback euclidiano.");
+    const n = points.length;
+    distanceMatrix = Array.from({ length: n }, (_, i) =>
+      Array.from({ length: n }, (_, j) => {
+        if (i === j) return 0;
+        return Math.round(
+          Math.sqrt(
+            Math.pow(points[i].latitude - points[j].latitude, 2) +
+            Math.pow(points[i].longitude - points[j].longitude, 2)
+          ) * 111000
+        );
+      })
+    );
+  }
+
+  // Ordenar paradas pelo vizinho mais próximo
+  const orderIndices = orderDetails.map((_, i) => i + 1); // +1 porque índice 0 é a origem
+  const orderedIndices = orderStopsByNearestNeighbor(orderIndices, 0, distanceMatrix);
+
+  // Calcular distâncias e atualizar o banco
+  let totalDistance = 0;
+  for (let i = 0; i < orderedIndices.length; i++) {
+    const pointIdx = orderedIndices[i];
+    const row = orderDetails[pointIdx - 1];
+
+    let distFromPrev: number;
+    if (i === 0) {
+      distFromPrev = distanceMatrix[0][pointIdx]; // origem → primeira parada
+    } else {
+      distFromPrev = distanceMatrix[orderedIndices[i - 1]][pointIdx];
+    }
+
+    totalDistance += distFromPrev;
+
+    // Atualizar position e distanceFromPrevious
+    await db.update(routeOrders)
+      .set({
+        position: i + 1,
+        distanceFromPrevious: (distFromPrev / 1000).toFixed(2),
+      })
+      .where(eq(routeOrders.id, row.id));
+  }
+
+  // Adicionar distância de volta à origem
+  if (orderedIndices.length > 0) {
+    totalDistance += distanceMatrix[orderedIndices[orderedIndices.length - 1]][0];
+  }
+
+  // Atualizar totalDistance da rota
+  await db.update(deliveryRoutes)
+    .set({
+      totalDistance: (totalDistance / 1000).toFixed(2),
+    })
+    .where(eq(deliveryRoutes.id, routeId));
+
+  console.log(`[RecalcularDistâncias] Rota #${routeId}: ${(totalDistance / 1000).toFixed(1)} km ${usedFallback ? "(aproximado)" : "reais"}.`);
+
+  return {
+    success: true,
+    totalDistance: (totalDistance / 1000).toFixed(2),
+    message: usedFallback
+      ? `Distâncias recalculadas! Total: ${(totalDistance / 1000).toFixed(1)} km (estimativa aproximada — a API de mapas não respondeu no momento).`
+      : `Distâncias recalculadas com sucesso! Total: ${(totalDistance / 1000).toFixed(1)} km reais de estrada.`,
+  };
+}
+
 export const routeOptimizationRouter = router({
   availableOrdersForPeriod: protectedProcedure
     .input(z.object({
@@ -745,171 +915,7 @@ export const routeOptimizationRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-      if (!googleMapsClient.isConfigured()) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Google Maps API não configurada. Configure GOOGLE_MAPS_API_KEY.",
-        });
-      }
-
-      // Buscar dados da rota
-      const route = await db.select()
-        .from(deliveryRoutes)
-        .where(eq(deliveryRoutes.id, input.routeId))
-        .limit(1);
-
-      if (!route[0]) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Rota não encontrada." });
-      }
-
-      const routeData = route[0];
-
-      // Buscar pedidos da rota em ordem
-      const routeOrderRows = await db
-        .select({
-          id: routeOrders.id,
-          orderId: routeOrders.orderId,
-          position: routeOrders.position,
-          distanceFromPrevious: routeOrders.distanceFromPrevious,
-          customerStreet: customers.street,
-          customerNumber: customers.number,
-          customerNeighborhood: customers.neighborhood,
-          customerCity: customers.city,
-          deliveryAddress: orders.deliveryAddress,
-        })
-        .from(routeOrders)
-        .leftJoin(orders, eq(routeOrders.orderId, orders.id))
-        .leftJoin(customers, eq(orders.customerId, customers.id))
-        .where(and(eq(routeOrders.routeId, input.routeId), ne(orders.status, "cancelled")))
-        .orderBy(asc(routeOrders.position));
-
-      if (routeOrderRows.length === 0) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Rota sem pedidos." });
-      }
-
-      // Limpeza: remove da rota qualquer pedido que já tenha sido cancelado
-      // (pode acontecer de vínculos antigos terem ficado presos antes desta correção).
-      const cancelledInRoute = await db.select({ orderId: routeOrders.orderId })
-        .from(routeOrders)
-        .leftJoin(orders, eq(routeOrders.orderId, orders.id))
-        .where(and(eq(routeOrders.routeId, input.routeId), eq(orders.status, "cancelled")));
-
-      if (cancelledInRoute.length > 0) {
-        await db.delete(routeOrders).where(and(
-          eq(routeOrders.routeId, input.routeId),
-          inArray(routeOrders.orderId, cancelledInRoute.map(c => c.orderId))
-        ));
-      }
-
-      // Geocodificar a origem
-      const originCoords = await googleMapsClient.geocode(routeData.startingAddress || "Uberlândia, MG");
-      if (!originCoords) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Não foi possível geocodificar o endereço de origem.",
-        });
-      }
-
-      // Geocodificar cada pedido
-      const points: { latitude: number; longitude: number }[] = [originCoords];
-      const orderDetails: typeof routeOrderRows = [];
-
-      for (const row of routeOrderRows) {
-        const addr = row.deliveryAddress && row.deliveryAddress.length > 10
-          ? row.deliveryAddress
-          : [row.customerStreet, row.customerNumber, row.customerNeighborhood, row.customerCity, "MG"].filter(Boolean).join(", ");
-
-        let coords = await googleMapsClient.geocode(addr);
-
-        if (!coords && row.customerNeighborhood) {
-          const neighborhood = row.customerNeighborhood.toLowerCase().trim();
-          const fallback = NEIGHBORHOOD_COORDS[neighborhood];
-          if (fallback) coords = { latitude: fallback.lat, longitude: fallback.lng };
-        }
-
-        if (!coords) {
-          coords = {
-            latitude: -18.9186 + (Math.random() - 0.5) * 0.01,
-            longitude: -48.2772 + (Math.random() - 0.5) * 0.01
-          };
-        }
-
-        points.push(coords);
-        orderDetails.push(row);
-      }
-
-      // Calcular matriz de distância (com fallback euclidiano se a API do Google falhar)
-      console.log(`[RecalcularDistâncias] Calculando matriz para ${points.length} pontos...`);
-      let distanceMatrix = await calculateDistanceMatrix(points);
-      let usedFallback = false;
-
-      if (!distanceMatrix) {
-        usedFallback = true;
-        console.warn("[RecalcularDistâncias] Falha ao calcular matriz via Google. Usando fallback euclidiano.");
-        const n = points.length;
-        distanceMatrix = Array.from({ length: n }, (_, i) =>
-          Array.from({ length: n }, (_, j) => {
-            if (i === j) return 0;
-            return Math.round(
-              Math.sqrt(
-                Math.pow(points[i].latitude - points[j].latitude, 2) +
-                Math.pow(points[i].longitude - points[j].longitude, 2)
-              ) * 111000
-            );
-          })
-        );
-      }
-
-      // Ordenar paradas pelo vizinho mais próximo
-      const orderIndices = orderDetails.map((_, i) => i + 1); // +1 porque índice 0 é a origem
-      const orderedIndices = orderStopsByNearestNeighbor(orderIndices, 0, distanceMatrix);
-
-      // Calcular distâncias e atualizar o banco
-      let totalDistance = 0;
-      for (let i = 0; i < orderedIndices.length; i++) {
-        const pointIdx = orderedIndices[i];
-        const row = orderDetails[pointIdx - 1];
-
-        let distFromPrev: number;
-        if (i === 0) {
-          distFromPrev = distanceMatrix[0][pointIdx]; // origem → primeira parada
-        } else {
-          distFromPrev = distanceMatrix[orderedIndices[i - 1]][pointIdx];
-        }
-
-        totalDistance += distFromPrev;
-
-        // Atualizar position e distanceFromPrevious
-        await db.update(routeOrders)
-          .set({
-            position: i + 1,
-            distanceFromPrevious: (distFromPrev / 1000).toFixed(2),
-          })
-          .where(eq(routeOrders.id, row.id));
-      }
-
-      // Adicionar distância de volta à origem
-      if (orderedIndices.length > 0) {
-        totalDistance += distanceMatrix[orderedIndices[orderedIndices.length - 1]][0];
-      }
-
-      // Atualizar totalDistance da rota
-      await db.update(deliveryRoutes)
-        .set({
-          totalDistance: (totalDistance / 1000).toFixed(2),
-        })
-        .where(eq(deliveryRoutes.id, input.routeId));
-
-      console.log(`[RecalcularDistâncias] Rota #${input.routeId}: ${(totalDistance / 1000).toFixed(1)} km ${usedFallback ? "(aproximado)" : "reais"}.`);
-
-      return {
-        success: true,
-        totalDistance: (totalDistance / 1000).toFixed(2),
-        message: usedFallback
-          ? `Distâncias recalculadas! Total: ${(totalDistance / 1000).toFixed(1)} km (estimativa aproximada — a API de mapas não respondeu no momento).`
-          : `Distâncias recalculadas com sucesso! Total: ${(totalDistance / 1000).toFixed(1)} km reais de estrada.`,
-      };
+      return recalculateAndSaveRouteDistances(db, input.routeId);
     }),
 
   assignDeliverer: protectedProcedure

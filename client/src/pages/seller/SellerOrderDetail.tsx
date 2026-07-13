@@ -122,7 +122,7 @@ export default function SellerOrderDetail() {
               <div>
                 <span className="text-foreground">{item.productName ?? `Produto #${item.productId}`} × {item.quantity}</span>
                 {item.flavors && item.flavors.length > 0 && (
-                  <p className="text-xs text-muted-foreground">{item.flavors.join(", ")}</p>
+                  <p className="text-xs text-muted-foreground">{item.flavors.map((f: any) => f.name).join(", ")}</p>
                 )}
               </div>
               <span className="text-muted-foreground">{fmt(item.subtotal)}</span>

@@ -20,11 +20,40 @@ async function computeFinancialReport(db: NonNullable<Awaited<ReturnType<typeof 
   const from = new Date(dateFrom + "T00:00:00");
   const to = new Date(dateTo + "T23:59:59");
 
-  // Recebimentos efetivos no período (baseado em quando o pagamento foi registrado)
-  const paymentRows = await db.select({
-    amount: paymentRecords.amount, paymentMethod: paymentRecords.paymentMethod,
-  }).from(paymentRecords)
-    .where(and(gte(paymentRecords.paidAt, from), lte(paymentRecords.paidAt, to)));
+  // Recebimentos efetivos no período, faturamento do período e pendências —
+  // são consultas independentes entre si, então rodam em paralelo (mais rápido
+  // e reduz o risco de timeout numa conexão mais lenta).
+  const [paymentRows, orderRows, pendingOrders] = await Promise.all([
+    db.select({
+      amount: paymentRecords.amount, paymentMethod: paymentRecords.paymentMethod,
+    }).from(paymentRecords)
+      .where(and(gte(paymentRecords.paidAt, from), lte(paymentRecords.paidAt, to))),
+
+    db.select({
+      id: orders.id, totalAmount: orders.totalAmount,
+    })
+      .from(orders)
+      .leftJoin(customers, eq(orders.customerId, customers.id))
+      .where(and(
+        sql`${orders.status} != 'cancelled'`,
+        sql`(${customers.isInternal} = false OR ${customers.isInternal} IS NULL)`,
+        or(
+          and(gte(orders.deliveryDate, from), lte(orders.deliveryDate, to)),
+          and(isNull(orders.deliveryDate), gte(orders.createdAt, from), lte(orders.createdAt, to))
+        )
+      )),
+
+    db.select({
+      id: orders.id, totalAmount: orders.totalAmount,
+      customerName: customers.name,
+    }).from(orders)
+      .leftJoin(customers, eq(orders.customerId, customers.id))
+      .where(and(
+        or(eq(orders.paymentStatus, "pending"), eq(orders.paymentStatus, "partial")),
+        eq(orders.status, "delivered"),
+        sql`(${customers.isInternal} = false OR ${customers.isInternal} IS NULL)`
+      )),
+  ]);
 
   let pixReceived = 0;
   let cashReceived = 0;
@@ -35,96 +64,76 @@ async function computeFinancialReport(db: NonNullable<Awaited<ReturnType<typeof 
   }
   const totalReceived = pixReceived + cashReceived;
 
-  // Faturamento, custo e lucro dos pedidos vendidos no período (mesmo critério do
-  // relatório de Vendas: exclui cancelados e pedidos de clientes internos/estoque).
-  const orderRows = await db.select({
-    id: orders.id, totalAmount: orders.totalAmount,
-  })
-    .from(orders)
-    .leftJoin(customers, eq(orders.customerId, customers.id))
-    .where(and(
-      sql`${orders.status} != 'cancelled'`,
-      sql`(${customers.isInternal} = false OR ${customers.isInternal} IS NULL)`,
-      or(
-        and(gte(orders.deliveryDate, from), lte(orders.deliveryDate, to)),
-        and(isNull(orders.deliveryDate), gte(orders.createdAt, from), lte(orders.createdAt, to))
-      )
-    ));
-
   const totalRevenue = orderRows.reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
+  const totalPending = pendingOrders.reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
+
+  // Custo e lucro por categoria. Protegido com try/catch: se essa parte falhar por
+  // algum motivo (ex: dado inconsistente), o resto do relatório (recebido, pendente
+  // etc.) ainda é retornado normalmente, em vez de quebrar a tela inteira.
   let totalCost = 0;
+  let profitByCategory: { category: string; revenue: number; cost: number; profit: number }[] = [];
 
-  // Lucro por categoria (produtos comuns são agrupados pela categoria cadastrada;
-  // minipizzas e geleias, por não terem categoria própria no sistema, viram duas
-  // categorias fixas "Minipizzas" e "Geleias").
-  const categoryMap: Record<string, { category: string; revenue: number; cost: number }> = {};
-  const addToCategory = (category: string, revenue: number, cost: number) => {
-    if (!categoryMap[category]) categoryMap[category] = { category, revenue: 0, cost: 0 };
-    categoryMap[category].revenue += revenue;
-    categoryMap[category].cost += cost;
-  };
+  try {
+    if (orderRows.length > 0) {
+      const orderIds = orderRows.map(o => o.id);
+      const categoryMap: Record<string, { category: string; revenue: number; cost: number }> = {};
+      const addToCategory = (category: string, revenue: number, cost: number) => {
+        if (!categoryMap[category]) categoryMap[category] = { category, revenue: 0, cost: 0 };
+        categoryMap[category].revenue += revenue;
+        categoryMap[category].cost += cost;
+      };
 
-  if (orderRows.length > 0) {
-    const orderIds = orderRows.map(o => o.id);
+      const [itemRows, mpRows, jRows] = await Promise.all([
+        db.select({
+          quantity: orderItems.quantity, unitPrice: orderItems.unitPrice, cost: products.cost,
+          categoryName: productCategories.name,
+        }).from(orderItems)
+          .leftJoin(products, eq(orderItems.productId, products.id))
+          .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
+          .where(inArray(orderItems.orderId, orderIds)),
 
-    const itemRows = await db.select({
-      quantity: orderItems.quantity, unitPrice: orderItems.unitPrice, cost: products.cost,
-      categoryName: productCategories.name,
-    }).from(orderItems)
-      .leftJoin(products, eq(orderItems.productId, products.id))
-      .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
-      .where(inArray(orderItems.orderId, orderIds));
-    for (const it of itemRows) {
-      const cost = it.quantity * parseFloat(it.cost ?? "0");
-      const revenue = it.quantity * parseFloat(it.unitPrice ?? "0");
-      totalCost += cost;
-      addToCategory(it.categoryName ?? "Sem Categoria", revenue, cost);
+        db.select({
+          quantity: orderMinipizzas.quantity, unitPrice: orderMinipizzas.unitPrice, cost: minipizzaTypes.cost,
+        }).from(orderMinipizzas)
+          .leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
+          .where(inArray(orderMinipizzas.orderId, orderIds)),
+
+        db.select({
+          quantity: orderJellies.quantity, unitPrice: orderJellies.unitPrice, cost: jellyFlavors.cost,
+        }).from(orderJellies)
+          .leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
+          .where(inArray(orderJellies.orderId, orderIds)),
+      ]);
+
+      for (const it of itemRows) {
+        const cost = it.quantity * parseFloat(it.cost ?? "0");
+        const revenue = it.quantity * parseFloat(it.unitPrice ?? "0");
+        totalCost += cost;
+        addToCategory(it.categoryName ?? "Sem Categoria", revenue, cost);
+      }
+      for (const mp of mpRows) {
+        const cost = mp.quantity * parseFloat(mp.cost ?? "0");
+        const revenue = mp.quantity * parseFloat(mp.unitPrice ?? "0");
+        totalCost += cost;
+        addToCategory("Minipizzas", revenue, cost);
+      }
+      for (const j of jRows) {
+        const cost = j.quantity * parseFloat(j.cost ?? "0");
+        const revenue = j.quantity * parseFloat(j.unitPrice ?? "0");
+        totalCost += cost;
+        addToCategory("Geleias", revenue, cost);
+      }
+
+      profitByCategory = Object.values(categoryMap)
+        .map(c => ({ ...c, profit: c.revenue - c.cost }))
+        .sort((a, b) => b.profit - a.profit);
     }
-
-    const mpRows = await db.select({
-      quantity: orderMinipizzas.quantity, unitPrice: orderMinipizzas.unitPrice, cost: minipizzaTypes.cost,
-    }).from(orderMinipizzas)
-      .leftJoin(minipizzaTypes, eq(orderMinipizzas.minipizzaTypeId, minipizzaTypes.id))
-      .where(inArray(orderMinipizzas.orderId, orderIds));
-    for (const mp of mpRows) {
-      const cost = mp.quantity * parseFloat(mp.cost ?? "0");
-      const revenue = mp.quantity * parseFloat(mp.unitPrice ?? "0");
-      totalCost += cost;
-      addToCategory("Minipizzas", revenue, cost);
-    }
-
-    const jRows = await db.select({
-      quantity: orderJellies.quantity, unitPrice: orderJellies.unitPrice, cost: jellyFlavors.cost,
-    }).from(orderJellies)
-      .leftJoin(jellyFlavors, eq(orderJellies.jellyFlavorId, jellyFlavors.id))
-      .where(inArray(orderJellies.orderId, orderIds));
-    for (const j of jRows) {
-      const cost = j.quantity * parseFloat(j.cost ?? "0");
-      const revenue = j.quantity * parseFloat(j.unitPrice ?? "0");
-      totalCost += cost;
-      addToCategory("Geleias", revenue, cost);
-    }
+  } catch (err) {
+    console.error("[Relatório Financeiro] Falha ao calcular custo/lucro por categoria:", err);
+    // Segue com totalCost = 0 e profitByCategory = [] — o resto do relatório continua íntegro.
   }
 
-  const profitByCategory = Object.values(categoryMap)
-    .map(c => ({ ...c, profit: c.revenue - c.cost }))
-    .sort((a, b) => b.profit - a.profit);
-
   const profit = totalRevenue - totalCost;
-
-  // Pedidos entregues com pagamento pendente ou parcial (ainda falta receber)
-  const pendingOrders = await db.select({
-    id: orders.id, totalAmount: orders.totalAmount,
-    customerName: customers.name,
-  }).from(orders)
-    .leftJoin(customers, eq(orders.customerId, customers.id))
-    .where(and(
-      or(eq(orders.paymentStatus, "pending"), eq(orders.paymentStatus, "partial")),
-      eq(orders.status, "delivered"),
-      sql`(${customers.isInternal} = false OR ${customers.isInternal} IS NULL)`
-    ));
-
-  const totalPending = pendingOrders.reduce((acc, o) => acc + parseFloat(o.totalAmount), 0);
 
   return { totalReceived, pixReceived, cashReceived, totalPending, pendingOrders, totalRevenue, totalCost, profit, profitByCategory };
 }
@@ -358,7 +367,7 @@ export const reportsRouter = router({
         byDeliverer = Object.entries(map).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
       }
 
-      return { totalOrders, deliveredCount, deliveryRate, byDeliverer };
+      return { totalOrders, deliveredCount, deliveryRate, byDeliverer, activeDeliverersCount: byDeliverer.length };
     }),
 
   // ─── FINANCIAL REPORT ────────────────────────────────────────────────────────
@@ -370,7 +379,18 @@ export const reportsRouter = router({
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return null;
-      return computeFinancialReport(db, input.dateFrom, input.dateTo);
+      const startedAt = Date.now();
+      try {
+        const result = await computeFinancialReport(db, input.dateFrom, input.dateTo);
+        console.log(`[Relatório Financeiro] OK em ${Date.now() - startedAt}ms (período ${input.dateFrom} a ${input.dateTo})`);
+        return result;
+      } catch (err) {
+        console.error(`[Relatório Financeiro] ERRO após ${Date.now() - startedAt}ms:`, err);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: err instanceof Error ? `Falha ao gerar relatório financeiro: ${err.message}` : "Falha ao gerar relatório financeiro.",
+        });
+      }
     }),
 
   financialPdf: adminOrLauncherProcedure

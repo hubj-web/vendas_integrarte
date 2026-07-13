@@ -119,6 +119,7 @@ export const minipizzaTypes = mysqlTable("minipizza_types", {
   name: varchar("name", { length: 150 }).notNull(),
   units: int("units").notNull(),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  cost: decimal("cost", { precision: 10, scale: 2 }).default("0.00").notNull(),
   supplierId: int("supplierId"), // Relacionamento com fornecedor
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -154,6 +155,7 @@ export const jellyFlavors = mysqlTable("jelly_flavors", {
   name: varchar("name", { length: 100 }).notNull(),
   description: text("description"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  cost: decimal("cost", { precision: 10, scale: 2 }).default("0.00").notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

@@ -171,14 +171,14 @@ export default function SellerNewOrder() {
       try {
         const items = existingOrder.items || [];
         console.log("Mapping items to cart:", items);
-        const newCart: CartItem[] = items.map((item, index) => {
+        const newCart: CartItem[] = items.map((item, index): CartItem | null => {
           if (!item) return null;
           const flavors = (item as any).flavors ?? [];
-          const flavorNames = flavors.map((f: any) => (f.flavorName ?? f.name) || "Sabor");
-          const flavorIds = flavors.map((f: any) => f.productFlavorId ?? f.id);
+          const flavorNames: string[] = flavors.map((f: any) => (f.flavorName ?? f.name) || "Sabor");
+          const flavorIds: number[] = flavors.map((f: any) => f.productFlavorId ?? f.id);
           const flavorSuffix = flavorNames.length > 0 ? ` (${flavorNames.join(", ")})` : "";
           return {
-            type: "product" as const,
+            type: "product",
             id: `edit-${item.id ?? index}-${Date.now()}-${index}`,
             label: `${item.productName ?? `Produto #${item.productId}`}${flavorSuffix}`,
             quantity: item.quantity || 0,
@@ -405,7 +405,7 @@ export default function SellerNewOrder() {
     if (isEditMode && editOrderId) {
       updateOrderMutation.mutate({ orderId: editOrderId, ...payload });
     } else {
-      createOrderMutation.mutate({ ...payload, minipizzas: [], jellies: [] });
+      createOrderMutation.mutate(payload);
     }
   };
 

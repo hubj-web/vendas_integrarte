@@ -68,7 +68,7 @@ export default function Reports() {
 
   const { data: salesReport, isLoading: loadingSales } = trpc.reports.sales.useQuery({ dateFrom: applied.from, dateTo: applied.to });
   const { data: deliveryReport, isLoading: loadingDelivery } = trpc.reports.deliveries.useQuery({ dateFrom: applied.from, dateTo: applied.to });
-  const { data: financialReport, isLoading: loadingFinancial } = trpc.reports.financial.useQuery({ dateFrom: applied.from, dateTo: applied.to });
+  const { data: financialReport, isLoading: loadingFinancial, error: financialError, refetch: refetchFinancial } = trpc.reports.financial.useQuery({ dateFrom: applied.from, dateTo: applied.to });
 
   const financialPdfMutation = trpc.reports.financialPdf.useMutation({
     onSuccess: (data) => {
@@ -230,7 +230,13 @@ export default function Reports() {
 
         {/* FINANCIAL */}
         <TabsContent value="financial">
-          {loadingFinancial ? <ReportSkeleton /> : financialReport ? (
+          {loadingFinancial ? <ReportSkeleton /> : financialError ? (
+            <div className="text-center py-16">
+              <p className="text-sm text-red-500 font-medium mb-1">Não foi possível carregar o relatório financeiro.</p>
+              <p className="text-xs text-muted-foreground mb-4">{financialError.message}</p>
+              <Button size="sm" variant="outline" onClick={() => refetchFinancial()}>Tentar novamente</Button>
+            </div>
+          ) : financialReport ? (
             <div className="space-y-4">
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                 <StatCard title="Total Recebido" value={fmt(financialReport.totalReceived)} icon={DollarSign} color="bg-primary/10 text-primary" />

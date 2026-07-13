@@ -28,12 +28,13 @@ export default function Minipizzas() {
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
-  const [form, setForm] = useState({ price: "", supplierId: "", active: true });
+  const [form, setForm] = useState({ price: "", cost: "", supplierId: "", active: true });
 
   function openEdit(t: any) {
     setEditing(t);
     setForm({
       price: t.price,
+      cost: t.cost ?? "0.00",
       supplierId: t.supplierId ? String(t.supplierId) : "",
       active: t.active,
     });
@@ -49,6 +50,7 @@ export default function Minipizzas() {
     updateMutation.mutate({
       id: editing.id,
       price: form.price,
+      cost: form.cost,
       supplierId,
       active: form.active,
     });
@@ -64,15 +66,17 @@ export default function Minipizzas() {
     <div>
       <PageHeader
         title="Minipizzas (Legado)"
-        description="Gerencie os dados de minipizzas do sistema antigo"
+        description="Dados de pedidos antigos — não afeta vendas novas"
         actions={null}
       />
 
       <Alert className="mb-4 border-amber-500/30 bg-amber-500/10">
         <Info className="w-4 h-4 text-amber-400" />
         <AlertDescription className="text-amber-200">
-          As minipizzas agora são gerenciadas como produtos com sabores na categoria "MiniPizzas" na página de <strong>Produtos</strong>. 
-          Esta página serve para visualizar e editar os dados do sistema antigo (fornecedor, preço, status).
+          Minipizzas hoje são vendidas como produtos normais, cadastrados na página de <strong>Produtos</strong>
+          (categoria "MiniPizzas") — é lá que o preço e o custo precisam estar corretos para novas vendas.
+          Esta página só existe para consultar/corrigir os dados de <strong>pedidos antigos</strong>, feitos antes
+          dessa unificação, e que ainda aparecem nos relatórios financeiros com base nesses valores.
         </AlertDescription>
       </Alert>
 
@@ -91,6 +95,7 @@ export default function Minipizzas() {
                   <TableHead className="text-muted-foreground">Nome</TableHead>
                   <TableHead className="text-muted-foreground">Unidades</TableHead>
                   <TableHead className="text-muted-foreground">Preço</TableHead>
+                  <TableHead className="text-muted-foreground">Custo</TableHead>
                   <TableHead className="text-muted-foreground">Fornecedor</TableHead>
                   <TableHead className="text-muted-foreground">Status</TableHead>
                   <TableHead className="text-muted-foreground text-right">Ações</TableHead>
@@ -102,6 +107,7 @@ export default function Minipizzas() {
                     <TableCell className="font-medium">{t.name}</TableCell>
                     <TableCell>{t.units} un.</TableCell>
                     <TableCell className="text-primary font-semibold">{fmt(t.price)}</TableCell>
+                    <TableCell className="text-muted-foreground">{fmt(t.cost ?? "0")}</TableCell>
                     <TableCell>
                       {t.supplierId ? (
                         <Badge variant="outline" className="text-xs">
@@ -197,6 +203,10 @@ export default function Minipizzas() {
             <div className="space-y-2">
               <Label>Preço</Label>
               <Input type="number" step="0.01" min="0" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} className="bg-input" />
+            </div>
+            <div className="space-y-2">
+              <Label>Custo</Label>
+              <Input type="number" step="0.01" min="0" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} className="bg-input" />
             </div>
             <div className="space-y-2">
               <Label>Fornecedor</Label>

@@ -11,6 +11,7 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
+import { recalculateAndSaveRouteDistances } from "./routeOptimization";
 import { storagePut } from "../storage";
 
 // ─── DELIVERY ROUTES ──────────────────────────────────────────────────────────
@@ -124,6 +125,16 @@ const routesRouter = router({
       // ser empacotado, e só vira "Em Rota" de fato quando a rota for iniciada (o
       // entregador sair para entrega). Isso reflete o fluxo real: inserir pedido →
       // criar rota → empacotar → sair para entrega → entregue.
+
+      // Calcula o KM da rota automaticamente (mesma lógica do botão "Recalcular").
+      // Best-effort: se a geocodificação falhar por algum motivo, a rota já foi
+      // criada normalmente — só não vem com distância ainda (dá pra recalcular
+      // manualmente depois).
+      try {
+        await recalculateAndSaveRouteDistances(db, routeId);
+      } catch (err) {
+        console.warn(`[Rotas] Não foi possível calcular a distância da rota #${routeId} na criação:`, err);
+      }
 
       return { success: true, routeId };
     }),

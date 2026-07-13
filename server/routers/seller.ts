@@ -158,20 +158,6 @@ export const sellerRouter = router({
         subtotal: z.string(),
         flavorIds: z.array(z.number()).optional(),
       })),
-      // Legacy arrays kept for backward compat
-      minipizzas: z.array(z.object({
-        minipizzaTypeId: z.number(),
-        quantity: z.number(),
-        unitPrice: z.string(),
-        subtotal: z.string(),
-        flavorIds: z.array(z.number()),
-      })),
-      jellies: z.array(z.object({
-        jellyFlavorId: z.number(),
-        quantity: z.number(),
-        unitPrice: z.string(),
-        subtotal: z.string(),
-      })),
     }))
     .mutation(async ({ input }) => {
       await requireLauncher(input.sellerId);
@@ -191,7 +177,10 @@ export const sellerRouter = router({
       });
       const orderId = Number((result as any).insertId || (result as any)[0]?.insertId);
       
-      // Save order items (new unified system)
+      // Save order items (produtos, minipizzas e geleias já são todos cadastrados
+      // como "produtos" no catálogo — não existe mais um caminho separado para
+      // minipizza/geleia; as tabelas legadas orderMinipizzas/orderJellies só
+      // continuam existindo para exibir pedidos antigos, criados antes dessa unificação).
       for (const item of input.items) {
         const itemResult = await db.insert(orderItems).values({
           orderId,
@@ -215,24 +204,6 @@ export const sellerRouter = router({
             await db.insert(orderItemFlavors).values(flavorValues);
           }
         }
-      }
-      
-      // Legacy: save minipizzas (for old orders)
-      for (const mp of input.minipizzas) {
-        const mpResult = await db.insert(orderMinipizzas).values({
-          orderId, minipizzaTypeId: mp.minipizzaTypeId,
-          quantity: mp.quantity, unitPrice: mp.unitPrice, subtotal: mp.subtotal,
-        });
-        const mpId = Number((mpResult as any).insertId || (mpResult as any)[0]?.insertId);
-        if (mp.flavorIds.length > 0) {
-          await db.insert(orderMinipizzaFlavors).values(
-            mp.flavorIds.map(fId => ({ orderMinipizzaId: mpId, minipizzaFlavorId: fId }))
-          );
-        }
-      }
-      // Legacy: save jellies
-      if (input.jellies.length > 0) {
-        await db.insert(orderJellies).values(input.jellies.map(j => ({ ...j, orderId })));
       }
       
       await db.insert(orderStatusHistory).values({
@@ -387,11 +358,11 @@ export const sellerRouter = router({
       
       // Fetch flavor info for each order item
       const itemsWithFlavors = await Promise.all(items.map(async (item) => {
-        const flavorRows = await db.select({ name: productFlavors.name })
+        const flavorRows = await db.select({ productFlavorId: orderItemFlavors.productFlavorId, name: productFlavors.name })
           .from(orderItemFlavors)
           .leftJoin(productFlavors, eq(orderItemFlavors.productFlavorId, productFlavors.id))
           .where(eq(orderItemFlavors.orderItemId, item.id));
-        return { ...item, flavors: flavorRows.map(f => f.name) };
+        return { ...item, flavors: flavorRows };
       }));
       
       // Mapear minipizzas para incluir sabores no formato esperado pelo recibo

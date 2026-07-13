@@ -27,7 +27,7 @@ const PAYMENT_STATUS_LABELS: Record<string, string> = {
   cancelled: "Cancelado",
 };
 
-type OrderItem = { id: number; productName: string | null; quantity: number; unitPrice: string; subtotal: string; unit: string | null; flavors?: (string | null)[] };
+type OrderItem = { id: number; productName: string | null; quantity: number; unitPrice: string; subtotal: string; unit: string | null; flavors?: { name: string | null }[] };
 type OrderMinipizza = { id: number; typeName: string | null; typeUnits: number | null; quantity: number; unitPrice: string; subtotal: string; flavors: (string | null)[] };
 type OrderJelly = { id: number; flavorName: string | null; quantity: number; unitPrice: string; subtotal: string };
 
@@ -75,7 +75,7 @@ function ReceiptLayout({ order }: { order: OrderData }) {
   const totalItems = [
     ...order.items.map(i => ({
       name: i.productName,
-      detail: i.flavors && i.flavors.length > 0 ? i.flavors.join(", ") : `${i.unit}`,
+      detail: i.flavors && i.flavors.length > 0 ? i.flavors.map(f => f.name).join(", ") : `${i.unit}`,
       qty: i.quantity, price: i.unitPrice, sub: i.subtotal,
     })),
     ...order.minipizzas.map(m => ({

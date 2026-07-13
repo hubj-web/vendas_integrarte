@@ -108,6 +108,7 @@ const productsRouter = router({
         categoryId: products.categoryId,
         categoryName: productCategories.name,
         supplierId: products.supplierId,
+        maxFlavors: products.maxFlavors,
       })
         .from(products)
         .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
@@ -127,6 +128,7 @@ const productsRouter = router({
       cost: z.string().default("0.00"),
       supplierId: z.number().nullable().optional(),
       description: z.string().optional(), active: z.boolean().default(true),
+      maxFlavors: z.number().min(0).default(0),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -142,6 +144,7 @@ const productsRouter = router({
         supplierId: input.supplierId,
         description: input.description,
         active: input.active,
+        maxFlavors: input.maxFlavors,
       });
       return { success: true };
     }),
@@ -153,6 +156,7 @@ const productsRouter = router({
       price: z.string().optional(), cost: z.string().optional(),
       supplierId: z.number().nullable().optional(),
       description: z.string().optional(), active: z.boolean().optional(),
+      maxFlavors: z.number().min(0).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -256,6 +260,7 @@ const minipizzaTypesRouter = router({
       id: z.number(),
       supplierId: z.number().nullable().optional(),
       price: z.string().optional(),
+      cost: z.string().optional(),
       active: z.boolean().optional(),
     }))
     .mutation(async ({ input }) => {
@@ -288,6 +293,21 @@ const jellyFlavorsRouter = router({
     if (!db) return [];
     return db.select().from(jellyFlavors).orderBy(asc(jellyFlavors.name));
   }),
+  update: adminProcedure
+    .input(z.object({
+      id: z.number(),
+      price: z.string().optional(),
+      cost: z.string().optional(),
+      description: z.string().optional(),
+      active: z.boolean().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { id, ...data } = input;
+      await db.update(jellyFlavors).set(data).where(eq(jellyFlavors.id, id));
+      return { success: true };
+    }),
 });
 
 // ─── DELIVERY METHODS ─────────────────────────────────────────────────────────

@@ -540,7 +540,7 @@ async function writeBackup(summary: {
   const auth = getAuth();
   const sheets = google.sheets({ version: "v4", auth });
 
-  const title = await ensureSheet(auth, "Backup");
+  const { title, sheetId } = await ensureSheet(auth, "Backup");
 
   // Clear existing
   await sheets.spreadsheets.values.clear({
@@ -631,7 +631,7 @@ async function writeCustomerList(customers: Array<{
   const auth = getAuth();
   const sheets = google.sheets({ version: "v4", auth });
 
-  const title = await ensureSheet(auth, "Clientes");
+  const { title, sheetId } = await ensureSheet(auth, "Clientes");
 
   await sheets.spreadsheets.values.clear({
     spreadsheetId: ENV.spreadsheetId,

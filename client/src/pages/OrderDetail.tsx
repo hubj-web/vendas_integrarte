@@ -155,7 +155,7 @@ export default function OrderDetail() {
                 <div>
                   <p className="text-sm font-medium">{item.productName}</p>
                   {item.flavors && item.flavors.length > 0 && (
-                    <p className="text-xs text-muted-foreground">{item.flavors.join(", ")}</p>
+                    <p className="text-xs text-muted-foreground">{item.flavors.map((f: any) => f.name).join(", ")}</p>
                   )}
                   <p className="text-xs text-muted-foreground">{item.unit} · {fmt(item.unitPrice)} / un.</p>
                 </div>

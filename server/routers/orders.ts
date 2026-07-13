@@ -4,7 +4,7 @@ import { z } from "zod";
 import {
   customers, orders, orderItems, orderItemFlavors, orderMinipizzas, orderMinipizzaFlavors,
   orderJellies, orderStatusHistory, products, productFlavors, minipizzaTypes, minipizzaFlavors,
-  jellyFlavors, deliveryMethods, users, deliveryRecords, paymentRecords, routeOrders,
+  jellyFlavors, deliveryMethods, users, deliveryRecords, paymentRecords, routeOrders, deliveryRoutes,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -372,11 +372,11 @@ export const ordersRouter = router({
         .where(eq(orderItems.orderId, input.id));
 
       const items = await Promise.all(itemRows.map(async it => {
-        const flavors = await db.select({ name: productFlavors.name })
+        const flavors = await db.select({ productFlavorId: orderItemFlavors.productFlavorId, name: productFlavors.name })
           .from(orderItemFlavors)
           .leftJoin(productFlavors, eq(orderItemFlavors.productFlavorId, productFlavors.id))
           .where(eq(orderItemFlavors.orderItemId, it.id));
-        return { ...it, flavors: flavors.map(f => f.name) };
+        return { ...it, flavors };
       }));
 
       const mpRows = await db.select({
@@ -643,6 +643,27 @@ export const ordersRouter = router({
         }
       }
 
+      // Idem: garante que a entrega apareça no Relatório de Entregas (contagem de
+      // entregadores ativos etc.) mesmo quando marcada por aqui em vez da tela
+      // "Registrar Entrega". Usa o entregador da rota, se o pedido tiver uma; senão
+      // atribui a quem marcou a entrega.
+      if (input.status === "delivered") {
+        const [existingDelivery] = await db.select({ id: deliveryRecords.id }).from(deliveryRecords)
+          .where(eq(deliveryRecords.orderId, input.id)).limit(1);
+        if (!existingDelivery) {
+          const [routeInfo] = await db.select({ deliveryUserId: deliveryRoutes.deliveryUserId })
+            .from(routeOrders)
+            .leftJoin(deliveryRoutes, eq(routeOrders.routeId, deliveryRoutes.id))
+            .where(eq(routeOrders.orderId, input.id)).limit(1);
+          await db.insert(deliveryRecords).values({
+            orderId: input.id,
+            deliveryUserId: routeInfo?.deliveryUserId ?? ctx.user.id,
+            deliveredAt: new Date(),
+            notes: "Registrado automaticamente ao marcar pedido como entregue",
+          });
+        }
+      }
+
       // Ao cancelar, o pedido deixa de fazer parte de qualquer rota de entrega
       // (senão continuaria aparecendo como parada, contando na distância e nos links do Maps).
       if (input.status === "cancelled") {
@@ -815,6 +836,51 @@ export const ordersRouter = router({
       // Ao cancelar, os pedidos deixam de fazer parte de qualquer rota de entrega
       if (input.status === "cancelled" && input.ids.length > 0) {
         await db.delete(routeOrders).where(inArray(routeOrders.orderId, input.ids));
+      }
+
+      // Idem às mutations individuais: garante que pagamento/entrega apareçam nos
+      // relatórios mesmo quando o status foi alterado em massa por aqui.
+      if (input.status === "paid" && input.ids.length > 0) {
+        const ordersData = await db.select().from(orders).where(inArray(orders.id, input.ids));
+        const alreadyPaid = await db.select({ orderId: paymentRecords.orderId }).from(paymentRecords)
+          .where(inArray(paymentRecords.orderId, input.ids));
+        const paidIds = new Set(alreadyPaid.map(r => r.orderId));
+        const toInsertPayment = ordersData
+          .filter(o => !paidIds.has(o.id))
+          .map(o => ({
+            orderId: o.id,
+            paymentMethod: o.paymentMethod as "cash" | "pix",
+            amount: o.totalAmount,
+            paidAt: new Date(),
+            registeredBy: ctx.user.id,
+            notes: "Registrado automaticamente ao marcar como pago (ação em massa)",
+          }));
+        if (toInsertPayment.length > 0) await db.insert(paymentRecords).values(toInsertPayment);
+      }
+
+      if (input.status === "delivered" && input.ids.length > 0) {
+        const alreadyDelivered = await db.select({ orderId: deliveryRecords.orderId }).from(deliveryRecords)
+          .where(inArray(deliveryRecords.orderId, input.ids));
+        const deliveredIds = new Set(alreadyDelivered.map(r => r.orderId));
+        const idsNeedingRecord = input.ids.filter(id => !deliveredIds.has(id));
+
+        if (idsNeedingRecord.length > 0) {
+          const routeInfos = await db.select({
+            orderId: routeOrders.orderId, deliveryUserId: deliveryRoutes.deliveryUserId,
+          }).from(routeOrders)
+            .leftJoin(deliveryRoutes, eq(routeOrders.routeId, deliveryRoutes.id))
+            .where(inArray(routeOrders.orderId, idsNeedingRecord));
+          const routeDelivererMap = new Map(routeInfos.map(r => [r.orderId, r.deliveryUserId]));
+
+          await db.insert(deliveryRecords).values(
+            idsNeedingRecord.map(id => ({
+              orderId: id,
+              deliveryUserId: routeDelivererMap.get(id) ?? ctx.user.id,
+              deliveredAt: new Date(),
+              notes: "Registrado automaticamente ao marcar como entregue (ação em massa)",
+            }))
+          );
+        }
       }
 
       return { success: true };
