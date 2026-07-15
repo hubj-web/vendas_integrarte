@@ -210,6 +210,9 @@ function Router() {
       </Route>
 
       {/* ── SELLER ── */}
+      <Route path="/vendedor">
+        <SellerArea />
+      </Route>
       <Route path="/vendedor/novo-pedido">
         <SellerGuard><SellerLayout><SellerNewOrder /></SellerLayout></SellerGuard>
       </Route>
