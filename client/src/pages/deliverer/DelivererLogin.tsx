@@ -11,7 +11,17 @@ import ForcePasswordChange from "@/components/ForcePasswordChange";
 
 const LOGO_URL = "/integrarte-logo.png";
 
-export default function AdminLogin() {
+function hasDeliveryRole(user: { role?: string; roles?: string | null }): boolean {
+  if (user.role === "delivery" || user.role === "admin") return true;
+  try {
+    const parsed = JSON.parse(user.roles ?? "[]");
+    return Array.isArray(parsed) && parsed.includes("delivery");
+  } catch {
+    return false;
+  }
+}
+
+export default function DelivererLogin() {
   const [, navigate] = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,24 +32,17 @@ export default function AdminLogin() {
   const logoutMutation = trpc.auth.logout.useMutation();
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async (data) => {
-      if (data.role !== "admin") {
-        toast.error("Acesso restrito ao administrador.");
+      if (!hasDeliveryRole(data as any)) {
+        toast.error("Acesso restrito a entregadores.");
         await logoutMutation.mutateAsync();
         return;
       }
 
-      // Store the admin session token in sessionStorage so it is sent as
-      // Authorization: Bearer on every subsequent request. This is necessary
-      // because the browser may block HttpOnly cookies when the app runs inside
-      // an iframe (SameSite=None + Secure policy on Safari / iOS WebView).
       if (data.sessionToken) {
         try {
-          sessionStorage.setItem(
-            "manus-cookie",
-            `${COOKIE_NAME}=${data.sessionToken}`
-          );
+          sessionStorage.setItem("manus-cookie", `${COOKIE_NAME}=${data.sessionToken}`);
         } catch {
-          // sessionStorage unavailable — cookie-only fallback will be used
+          // sessionStorage indisponível — segue só com cookie
         }
       }
 
@@ -49,7 +52,7 @@ export default function AdminLogin() {
       }
 
       await utils.auth.me.invalidate();
-      navigate("/admin/dashboard");
+      navigate("/entregador/rotas");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -63,22 +66,20 @@ export default function AdminLogin() {
     return (
       <ForcePasswordChange
         currentPassword={password}
-        onSuccess={() => navigate("/admin/dashboard")}
+        onSuccess={() => navigate("/entregador/rotas")}
       />
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-blue-50 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm animate-fade-in-up">
-        {/* Logo */}
         <div className="text-center mb-8">
           <img src={LOGO_URL} alt="Integrarte" className="h-24 w-auto mx-auto mb-3 drop-shadow-sm" />
-          <h2 className="text-lg font-bold text-primary">Área Administrativa</h2>
-          <p className="text-sm text-muted-foreground">Acesso restrito</p>
+          <h2 className="text-lg font-bold text-primary">Área do Entregador</h2>
+          <p className="text-sm text-muted-foreground">Acesse suas rotas de entrega</p>
         </div>
 
-        {/* Card de login */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-1.5">

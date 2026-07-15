@@ -1,8 +1,8 @@
 import { type ReactNode } from "react";
-import { useSeller } from "@/contexts/SellerContext";
+import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Button } from "@/components/ui/button";
 import { LogOut, Plus, List } from "lucide-react";
-import { Link, useLocation, Redirect } from "wouter";
+import { Link, useLocation } from "wouter";
 
 const LOGO_URL = "/integrarte-logo.png";
 
@@ -11,16 +11,17 @@ interface SellerLayoutProps {
 }
 
 export default function SellerLayout({ children }: SellerLayoutProps) {
-  const { seller, clearSeller } = useSeller();
-  const [location] = useLocation();
+  const { user, logout } = useLocalAuth();
+  const [location, navigate] = useLocation();
 
-  // Redirect to seller selection if not logged in
-  if (!seller) {
-    return <Redirect to="/" />;
-  }
-
-  const handleLogout = () => {
-    clearSeller();
+  const handleLogout = async () => {
+    try {
+      sessionStorage.removeItem("manus-cookie");
+    } catch {
+      // ignora se sessionStorage não estiver disponível
+    }
+    await logout();
+    navigate("/vendedor");
   };
 
   return (
@@ -30,10 +31,10 @@ export default function SellerLayout({ children }: SellerLayoutProps) {
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src={LOGO_URL} alt="Integrarte" className="h-10 w-auto object-contain" />
-            {seller && (
+            {user && (
               <div className="hidden sm:block">
                 <span className="text-xs text-muted-foreground">Olá,</span>
-                <span className="text-sm font-bold text-primary ml-1">{seller.name}</span>
+                <span className="text-sm font-bold text-primary ml-1">{user.name}</span>
               </div>
             )}
           </div>

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { useSeller } from "@/contexts/SellerContext";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,14 +14,12 @@ const fmt = (v: string | number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
 
 export default function MyOrders() {
-  const { seller } = useSeller();
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 15;
 
   const { data, isLoading } = trpc.seller.myOrders.useQuery(
-    { sellerId: seller?.id ?? 0, status, page, pageSize: PAGE_SIZE },
-    { enabled: !!seller }
+    { status, page, pageSize: PAGE_SIZE }
   );
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 1;

@@ -1,33 +1,49 @@
 /**
- * Router público para a Área do Entregador.
- * Não requer autenticação — o entregador é identificado pelo userId passado.
- * Operações de escrita exigem que o userId seja de um usuário com role=delivery.
+ * Router da Área do Entregador.
+ * Requer login com usuário e senha (mesmo sistema de autenticação do admin/vendedor).
+ * O entregador só acessa suas próprias rotas — identificado pela sessão autenticada
+ * (ctx.user.id), nunca por um ID informado pelo cliente.
  */
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import {
   customers, deliveryRecords, routeOrders, deliveryRoutes,
-  orders, users, deliveryMethods,
+  orders, users, deliveryMethods, orderStatusHistory,
   orderItems, orderItemFlavors, products,
   orderMinipizzas, orderMinipizzaFlavors, minipizzaTypes, minipizzaFlavors,
   orderJellies, jellyFlavors,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { storagePut } from "../storage";
+import type { TrpcContext } from "../_core/context";
 
-// Helper: validate that userId belongs to a delivery person
-async function requireDelivery(userId: number) {
-  const db = await getDb();
-  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-  const result = await db.select().from(users)
-    .where(and(eq(users.id, userId), eq(users.active, true)))
-    .limit(1);
-  const user = result[0];
-  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Entregador não encontrado." });
-  const hasDeliveryRole = user.role === "delivery" || (user.roles && user.roles.includes('"delivery"'));
-  if (!hasDeliveryRole && user.role !== "admin") {
+// Motivos pré-definidos para entrega não realizada
+export const UNDELIVERED_REASONS = {
+  endereco_nao_identificado: "Endereço não identificado",
+  falta_info_complemento: "Faltou informação de apartamento/complemento",
+  cliente_ausente: "Cliente não estava na residência",
+  recusou_recebimento: "Cliente recusou receber",
+  outro: "Outro motivo",
+} as const;
+export type UndeliveredReason = keyof typeof UNDELIVERED_REASONS;
+
+// Helper: garante que o usuário autenticado tem função de entregador (função
+// principal OU secundária) — nunca confia num ID vindo do cliente.
+function requireDeliveryRole(ctx: TrpcContext) {
+  const user = ctx.user;
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED" });
+  let hasDeliveryRole = user.role === "delivery" || user.role === "admin";
+  if (!hasDeliveryRole) {
+    try {
+      const parsed = JSON.parse(user.roles ?? "[]");
+      hasDeliveryRole = Array.isArray(parsed) && parsed.includes("delivery");
+    } catch {
+      hasDeliveryRole = false;
+    }
+  }
+  if (!hasDeliveryRole) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a entregadores." });
   }
   return user;
@@ -95,28 +111,13 @@ function buildDisplayAddress(item: {
 }
 
 export const deliveryPublicRouter = router({
-  /** Lista todos os entregadores ativos */
-  listDeliverers: publicProcedure.query(async () => {
-    const db = await getDb();
-    if (!db) return [];
-    const allActive = await db
-      .select({ id: users.id, name: users.name, role: users.role, roles: users.roles })
-      .from(users)
-      .where(eq(users.active, true))
-      .orderBy(asc(users.name));
-    return allActive
-      .filter(u => u.role === "delivery" || (u.roles && u.roles.includes('"delivery"')))
-      .map(u => ({ id: u.id, name: u.name }));
-  }),
-
   /**
-   * Rotas atribuídas ao entregador.
+   * Rotas atribuídas ao entregador autenticado.
    * Mostra rotas planejadas, em andamento e as últimas concluídas (até 5).
    */
-  myRoutes: publicProcedure
-    .input(z.object({ delivererId: z.number() }))
-    .query(async ({ input }) => {
-      await requireDelivery(input.delivererId);
+  myRoutes: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = requireDeliveryRole(ctx);
       const db = await getDb();
       if (!db) return [];
 
@@ -131,7 +132,7 @@ export const deliveryPublicRouter = router({
           createdAt: deliveryRoutes.createdAt,
         })
         .from(deliveryRoutes)
-        .where(eq(deliveryRoutes.deliveryUserId, input.delivererId))
+        .where(eq(deliveryRoutes.deliveryUserId, user.id))
         .orderBy(desc(deliveryRoutes.deliveryDate));
 
       // Prioriza rotas ativas (planned/in_progress) e inclui as últimas 5 concluídas
@@ -145,10 +146,10 @@ export const deliveryPublicRouter = router({
    * Detalhes de uma rota com os pedidos e URL do Google Maps.
    * Usa endereços completos (rua + número + bairro + cidade) para o Maps.
    */
-  routeDetail: publicProcedure
-    .input(z.object({ routeId: z.number(), delivererId: z.number() }))
-    .query(async ({ input }) => {
-      await requireDelivery(input.delivererId);
+  routeDetail: protectedProcedure
+    .input(z.object({ routeId: z.number() }))
+    .query(async ({ input, ctx }) => {
+      const user = requireDeliveryRole(ctx);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
@@ -158,7 +159,7 @@ export const deliveryPublicRouter = router({
         .where(
           and(
             eq(deliveryRoutes.id, input.routeId),
-            eq(deliveryRoutes.deliveryUserId, input.delivererId)
+            eq(deliveryRoutes.deliveryUserId, user.id)
           )
         )
         .limit(1);
@@ -297,18 +298,27 @@ export const deliveryPublicRouter = router({
     }),
 
   /** Registra entrega de um pedido na rota */
-  registerDelivery: publicProcedure
+  registerDelivery: protectedProcedure
     .input(z.object({
       routeId: z.number(),
       orderId: z.number(),
-      delivererId: z.number(),
       notes: z.string().optional(),
       proofImageBase64: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
-      await requireDelivery(input.delivererId);
+    .mutation(async ({ input, ctx }) => {
+      const user = requireDeliveryRole(ctx);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Confirma que o pedido pertence a uma rota deste entregador
+      const [link] = await db.select({ id: routeOrders.id }).from(routeOrders)
+        .leftJoin(deliveryRoutes, eq(routeOrders.routeId, deliveryRoutes.id))
+        .where(and(
+          eq(routeOrders.routeId, input.routeId),
+          eq(routeOrders.orderId, input.orderId),
+          eq(deliveryRoutes.deliveryUserId, user.id)
+        )).limit(1);
+      if (!link) throw new TRPCError({ code: "FORBIDDEN", message: "Este pedido não pertence a uma das suas rotas." });
 
       let proofImageUrl: string | undefined;
       if (input.proofImageBase64) {
@@ -326,7 +336,7 @@ export const deliveryPublicRouter = router({
 
       await db.insert(deliveryRecords).values({
         orderId: input.orderId,
-        deliveryUserId: input.delivererId,
+        deliveryUserId: user.id,
         deliveredAt: new Date(),
         notes: input.notes,
         proofImageUrl,
@@ -337,11 +347,72 @@ export const deliveryPublicRouter = router({
       return { success: true };
     }),
 
+  /**
+   * Marca que a entrega NÃO foi realizada (ex: cliente ausente, endereço não
+   * encontrado). O pedido sai da rota e volta para "Em Produção", ficando
+   * disponível para ser incluído em outra rota depois. O motivo fica registrado
+   * no histórico do pedido.
+   */
+  markUndelivered: protectedProcedure
+    .input(z.object({
+      routeId: z.number(),
+      orderId: z.number(),
+      reason: z.enum(["endereco_nao_identificado", "falta_info_complemento", "cliente_ausente", "recusou_recebimento", "outro"]),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const user = requireDeliveryRole(ctx);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Confirma que o pedido pertence a uma rota deste entregador
+      const [link] = await db.select({ id: routeOrders.id }).from(routeOrders)
+        .leftJoin(deliveryRoutes, eq(routeOrders.routeId, deliveryRoutes.id))
+        .where(and(
+          eq(routeOrders.routeId, input.routeId),
+          eq(routeOrders.orderId, input.orderId),
+          eq(deliveryRoutes.deliveryUserId, user.id)
+        )).limit(1);
+      if (!link) throw new TRPCError({ code: "FORBIDDEN", message: "Este pedido não pertence a uma das suas rotas." });
+
+      const [current] = await db.select({ status: orders.status }).from(orders).where(eq(orders.id, input.orderId));
+      if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
+
+      await db.delete(routeOrders).where(and(
+        eq(routeOrders.routeId, input.routeId),
+        eq(routeOrders.orderId, input.orderId)
+      ));
+
+      const reasonLabel = UNDELIVERED_REASONS[input.reason];
+      const fullNote = input.notes ? `${reasonLabel} — ${input.notes}` : reasonLabel;
+
+      if (!["delivered", "paid", "cancelled"].includes(current.status)) {
+        await db.update(orders).set({ status: "production" }).where(eq(orders.id, input.orderId));
+        await db.insert(orderStatusHistory).values({
+          orderId: input.orderId, userId: user.id, fromStatus: current.status, toStatus: "production",
+          notes: `Entrega não realizada: ${fullNote}`,
+        });
+      }
+
+      // Renumera as posições restantes da rota
+      const remaining = await db.select({ id: routeOrders.id, position: routeOrders.position })
+        .from(routeOrders)
+        .where(eq(routeOrders.routeId, input.routeId))
+        .orderBy(asc(routeOrders.position));
+      for (let i = 0; i < remaining.length; i++) {
+        if (remaining[i].position !== i + 1) {
+          await db.update(routeOrders).set({ position: i + 1 }).where(eq(routeOrders.id, remaining[i].id));
+        }
+      }
+
+      return { success: true };
+    }),
+
   /** Inicia uma rota (muda status para in_progress e registra horário) */
-  startRoute: publicProcedure
-    .input(z.object({ routeId: z.number(), delivererId: z.number() }))
-    .mutation(async ({ input }) => {
-      await requireDelivery(input.delivererId);
+  startRoute: protectedProcedure
+    .input(z.object({ routeId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const user = requireDeliveryRole(ctx);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
@@ -350,18 +421,36 @@ export const deliveryPublicRouter = router({
         .where(
           and(
             eq(deliveryRoutes.id, input.routeId),
-            eq(deliveryRoutes.deliveryUserId, input.delivererId)
+            eq(deliveryRoutes.deliveryUserId, user.id)
           )
         );
+
+      // Ao iniciar a rota, os pedidos passam de fato para "Em Rota" (saiu para entrega)
+      const routeOrderRows = await db.select({ orderId: routeOrders.orderId, status: orders.status })
+        .from(routeOrders)
+        .leftJoin(orders, eq(routeOrders.orderId, orders.id))
+        .where(eq(routeOrders.routeId, input.routeId));
+      const toUpdate = routeOrderRows.filter(o => o.status === "production" || o.status === "packaged");
+      if (toUpdate.length > 0) {
+        await db.update(orders).set({ status: "in_route" })
+          .where(inArray(orders.id, toUpdate.map(o => o.orderId)));
+        await db.insert(orderStatusHistory).values(
+          toUpdate.map(o => ({
+            orderId: o.orderId, userId: user.id,
+            fromStatus: o.status, toStatus: "in_route",
+            notes: "Rota iniciada pelo entregador — saiu para entrega",
+          }))
+        );
+      }
 
       return { success: true };
     }),
 
   /** Conclui uma rota e registra horário de conclusão */
-  completeRoute: publicProcedure
-    .input(z.object({ routeId: z.number(), delivererId: z.number() }))
-    .mutation(async ({ input }) => {
-      await requireDelivery(input.delivererId);
+  completeRoute: protectedProcedure
+    .input(z.object({ routeId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const user = requireDeliveryRole(ctx);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
@@ -370,7 +459,7 @@ export const deliveryPublicRouter = router({
         .where(
           and(
             eq(deliveryRoutes.id, input.routeId),
-            eq(deliveryRoutes.deliveryUserId, input.delivererId)
+            eq(deliveryRoutes.deliveryUserId, user.id)
           )
         );
 

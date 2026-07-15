@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
-import { useSeller } from "@/contexts/SellerContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,9 +33,6 @@ interface CartItem {
 }
 
 export default function SellerNewOrder() {
-  // useSeller is now safe to use even outside Provider
-  const sellerContext = useSeller();
-  const seller = sellerContext?.seller;
   const { user: authUser } = useLocalAuth();
   const [location, navigate] = useLocation();
   const [, paramsVendedor] = useRoute("/vendedor/pedido/:id/editar");
@@ -48,10 +44,6 @@ export default function SellerNewOrder() {
   // Determine if this is an admin route
   const isAdminRoute = location.startsWith("/admin");
 
-  // Use current logged in user ID if seller context is missing (admin case)
-  // For admin: use authUser.id; for seller: use seller.id or authUser.id as fallback
-  const effectiveSellerId = isAdminRoute ? (authUser?.id ?? -1) : (seller?.id ?? authUser?.id ?? -1);
-
   const returnPath = isAdminRoute 
     ? (editOrderId ? `/admin/pedidos/${editOrderId}` : "/admin/pedidos")
     : (editOrderId ? `/vendedor/pedido/${editOrderId}` : "/vendedor/meus-pedidos");
@@ -60,9 +52,9 @@ export default function SellerNewOrder() {
 
   // Fetch order detail when in edit mode
   const { data: existingOrder, isLoading: isLoadingOrder, error: orderError } = trpc.seller.orderDetail.useQuery(
-    { orderId: editOrderId!, sellerId: effectiveSellerId },
+    { orderId: editOrderId! },
     { 
-      enabled: isEditMode && !!editOrderId && effectiveSellerId !== -1,
+      enabled: isEditMode && !!editOrderId,
       retry: false
     }
   );
@@ -383,10 +375,7 @@ export default function SellerNewOrder() {
       finalAddress = [c.street, c.number, c.neighborhood, c.city].filter(Boolean).join(", ");
     }
 
-    if (effectiveSellerId === -1) return;
-
     const payload = {
-      sellerId: effectiveSellerId,
       customerId: selectedCustomer.id,
       deliveryMethodId: Number(deliveryMethodId),
       deliveryAddress: finalAddress || undefined,

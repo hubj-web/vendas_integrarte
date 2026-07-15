@@ -1,7 +1,8 @@
 /**
- * Router público para a Área do Vendedor.
- * Não requer autenticação — o vendedor é identificado pelo userId passado na sessão local do browser.
- * Operações de escrita exigem que o userId seja de um usuário com role=launcher.
+ * Router da Área do Vendedor.
+ * Requer login com usuário e senha (mesmo sistema de autenticação do admin/entregador).
+ * O vendedor só acessa e edita os próprios pedidos — identificado pela sessão
+ * autenticada (ctx.user.id), nunca por um ID informado pelo cliente.
  */
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, inArray, like, or } from "drizzle-orm";
@@ -13,50 +14,37 @@ import {
   productCategories, productFlavors, productTypes, products, users, routeOrders, paymentRecords,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router } from "../_core/trpc";
 import { googleSheets } from "../google-sheets";
 import { uploadReceiptToDrive } from "../google-drive";
 import { sendOrderNotification } from "../telegram";
+import type { TrpcContext } from "../_core/context";
 
-// Helper: validate that userId belongs to a launcher/seller or admin
-// id=-1 is the special "Outro" (guest) seller — allowed without DB lookup
-async function requireLauncher(userId: number) {
-  if (userId === -1) return null; // guest seller: sem vínculo a usuário cadastrado
-  const db = await getDb();
-  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-  const result = await db.select().from(users)
-    .where(and(eq(users.id, userId), eq(users.active, true)))
-    .limit(1);
-  const user = result[0];
-  if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário não encontrado." });
-  // Check legacy role OR new roles array
-  const isAdmin = user.role === "admin" || (user.roles && user.roles.includes('"admin"'));
-  const hasLauncherRole = user.role === "launcher" || (user.roles && user.roles.includes('"launcher"'));
-  
-  // Allow both launcher and admin roles
-  if (!hasLauncherRole && !isAdmin) {
+// Helper: garante que o usuário autenticado é vendedor (função principal ou
+// secundária) ou administrador — nunca confia num ID vindo do cliente.
+function requireLauncherRole(ctx: TrpcContext) {
+  const user = ctx.user;
+  if (!user) throw new TRPCError({ code: "UNAUTHORIZED" });
+  const isAdmin = user.role === "admin";
+  let hasLauncherRole = user.role === "launcher" || isAdmin;
+  if (!hasLauncherRole) {
+    try {
+      const parsed = JSON.parse(user.roles ?? "[]");
+      hasLauncherRole = Array.isArray(parsed) && parsed.includes("launcher");
+    } catch {
+      hasLauncherRole = false;
+    }
+  }
+  if (!hasLauncherRole) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito a vendedores e administradores." });
   }
-  return user;
+  return { user, isAdmin };
 }
 
 export const sellerRouter = router({
-  /** Lista todos os vendedores ativos (para seleção na tela inicial) */
-  listSellers: publicProcedure.query(async () => {
-    const db = await getDb();
-    if (!db) return [];
-    // Users with launcher in legacy role OR in roles JSON array
-    const allActive = await db.select({ id: users.id, name: users.name, role: users.role, roles: users.roles })
-      .from(users)
-      .where(eq(users.active, true))
-      .orderBy(asc(users.name));
-    return allActive
-      .filter(u => u.role === "launcher" || (u.roles && u.roles.includes('"launcher"')))
-      .map(u => ({ id: u.id, name: u.name }));
-  }),
-
-  /** Catálogo público: categorias, produtos, sabores, formas de entrega */
-  catalog: publicProcedure.query(async () => {
+  /** Catálogo: categorias, produtos, sabores, formas de entrega */
+  catalog: protectedProcedure.query(async ({ ctx }) => {
+    requireLauncherRole(ctx);
     const db = await getDb();
     if (!db) return { categories: [], productTypes: [], products: [], productFlavors: [], minipizzaTypes: [], minipizzaFlavors: [], compatibility: [], jellyFlavors: [], deliveryMethods: [] };
     const { asc } = await import("drizzle-orm");
@@ -96,9 +84,10 @@ export const sellerRouter = router({
   }),
 
   /** Busca clientes por nome ou telefone */
-  searchCustomers: publicProcedure
+  searchCustomers: protectedProcedure
     .input(z.object({ query: z.string().min(1) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      requireLauncherRole(ctx);
       const db = await getDb();
       if (!db) return [];
       const { like, or } = await import("drizzle-orm");
@@ -111,7 +100,7 @@ export const sellerRouter = router({
     }),
 
   /** Cria um novo cliente */
-  createCustomer: publicProcedure
+  createCustomer: protectedProcedure
     .input(z.object({
       name: z.string().min(1),
       phone: z.string().min(1),
@@ -123,7 +112,8 @@ export const sellerRouter = router({
       zipCode: z.string().optional(),
       locationReference: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      requireLauncherRole(ctx);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const result = await db.insert(customers).values({
@@ -140,10 +130,9 @@ export const sellerRouter = router({
       return { id: Number((result as any)[0].insertId) };
     }),
 
-  /** Lança um novo pedido (requer sellerId válido com role=launcher) */
-  createOrder: publicProcedure
+  /** Lança um novo pedido */
+  createOrder: protectedProcedure
     .input(z.object({
-      sellerId: z.number(),
       customerId: z.number(),
       deliveryMethodId: z.number(),
       deliveryDate: z.string().optional(),
@@ -159,13 +148,13 @@ export const sellerRouter = router({
         flavorIds: z.array(z.number()).optional(),
       })),
     }))
-    .mutation(async ({ input }) => {
-      await requireLauncher(input.sellerId);
+    .mutation(async ({ input, ctx }) => {
+      const { user } = requireLauncherRole(ctx);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const result = await db.insert(orders).values({
         customerId: input.customerId,
-        launcherId: input.sellerId,
+        launcherId: user.id,
         deliveryMethodId: input.deliveryMethodId,
         deliveryDate: input.deliveryDate ? new Date(input.deliveryDate) : undefined,
         deliveryAddress: input.deliveryAddress,
@@ -207,7 +196,7 @@ export const sellerRouter = router({
       }
       
       await db.insert(orderStatusHistory).values({
-        orderId, userId: input.sellerId, fromStatus: null, toStatus: "production",
+        orderId, userId: user.id, fromStatus: null, toStatus: "production",
         notes: "Pedido criado pelo vendedor",
       });
 
@@ -274,21 +263,20 @@ export const sellerRouter = router({
       return { success: true, orderId };
     }),
 
-  /** Lista os pedidos do vendedor */
-  myOrders: publicProcedure
+  /** Lista os pedidos do vendedor (ou todos, se admin) */
+  myOrders: protectedProcedure
     .input(z.object({
-      sellerId: z.number(),
       status: z.string().optional(),
       page: z.number().default(1),
       pageSize: z.number().default(20),
     }))
-    .query(async ({ input }) => {
-      await requireLauncher(input.sellerId);
+    .query(async ({ input, ctx }) => {
+      const { user, isAdmin } = requireLauncherRole(ctx);
       const db = await getDb();
       if (!db) return { orders: [], total: 0 };
-      const { sql, count } = await import("drizzle-orm");
-      // sellerId=-1 é vendedor avulso: mostra todos os pedidos sem filtro de launcher
-      const conditions = input.sellerId === -1 ? [] : [eq(orders.launcherId, input.sellerId)];
+      const { count } = await import("drizzle-orm");
+      // Admin vê todos os pedidos; vendedor vê só os próprios
+      const conditions = isAdmin ? [] : [eq(orders.launcherId, user.id)];
       if (input.status && input.status !== "all") {
         conditions.push(eq(orders.status, input.status as any));
       }
@@ -315,21 +303,19 @@ export const sellerRouter = router({
     }),
 
   /** Detalhes de um pedido (se pertencer ao vendedor OU for admin) */
-  orderDetail: publicProcedure
-    .input(z.object({ orderId: z.number(), sellerId: z.number() }))
+  orderDetail: protectedProcedure
+    .input(z.object({ orderId: z.number() }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const { user, isAdmin } = requireLauncherRole(ctx);
 
       // First find the order to check its launcherId
       const baseOrder = await db.select({ launcherId: orders.launcherId }).from(orders).where(eq(orders.id, input.orderId)).limit(1);
       if (!baseOrder[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
 
-      // Validate permission: must be the launcher OR an admin
-      const user = await requireLauncher(input.sellerId);
-      const isAdmin = user?.role === "admin" || (user?.roles && user.roles.includes('"admin"'));
-      
-      if (!isAdmin && baseOrder[0].launcherId !== input.sellerId) {
+      if (!isAdmin && baseOrder[0].launcherId !== user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Você não tem permissão para ver este pedido." });
       }
 
@@ -392,10 +378,9 @@ export const sellerRouter = router({
     }),
 
   /** Atualiza um pedido (próprio se vendedor, qualquer um se admin) */
-  updateOrder: publicProcedure
+  updateOrder: protectedProcedure
     .input(z.object({
       orderId: z.number(),
-      sellerId: z.number(),
       customerId: z.number().optional(),
       deliveryMethodId: z.number().optional(),
       deliveryDate: z.string().optional(),
@@ -412,16 +397,15 @@ export const sellerRouter = router({
         flavorIds: z.array(z.number()).optional(),
       })).optional(),
     }))
-    .mutation(async ({ input }) => {
-      const user = await requireLauncher(input.sellerId);
-      const isAdmin = user?.role === "admin" || (user?.roles && user.roles.includes('"admin"'));
-      
+    .mutation(async ({ input, ctx }) => {
+      const { user, isAdmin } = requireLauncherRole(ctx);
+
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const conditions = [eq(orders.id, input.orderId)];
       if (!isAdmin) {
-        conditions.push(eq(orders.launcherId, input.sellerId));
+        conditions.push(eq(orders.launcherId, user.id));
       }
 
       const current = await db.select().from(orders)
@@ -429,10 +413,7 @@ export const sellerRouter = router({
         .limit(1);
       if (!current[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
       
-      // Admins can edit even if not in production? 
-      // User said "editar pedidos feitos por qualquer pessoa", 
-      // usually admin can edit anytime, but let's keep it safer for now or allow it.
-      // If user didn't specify, let's allow admin to edit even if not in production.
+      // Admins podem editar mesmo fora de produção; vendedor só enquanto em produção.
       if (!isAdmin && current[0].status !== "production") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas pedidos em produção podem ser editados." });
       }
@@ -488,19 +469,21 @@ export const sellerRouter = router({
     }),
 
   /** Atualiza o status de pagamento de um pedido próprio */
-  updatePaymentStatus: publicProcedure
+  updatePaymentStatus: protectedProcedure
     .input(z.object({
       orderId: z.number(),
-      sellerId: z.number(),
       paymentStatus: z.enum(["pending", "paid", "partial", "cancelled"]),
     }))
-    .mutation(async ({ input }) => {
-      await requireLauncher(input.sellerId);
+    .mutation(async ({ input, ctx }) => {
+      const { user, isAdmin } = requireLauncherRole(ctx);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+      const conditions = [eq(orders.id, input.orderId)];
+      if (!isAdmin) conditions.push(eq(orders.launcherId, user.id));
+
       const current = await db.select().from(orders)
-        .where(and(eq(orders.id, input.orderId), eq(orders.launcherId, input.sellerId)))
+        .where(and(...conditions))
         .limit(1);
       if (!current[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
 
@@ -520,7 +503,7 @@ export const sellerRouter = router({
             paymentMethod: current[0].paymentMethod as "cash" | "pix",
             amount: current[0].totalAmount,
             paidAt: new Date(),
-            registeredBy: input.sellerId,
+            registeredBy: user.id,
             notes: "Registrado automaticamente ao marcar como pago",
           });
         }
@@ -530,14 +513,18 @@ export const sellerRouter = router({
     }),
 
   /** Cancela um pedido próprio (bloqueado apenas se já entregue/pago/cancelado) */
-  cancelOrder: publicProcedure
-    .input(z.object({ orderId: z.number(), sellerId: z.number(), cancelReason: z.string().min(1) }))
-    .mutation(async ({ input }) => {
-      await requireLauncher(input.sellerId);
+  cancelOrder: protectedProcedure
+    .input(z.object({ orderId: z.number(), cancelReason: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const { user, isAdmin } = requireLauncherRole(ctx);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const conditions = [eq(orders.id, input.orderId)];
+      if (!isAdmin) conditions.push(eq(orders.launcherId, user.id));
+
       const current = await db.select().from(orders)
-        .where(and(eq(orders.id, input.orderId), eq(orders.launcherId, input.sellerId)))
+        .where(and(...conditions))
         .limit(1);
       if (!current[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
       if (["delivered", "paid", "cancelled"].includes(current[0].status)) {
@@ -547,11 +534,11 @@ export const sellerRouter = router({
         status: "cancelled",
         paymentStatus: "cancelled",
         cancelReason: input.cancelReason,
-        cancelledBy: input.sellerId,
+        cancelledBy: user.id,
         cancelledAt: new Date(),
       }).where(eq(orders.id, input.orderId));
       await db.insert(orderStatusHistory).values({
-        orderId: input.orderId, userId: input.sellerId,
+        orderId: input.orderId, userId: user.id,
         fromStatus: current[0].status, toStatus: "cancelled",
         notes: input.cancelReason,
       });

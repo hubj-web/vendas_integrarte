@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { useDeliverer } from "@/contexts/DelivererContext";
+import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,10 +8,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import {
   Truck, MapPin, Navigation, CheckCircle, Play, Package,
-  Phone, ArrowLeft, Camera, Route,
+  Phone, ArrowLeft, Camera, Route, PackageX, XCircle,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -31,23 +32,32 @@ const statusColor: Record<string, string> = {
   completed: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
 };
 
+const UNDELIVERED_REASONS: { value: string; label: string }[] = [
+  { value: "endereco_nao_identificado", label: "Endereço não identificado" },
+  { value: "falta_info_complemento", label: "Faltou informação de apartamento/complemento" },
+  { value: "cliente_ausente", label: "Cliente não estava na residência" },
+  { value: "recusou_recebimento", label: "Cliente recusou receber" },
+  { value: "outro", label: "Outro motivo" },
+];
+
 export default function DelivererRoutes() {
-  const { deliverer } = useDeliverer();
+  const { user } = useLocalAuth();
+  const utils = trpc.useUtils();
   const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
   const [deliveryTypeFilter, setDeliveryTypeFilter] = useState<string>("all");
   const [deliveryDialog, setDeliveryDialog] = useState<{ orderId: number; routeId: number } | null>(null);
   const [deliveryNotes, setDeliveryNotes] = useState("");
   const [proofImage, setProofImage] = useState<string | null>(null);
+  const [undeliveredDialog, setUndeliveredDialog] = useState<{ orderId: number; routeId: number; customerName: string } | null>(null);
+  const [undeliveredReason, setUndeliveredReason] = useState("");
+  const [undeliveredNotes, setUndeliveredNotes] = useState("");
 
-  const { data: routes, isLoading, refetch: refetchRoutes } = trpc.deliveryPublic.myRoutes.useQuery(
-    { delivererId: deliverer?.id ?? 0 },
-    { enabled: !!deliverer }
-  );
+  const { data: routes, isLoading, refetch: refetchRoutes } = trpc.deliveryPublic.myRoutes.useQuery();
 
   const { data: routeDetail, isLoading: loadingDetail, refetch: refetchDetail } =
     trpc.deliveryPublic.routeDetail.useQuery(
-      { routeId: selectedRouteId!, delivererId: deliverer?.id ?? 0 },
-      { enabled: !!selectedRouteId && !!deliverer }
+      { routeId: selectedRouteId! },
+      { enabled: !!selectedRouteId }
     );
 
   const startRouteMutation = trpc.deliveryPublic.startRoute.useMutation({
@@ -67,6 +77,18 @@ export default function DelivererRoutes() {
       setDeliveryNotes("");
       setProofImage(null);
       refetchDetail();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const markUndeliveredMutation = trpc.deliveryPublic.markUndelivered.useMutation({
+    onSuccess: () => {
+      toast.success("Registrado — pedido volta para produção.");
+      setUndeliveredDialog(null);
+      setUndeliveredReason("");
+      setUndeliveredNotes("");
+      refetchDetail();
+      refetchRoutes();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -156,28 +178,26 @@ export default function DelivererRoutes() {
         </div>
       ) : routeDetail ? (
         <>
-          {/* Cabeçalho da rota */}
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-foreground">{routeDetail.name}</h2>
-              <p className="text-sm text-muted-foreground">
-                {routeDetail.deliveryDate
-                  ? format(new Date(routeDetail.deliveryDate), "dd/MM/yyyy", { locale: ptBR })
-                  : "—"}
-              </p>
-              {routeDetail.totalDistance && parseFloat(routeDetail.totalDistance) > 0 && (
-                <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                  <Route className="w-3 h-3" />
-                  ~{parseFloat(routeDetail.totalDistance).toFixed(1)} km estimados
+          {/* Cabeçalho da rota — visual parecido com o cabeçalho do PDF impresso */}
+          <div className="bg-primary rounded-xl p-4 text-primary-foreground">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold">{routeDetail.name}</h2>
+                <p className="text-xs opacity-90 mt-0.5">
+                  {routeDetail.deliveryDate
+                    ? format(new Date(routeDetail.deliveryDate), "dd/MM/yyyy", { locale: ptBR })
+                    : "—"}
+                  {"  •  "}
+                  {routeDetail.items.length} parada{routeDetail.items.length !== 1 ? "s" : ""}
+                  {routeDetail.totalDistance && parseFloat(routeDetail.totalDistance) > 0 && (
+                    <> {"  •  "}~{parseFloat(routeDetail.totalDistance).toFixed(1)} km</>
+                  )}
                 </p>
-              )}
+              </div>
+              <Badge className="text-xs bg-white/15 border-white/20 text-white" variant="outline">
+                {statusLabel[routeDetail.status] ?? routeDetail.status}
+              </Badge>
             </div>
-            <Badge
-              className={`text-xs border ${statusColor[routeDetail.status] ?? ""}`}
-              variant="outline"
-            >
-              {statusLabel[routeDetail.status] ?? routeDetail.status}
-            </Badge>
           </div>
 
           {/* Progresso */}
@@ -207,10 +227,7 @@ export default function DelivererRoutes() {
             {routeDetail.status === "planned" && (
               <Button
                 className="flex-1 gap-2"
-                onClick={() => {
-                  if (!deliverer) return;
-                  startRouteMutation.mutate({ routeId: routeDetail.id, delivererId: deliverer.id });
-                }}
+                onClick={() => startRouteMutation.mutate({ routeId: routeDetail.id })}
                 disabled={startRouteMutation.isPending}
               >
                 <Play className="w-4 h-4" />
@@ -221,10 +238,7 @@ export default function DelivererRoutes() {
               <Button
                 variant="outline"
                 className="flex-1 gap-2 border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/5"
-                onClick={() => {
-                  if (!deliverer) return;
-                  completeRouteMutation.mutate({ routeId: routeDetail.id, delivererId: deliverer.id });
-                }}
+                onClick={() => completeRouteMutation.mutate({ routeId: routeDetail.id })}
                 disabled={completeRouteMutation.isPending}
               >
                 <CheckCircle className="w-4 h-4" />
@@ -279,7 +293,8 @@ export default function DelivererRoutes() {
             );
           })()}
 
-          {/* Paradas */}
+          {/* Paradas — layout inspirado no PDF impresso (número, cliente, contato,
+              endereço, itens) com os botões de ação do entregador */}
           <div className="space-y-3">
             {(() => {
               const filteredItems = deliveryTypeFilter === "all"
@@ -294,6 +309,7 @@ export default function DelivererRoutes() {
                   {filteredItems.map((item, idx) => {
               const delivered = item.orderStatus === "delivered" || item.orderStatus === "paid";
               const address = (item as any).fullAddress || item.deliveryAddress || "Sem endereço";
+              const isPaid = item.orderStatus === "paid";
 
               return (
                 <Card
@@ -316,17 +332,30 @@ export default function DelivererRoutes() {
                         {delivered ? <CheckCircle className="w-4 h-4" /> : idx + 1}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-foreground">{item.customerName ?? "—"}</p>
-                        {item.customerPhone && (
-                          <a
-                            href={`tel:${item.customerPhone}`}
-                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary mt-0.5"
-                          >
-                            <Phone className="w-3 h-3" />
-                            {item.customerPhone}
-                          </a>
-                        )}
-                        <p className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                        <p className="font-medium text-foreground">
+                          {item.customerName ?? "—"}
+                          <span className="text-xs font-normal text-muted-foreground ml-1.5">
+                            (Pedido #{item.orderId})
+                          </span>
+                        </p>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-xs text-muted-foreground">
+                          {item.customerPhone && (
+                            <a
+                              href={`tel:${item.customerPhone}`}
+                              className="flex items-center gap-1 hover:text-primary"
+                            >
+                              <Phone className="w-3 h-3" />
+                              {item.customerPhone}
+                            </a>
+                          )}
+                          {(item as any).deliveryMethodName && <span>{(item as any).deliveryMethodName}</span>}
+                          <span>
+                            {item.paymentMethod === "pix" ? "PIX" : "Dinheiro"}
+                            {" — "}
+                            {isPaid ? "Pago" : "A receber"}: {fmt(item.totalAmount ?? 0)}
+                          </span>
+                        </div>
+                        <p className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
                           <MapPin className="w-3 h-3 shrink-0" />
                           {address}
                         </p>
@@ -343,25 +372,20 @@ export default function DelivererRoutes() {
                             ))}
                           </ul>
                         )}
+                        {item.notes && (
+                          <p className="text-xs text-muted-foreground mt-1.5 italic">Obs: {item.notes}</p>
+                        )}
                         {(item as any).distanceFromPrevious &&
                           parseFloat((item as any).distanceFromPrevious) > 0 && (
                             <p className="text-xs text-muted-foreground mt-0.5 opacity-70">
                               ~{parseFloat((item as any).distanceFromPrevious).toFixed(1)} km do ponto anterior
                             </p>
                           )}
-                        <div className="flex items-center justify-between mt-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium text-foreground">
-                              {fmt(item.totalAmount ?? 0)}
-                            </span>
-                            <span className="text-xs text-muted-foreground capitalize">
-                              {item.paymentMethod === "pix" ? "PIX" : "Dinheiro"}
-                            </span>
-                          </div>
-                          {!delivered && routeDetail.status === "in_progress" && (
+                        {!delivered && routeDetail.status === "in_progress" && (
+                          <div className="flex items-center gap-2 mt-2.5">
                             <Button
                               size="sm"
-                              className="h-7 text-xs gap-1"
+                              className="h-8 text-xs gap-1 flex-1 bg-emerald-600 hover:bg-emerald-700"
                               onClick={() =>
                                 setDeliveryDialog({ orderId: item.orderId, routeId: routeDetail.id })
                               }
@@ -369,8 +393,19 @@ export default function DelivererRoutes() {
                               <Package className="w-3.5 h-3.5" />
                               Registrar Entrega
                             </Button>
-                          )}
-                        </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs gap-1 flex-1 border-orange-400/40 text-orange-600 hover:bg-orange-50"
+                              onClick={() =>
+                                setUndeliveredDialog({ orderId: item.orderId, routeId: routeDetail.id, customerName: item.customerName ?? `Pedido #${item.orderId}` })
+                              }
+                            >
+                              <PackageX className="w-3.5 h-3.5" />
+                              Não Realizada
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -452,11 +487,10 @@ export default function DelivererRoutes() {
             </Button>
             <Button
               onClick={() => {
-                if (!deliveryDialog || !deliverer) return;
+                if (!deliveryDialog) return;
                 registerDeliveryMutation.mutate({
                   routeId: deliveryDialog.routeId,
                   orderId: deliveryDialog.orderId,
-                  delivererId: deliverer.id,
                   notes: deliveryNotes || undefined,
                   proofImageBase64: proofImage || undefined,
                 });
@@ -464,6 +498,82 @@ export default function DelivererRoutes() {
               disabled={registerDeliveryMutation.isPending}
             >
               Confirmar Entrega
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de entrega não realizada */}
+      <Dialog
+        open={!!undeliveredDialog}
+        onOpenChange={(v) => {
+          if (!v) {
+            setUndeliveredDialog(null);
+            setUndeliveredReason("");
+            setUndeliveredNotes("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <XCircle className="w-5 h-5 text-orange-500" />
+              Entrega Não Realizada
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            O pedido de <strong>{undeliveredDialog?.customerName}</strong> volta para produção e pode
+            ser incluído em outra rota depois.
+          </p>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Motivo</Label>
+              <Select value={undeliveredReason} onValueChange={setUndeliveredReason}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o motivo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {UNDELIVERED_REASONS.map(r => (
+                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Observações (opcional)</Label>
+              <Textarea
+                value={undeliveredNotes}
+                onChange={(e) => setUndeliveredNotes(e.target.value)}
+                placeholder="Detalhes adicionais..."
+                className="min-h-[80px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setUndeliveredDialog(null);
+                setUndeliveredReason("");
+                setUndeliveredNotes("");
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+              disabled={!undeliveredReason || markUndeliveredMutation.isPending}
+              onClick={() => {
+                if (!undeliveredDialog || !undeliveredReason) return;
+                markUndeliveredMutation.mutate({
+                  routeId: undeliveredDialog.routeId,
+                  orderId: undeliveredDialog.orderId,
+                  reason: undeliveredReason as any,
+                  notes: undeliveredNotes || undefined,
+                });
+              }}
+            >
+              Confirmar
             </Button>
           </DialogFooter>
         </DialogContent>

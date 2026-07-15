@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { useSeller } from "@/contexts/SellerContext";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,13 +20,12 @@ const fmt = (v: string | number) =>
 export default function SellerOrderDetail() {
   const [, params] = useRoute("/vendedor/pedido/:id");
   const [, navigate] = useLocation();
-  const { seller } = useSeller();
   const orderId = Number(params?.id);
   const [cancelReason, setCancelReason] = useState("");
 
   const { data: order, isLoading, refetch } = trpc.seller.orderDetail.useQuery(
-    { orderId, sellerId: seller?.id ?? 0 },
-    { enabled: !!seller && !!orderId }
+    { orderId },
+    { enabled: !!orderId }
   );
 
   const cancelMutation = trpc.seller.cancelOrder.useMutation({
@@ -172,8 +170,7 @@ export default function SellerOrderDetail() {
               variant={order.paymentStatus === "pending" ? "default" : "outline"}
               className="w-full gap-2"
               onClick={() => {
-                if (!seller) return;
-                updatePaymentMutation.mutate({ orderId: order.id, sellerId: seller.id, paymentStatus: "pending" });
+                updatePaymentMutation.mutate({ orderId: order.id, paymentStatus: "pending" });
               }}
               disabled={order.paymentStatus === "pending" || updatePaymentMutation.isPending}
             >
@@ -184,8 +181,7 @@ export default function SellerOrderDetail() {
               variant={order.paymentStatus === "paid" ? "default" : "outline"}
               className="w-full gap-2"
               onClick={() => {
-                if (!seller) return;
-                updatePaymentMutation.mutate({ orderId: order.id, sellerId: seller.id, paymentStatus: "paid" });
+                updatePaymentMutation.mutate({ orderId: order.id, paymentStatus: "paid" });
               }}
               disabled={order.paymentStatus === "paid" || updatePaymentMutation.isPending}
             >
@@ -222,12 +218,11 @@ export default function SellerOrderDetail() {
               <AlertDialogCancel>Voltar</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => {
-                  if (!seller) return;
                   if (!cancelReason.trim()) {
                     toast.error("Informe o motivo do cancelamento.");
                     return;
                   }
-                  cancelMutation.mutate({ orderId: order.id, sellerId: seller.id, cancelReason });
+                  cancelMutation.mutate({ orderId: order.id, cancelReason });
                 }}
                 className="bg-destructive hover:bg-destructive/90"
               >

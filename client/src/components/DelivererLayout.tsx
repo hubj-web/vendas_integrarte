@@ -1,8 +1,8 @@
 import { type ReactNode } from "react";
-import { useDeliverer } from "@/contexts/DelivererContext";
+import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
-import { Redirect } from "wouter";
+import { useLocation } from "wouter";
 
 const LOGO_URL = "/integrarte-logo.png";
 
@@ -11,14 +11,17 @@ interface DelivererLayoutProps {
 }
 
 export default function DelivererLayout({ children }: DelivererLayoutProps) {
-  const { deliverer, clearDeliverer } = useDeliverer();
+  const { user, logout } = useLocalAuth();
+  const [, navigate] = useLocation();
 
-  if (!deliverer) {
-    return <Redirect to="/entregador" />;
-  }
-
-  const handleLogout = () => {
-    clearDeliverer();
+  const handleLogout = async () => {
+    try {
+      sessionStorage.removeItem("manus-cookie");
+    } catch {
+      // ignora se sessionStorage não estiver disponível
+    }
+    await logout();
+    navigate("/entregador");
   };
 
   return (
@@ -28,10 +31,10 @@ export default function DelivererLayout({ children }: DelivererLayoutProps) {
         <div className="max-w-2xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src={LOGO_URL} alt="Integrarte" className="h-10 w-auto object-contain" />
-            {deliverer && (
+            {user && (
               <div className="hidden sm:block">
                 <span className="text-xs text-muted-foreground">Entregador:</span>
-                <span className="text-sm font-bold text-secondary ml-1">{deliverer.name}</span>
+                <span className="text-sm font-bold text-secondary ml-1">{user.name}</span>
               </div>
             )}
           </div>

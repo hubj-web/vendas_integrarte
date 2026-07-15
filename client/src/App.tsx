@@ -3,21 +3,21 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Route, Switch, Redirect } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import { SellerProvider, useSeller } from "./contexts/SellerContext";
-import { DelivererProvider, useDeliverer } from "./contexts/DelivererContext";
+import { trpc } from "@/lib/trpc";
 import AppLayout from "./components/AppLayout";
 import AdminGuard from "./components/AdminGuard";
+import SellerGuard from "./components/SellerGuard";
 import SellerLayout from "./components/SellerLayout";
 import DelivererLayout from "./components/DelivererLayout";
 
 // ── SELLER PAGES ──
-import SelectSeller from "./pages/seller/SelectSeller";
+import SellerLogin from "./pages/seller/SellerLogin";
 import SellerNewOrder from "./pages/seller/SellerNewOrder";
 import MyOrders from "./pages/seller/MyOrders";
 import SellerOrderDetail from "./pages/seller/SellerOrderDetail";
 
 // ── DELIVERER PAGES ──
-import SelectDeliverer from "./pages/deliverer/SelectDeliverer";
+import DelivererLogin from "./pages/deliverer/DelivererLogin";
 import DelivererRoutes from "./pages/deliverer/DelivererRoutes";
 
 // ── ADMIN PAGES ──
@@ -46,8 +46,18 @@ import NotFound from "./pages/NotFound";
 
 // ── SELLER AREA ──
 function SellerArea() {
-  const { seller } = useSeller();
-  if (!seller) return <SelectSeller />;
+  const { data: user, isLoading } = trpc.auth.me.useQuery();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user || !hasLauncherRole(user)) return <SellerLogin />;
+
   return (
     <SellerLayout>
       <Switch>
@@ -64,10 +74,42 @@ function SellerArea() {
   );
 }
 
+function hasDeliveryRole(user: { role?: string; roles?: string | null } | null | undefined): boolean {
+  if (!user) return false;
+  if (user.role === "delivery" || user.role === "admin") return true;
+  try {
+    const parsed = JSON.parse(user.roles ?? "[]");
+    return Array.isArray(parsed) && parsed.includes("delivery");
+  } catch {
+    return false;
+  }
+}
+
+function hasLauncherRole(user: { role?: string; roles?: string | null } | null | undefined): boolean {
+  if (!user) return false;
+  if (user.role === "launcher" || user.role === "admin") return true;
+  try {
+    const parsed = JSON.parse(user.roles ?? "[]");
+    return Array.isArray(parsed) && parsed.includes("launcher");
+  } catch {
+    return false;
+  }
+}
+
 // ── DELIVERER AREA ──
 function DelivererArea() {
-  const { deliverer } = useDeliverer();
-  if (!deliverer) return <SelectDeliverer />;
+  const { data: user, isLoading } = trpc.auth.me.useQuery();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-blue-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user || !hasDeliveryRole(user)) return <DelivererLogin />;
+
   return (
     <DelivererLayout>
       <Switch>
@@ -89,14 +131,10 @@ function Router() {
     <Switch>
       {/* ── DELIVERER ── */}
       <Route path="/entregador/:rest*">
-        <DelivererProvider>
-          <DelivererArea />
-        </DelivererProvider>
+        <DelivererArea />
       </Route>
       <Route path="/entregador">
-        <DelivererProvider>
-          <DelivererArea />
-        </DelivererProvider>
+        <DelivererArea />
       </Route>
 
       {/* ── ADMIN CONFIG (most specific first) ── */}
@@ -173,19 +211,19 @@ function Router() {
 
       {/* ── SELLER ── */}
       <Route path="/vendedor/novo-pedido">
-        <SellerProvider><SellerLayout><SellerNewOrder /></SellerLayout></SellerProvider>
+        <SellerGuard><SellerLayout><SellerNewOrder /></SellerLayout></SellerGuard>
       </Route>
       <Route path="/vendedor/meus-pedidos">
-        <SellerProvider><SellerLayout><MyOrders /></SellerLayout></SellerProvider>
+        <SellerGuard><SellerLayout><MyOrders /></SellerLayout></SellerGuard>
       </Route>
       <Route path="/vendedor/pedido/:id">
-        <SellerProvider><SellerLayout><SellerOrderDetail /></SellerLayout></SellerProvider>
+        <SellerGuard><SellerLayout><SellerOrderDetail /></SellerLayout></SellerGuard>
       </Route>
       <Route path="/vendedor/pedido/:id/editar">
-        <SellerProvider><SellerLayout><SellerNewOrder /></SellerLayout></SellerProvider>
+        <SellerGuard><SellerLayout><SellerNewOrder /></SellerLayout></SellerGuard>
       </Route>
       <Route path="/">
-        <SellerProvider><SellerArea /></SellerProvider>
+        <SellerArea />
       </Route>
 
       <Route component={NotFound} />

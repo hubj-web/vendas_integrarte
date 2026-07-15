@@ -42,6 +42,7 @@ export const authRouter = router({
         name: user.name,
         email: user.email,
         role: user.role,
+        roles: user.roles,
         mustChangePassword: user.mustChangePassword,
         // Return token so frontend can store in sessionStorage as Bearer fallback
         // when browser blocks HttpOnly cookies in iframe (SameSite/Secure policy)
