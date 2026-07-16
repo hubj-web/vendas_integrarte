@@ -44,6 +44,8 @@ import Backup from "./pages/admin/Backup";
 import Packaging from "./pages/admin/Packaging";
 import OptimizedRouteGenerator from "./pages/OptimizedRouteGenerator";
 import NotFound from "./pages/NotFound";
+import Home from "./pages/Home";
+import GestaoIntegrarte from "./pages/GestaoIntegrarte";
 
 // ── SELLER AREA ──
 function SellerArea() {
@@ -67,6 +69,9 @@ function SellerArea() {
         <Route path="/vendedor/estoque" component={Stock} />
         <Route path="/vendedor/pedido/:id" component={SellerOrderDetail} />
         <Route path="/vendedor/pedido/:id/editar" component={SellerNewOrder} />
+        <Route path="/vendedor">
+          <Redirect to="/vendedor/novo-pedido" />
+        </Route>
         <Route path="/">
           <Redirect to="/vendedor/novo-pedido" />
         </Route>
@@ -234,7 +239,10 @@ function Router() {
         <SellerGuard><SellerLayout><SellerNewOrder /></SellerLayout></SellerGuard>
       </Route>
       <Route path="/">
-        <SellerArea />
+        <Home />
+      </Route>
+      <Route path="/gestao">
+        <GestaoIntegrarte />
       </Route>
 
       <Route component={NotFound} />
