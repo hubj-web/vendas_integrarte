@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
 import { COOKIE_NAME } from "@/const";
 import ForcePasswordChange from "@/components/ForcePasswordChange";
+import { HighlightedTitle } from "@/components/HighlightedTitle";
 
 const LOGO_URL = "/integrarte-logo.png";
 
@@ -74,7 +75,9 @@ export default function AdminLogin() {
         {/* Logo */}
         <div className="text-center mb-8">
           <img src={LOGO_URL} alt="Integrarte" className="h-24 w-auto mx-auto mb-3 drop-shadow-sm" />
-          <h2 className="text-lg font-bold text-primary">Área Administrativa</h2>
+          <h2 className="text-lg font-bold text-primary">
+            <HighlightedTitle color="emerald">Área Administrativa</HighlightedTitle>
+          </h2>
           <p className="text-sm text-muted-foreground">Acesso restrito</p>
         </div>
 
@@ -128,8 +131,9 @@ export default function AdminLogin() {
         </div>
 
         <div className="text-center mt-6">
-          <a href="/" className="text-sm text-muted-foreground hover:text-primary transition-colors">
-            ← Voltar à área de vendas
+          <a href="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors">
+            <ArrowLeft className="w-4 h-4" />
+            Voltar ao menu
           </a>
         </div>
       </div>

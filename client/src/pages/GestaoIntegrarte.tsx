@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import { ArrowLeft, Users, Package, CalendarDays, Construction } from "lucide-react";
+import { HighlightedTitle } from "@/components/HighlightedTitle";
 
 const LOGO_URL = "/integrarte-logo.png";
 
@@ -22,7 +23,9 @@ export default function GestaoIntegrarte() {
 
         <div className="text-center mb-8">
           <img src={LOGO_URL} alt="Integrarte" className="h-20 w-auto mx-auto mb-3 drop-shadow-sm" />
-          <h1 className="text-xl font-bold text-foreground">Gestão Integrarte</h1>
+          <h1 className="text-xl font-bold text-foreground">
+            <HighlightedTitle color="purple">Gestão Integrarte</HighlightedTitle>
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Gestão da instituição — voluntários, suprimentos e atividades
           </p>
