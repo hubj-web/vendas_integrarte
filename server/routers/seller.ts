@@ -5,7 +5,7 @@
  * autenticada (ctx.user.id), nunca por um ID informado pelo cliente.
  */
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, inArray, like, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, or, ne } from "drizzle-orm";
 import { z } from "zod";
 import {
   customers, deliveryMethods, jellyFlavors, minipizzaFlavors,
@@ -510,6 +510,203 @@ export const sellerRouter = router({
       }
 
       return { success: true };
+    }),
+
+  /**
+   * Lista o que está disponível em estoque — soma os itens de todos os pedidos
+   * atribuídos a clientes internos (ex: "Integrarte - Estoque") que ainda não
+   * foram cancelados. Cada linha representa um produto + combinação de sabores
+   * específica (não mistura sabores diferentes numa mesma linha).
+   */
+  stockAvailable: protectedProcedure.query(async ({ ctx }) => {
+    requireLauncherRole(ctx);
+    const db = await getDb();
+    if (!db) return [];
+
+    const stockOrders = await db.select({ id: orders.id })
+      .from(orders)
+      .leftJoin(customers, eq(orders.customerId, customers.id))
+      .where(and(eq(customers.isInternal, true), ne(orders.status, "cancelled")));
+
+    if (stockOrders.length === 0) return [];
+    const stockOrderIds = stockOrders.map(o => o.id);
+
+    const itemRows = await db.select({
+      id: orderItems.id, orderId: orderItems.orderId,
+      productId: orderItems.productId, productName: products.name,
+      unit: products.unit, quantity: orderItems.quantity, unitPrice: orderItems.unitPrice,
+    }).from(orderItems)
+      .leftJoin(products, eq(orderItems.productId, products.id))
+      .where(and(inArray(orderItems.orderId, stockOrderIds), eq(products.active, true)));
+
+    if (itemRows.length === 0) return [];
+
+    const itemIds = itemRows.map(i => i.id);
+    const flavorRows = await db.select({
+      orderItemId: orderItemFlavors.orderItemId, flavorName: orderItemFlavors.flavorName,
+    }).from(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId, itemIds));
+
+    const flavorsByItem: Record<number, string[]> = {};
+    for (const f of flavorRows) {
+      (flavorsByItem[f.orderItemId] ??= []).push(f.flavorName);
+    }
+
+    // Agrupa por produto + combinação exata de sabores (não mistura lotes diferentes)
+    const groups: Record<string, {
+      productId: number; productName: string | null; unit: string | null;
+      flavorKey: string; flavorNames: string[]; unitPrice: string;
+      totalQuantity: number;
+      batches: { orderItemId: number; orderId: number; quantity: number }[];
+    }> = {};
+
+    for (const it of itemRows) {
+      const flavors = (flavorsByItem[it.id] ?? []).slice().sort();
+      const key = `${it.productId}::${flavors.join("|")}`;
+      if (!groups[key]) {
+        groups[key] = {
+          productId: it.productId, productName: it.productName, unit: it.unit,
+          flavorKey: key, flavorNames: flavors, unitPrice: it.unitPrice,
+          totalQuantity: 0, batches: [],
+        };
+      }
+      groups[key].totalQuantity += it.quantity;
+      groups[key].batches.push({ orderItemId: it.id, orderId: it.orderId, quantity: it.quantity });
+    }
+
+    return Object.values(groups)
+      .filter(g => g.totalQuantity > 0)
+      .sort((a, b) => (a.productName ?? "").localeCompare(b.productName ?? ""));
+  }),
+
+  /**
+   * Vende uma quantidade do estoque para um cliente de verdade: cria o pedido
+   * de venda normalmente (com os mesmos sabores do lote de estoque escolhido) e
+   * desconta a mesma quantidade do(s) pedido(s) de estoque de origem, tudo numa
+   * única ação — sem precisar lembrar de editar o pedido de estoque depois.
+   */
+  sellFromStock: protectedProcedure
+    .input(z.object({
+      productId: z.number(),
+      flavorKey: z.string(), // identifica o lote (produto + sabores) escolhido
+      quantity: z.number().min(1),
+      customerId: z.number(),
+      deliveryMethodId: z.number(),
+      deliveryDate: z.string().optional(),
+      deliveryAddress: z.string().optional(),
+      paymentMethod: z.enum(["cash", "pix"]),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const { user } = requireLauncherRole(ctx);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Recarrega o estoque disponível agora (evita vender algo que já foi
+      // consumido por outra venda entre a hora que a tela carregou e o clique).
+      const stockOrders = await db.select({ id: orders.id })
+        .from(orders)
+        .leftJoin(customers, eq(orders.customerId, customers.id))
+        .where(and(eq(customers.isInternal, true), ne(orders.status, "cancelled")));
+      const stockOrderIds = stockOrders.map(o => o.id);
+      if (stockOrderIds.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Não há estoque disponível." });
+      }
+
+      const itemRows = await db.select({
+        id: orderItems.id, orderId: orderItems.orderId,
+        productId: orderItems.productId, quantity: orderItems.quantity,
+        unitPrice: orderItems.unitPrice, subtotal: orderItems.subtotal,
+      }).from(orderItems)
+        .where(and(inArray(orderItems.orderId, stockOrderIds), eq(orderItems.productId, input.productId)));
+
+      const itemIds = itemRows.map(i => i.id);
+      const flavorRows = itemIds.length > 0
+        ? await db.select({ orderItemId: orderItemFlavors.orderItemId, flavorName: orderItemFlavors.flavorName })
+            .from(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId, itemIds))
+        : [];
+      const flavorsByItem: Record<number, string[]> = {};
+      for (const f of flavorRows) (flavorsByItem[f.orderItemId] ??= []).push(f.flavorName);
+
+      // Filtra só os lotes que batem com o sabor escolhido, mais antigos primeiro (FIFO)
+      const matchingBatches = itemRows
+        .filter(it => `${it.productId}::${(flavorsByItem[it.id] ?? []).slice().sort().join("|")}` === input.flavorKey)
+        .sort((a, b) => a.orderId - b.orderId);
+
+      const totalAvailable = matchingBatches.reduce((acc, b) => acc + b.quantity, 0);
+      if (totalAvailable < input.quantity) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Estoque insuficiente — só há ${totalAvailable} disponível.` });
+      }
+
+      const flavorIds = itemIds.length > 0
+        ? await db.select({ orderItemId: orderItemFlavors.orderItemId, productFlavorId: orderItemFlavors.productFlavorId })
+            .from(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId, itemIds))
+        : [];
+      const firstBatchFlavorIds = matchingBatches.length > 0
+        ? flavorIds.filter(f => f.orderItemId === matchingBatches[0].id).map(f => f.productFlavorId)
+        : [];
+
+      const [product] = await db.select({ price: products.price }).from(products).where(eq(products.id, input.productId));
+      const unitPrice = matchingBatches[0]?.unitPrice ?? product?.price ?? "0.00";
+      const subtotal = (parseFloat(unitPrice) * input.quantity).toFixed(2);
+
+      // 1) Cria o pedido de venda de verdade
+      const result = await db.insert(orders).values({
+        customerId: input.customerId,
+        launcherId: user.id,
+        deliveryMethodId: input.deliveryMethodId,
+        deliveryDate: input.deliveryDate ? new Date(input.deliveryDate) : undefined,
+        deliveryAddress: input.deliveryAddress,
+        paymentMethod: input.paymentMethod,
+        notes: input.notes ? `${input.notes} (vendido do estoque)` : "Vendido do estoque",
+        totalAmount: subtotal,
+        status: "production",
+        paymentStatus: "pending",
+      });
+      const newOrderId = Number((result as any).insertId || (result as any)[0]?.insertId);
+
+      const newItemResult = await db.insert(orderItems).values({
+        orderId: newOrderId, productId: input.productId,
+        quantity: input.quantity, unitPrice, subtotal,
+      });
+      const newOrderItemId = Number((newItemResult as any).insertId || (newItemResult as any)[0]?.insertId);
+
+      if (firstBatchFlavorIds.length > 0) {
+        const flavorNameRows = await db.select().from(productFlavors).where(inArray(productFlavors.id, firstBatchFlavorIds));
+        await db.insert(orderItemFlavors).values(
+          flavorNameRows.map(f => ({ orderItemId: newOrderItemId, productFlavorId: f.id, flavorName: f.name }))
+        );
+      }
+
+      await db.insert(orderStatusHistory).values({
+        orderId: newOrderId, userId: user.id, fromStatus: null, toStatus: "production",
+        notes: "Pedido criado a partir do estoque",
+      });
+
+      // 2) Desconta do(s) pedido(s) de estoque de origem (mais antigos primeiro)
+      let remaining = input.quantity;
+      for (const batch of matchingBatches) {
+        if (remaining <= 0) break;
+        const take = Math.min(batch.quantity, remaining);
+        remaining -= take;
+        const newQty = batch.quantity - take;
+
+        if (newQty <= 0) {
+          await db.delete(orderItemFlavors).where(eq(orderItemFlavors.orderItemId, batch.id));
+          await db.delete(orderItems).where(eq(orderItems.id, batch.id));
+        } else {
+          const newSubtotal = (parseFloat(batch.unitPrice) * newQty).toFixed(2);
+          await db.update(orderItems).set({ quantity: newQty, subtotal: newSubtotal }).where(eq(orderItems.id, batch.id));
+        }
+
+        // Atualiza o total do pedido de estoque de origem
+        const [stockOrder] = await db.select({ totalAmount: orders.totalAmount }).from(orders).where(eq(orders.id, batch.orderId));
+        if (stockOrder) {
+          const newTotal = (parseFloat(stockOrder.totalAmount) - parseFloat(batch.unitPrice) * take).toFixed(2);
+          await db.update(orders).set({ totalAmount: newTotal }).where(eq(orders.id, batch.orderId));
+        }
+      }
+
+      return { success: true, orderId: newOrderId };
     }),
 
   /** Cancela um pedido próprio (bloqueado apenas se já entregue/pago/cancelado) */

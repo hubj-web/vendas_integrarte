@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Button } from "@/components/ui/button";
-import { LogOut, Plus, List } from "lucide-react";
+import { LogOut, Plus, List, Boxes } from "lucide-react";
 import { Link, useLocation } from "wouter";
 
 const LOGO_URL = "/integrarte-logo.png";
@@ -75,6 +75,18 @@ export default function SellerLayout({ children }: SellerLayoutProps) {
             >
               <List className="w-4 h-4" />
               Meus Pedidos
+            </button>
+          </Link>
+          <Link href="/vendedor/estoque">
+            <button
+              className={`flex items-center gap-1.5 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
+                location === "/vendedor/estoque"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Boxes className="w-4 h-4" />
+              Estoque
             </button>
           </Link>
         </div>
