@@ -132,17 +132,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* User info */}
       <div className={cn("px-3 py-4 flex items-center gap-3", collapsed && "justify-center")}>
-        <Avatar className="w-8 h-8 flex-shrink-0 border border-primary/20">
-          <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
-            {initials}
-          </AvatarFallback>
-        </Avatar>
-        {!collapsed && (
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-sidebar-foreground truncate">{user?.name}</p>
-            <p className="text-xs text-muted-foreground">{roleLabel}</p>
-          </div>
-        )}
+        <Link href="/admin/perfil" className={cn("flex items-center gap-3 flex-1 min-w-0", collapsed && "justify-center")} title="Meu Perfil">
+          <Avatar className="w-8 h-8 flex-shrink-0 border border-primary/20 hover:ring-2 hover:ring-primary/30 transition-all">
+            <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
+              {initials}
+            </AvatarFallback>
+          </Avatar>
+          {!collapsed && (
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-sidebar-foreground truncate hover:text-primary transition-colors">{user?.name}</p>
+              <p className="text-xs text-muted-foreground">{roleLabel}</p>
+            </div>
+          )}
+        </Link>
         <button
           onClick={handleLogout}
           className="text-muted-foreground hover:text-destructive transition-colors p-1"

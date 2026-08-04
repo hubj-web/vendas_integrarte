@@ -13,17 +13,7 @@ import { ForgotPasswordDialog } from "@/components/ForgotPasswordDialog";
 
 const LOGO_URL = "/integrarte-logo.png";
 
-function hasLauncherRole(user: { role?: string; roles?: string | null }): boolean {
-  if (user.role === "launcher" || user.role === "admin") return true;
-  try {
-    const parsed = JSON.parse(user.roles ?? "[]");
-    return Array.isArray(parsed) && parsed.includes("launcher");
-  } catch {
-    return false;
-  }
-}
-
-export default function SellerLogin() {
+export default function GestaoLogin() {
   const [, navigate] = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -35,8 +25,10 @@ export default function SellerLogin() {
   const logoutMutation = trpc.auth.logout.useMutation();
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async (data) => {
-      if (!hasLauncherRole(data as any)) {
-        toast.error("Acesso restrito a vendedores.");
+      // Por enquanto, a ERP Integrarte usa o mesmo nível de acesso do admin —
+      // ainda não existe uma função dedicada para gestão da instituição.
+      if (data.role !== "admin") {
+        toast.error("Acesso restrito ao administrador.");
         await logoutMutation.mutateAsync();
         return;
       }
@@ -55,7 +47,7 @@ export default function SellerLogin() {
       }
 
       await utils.auth.me.invalidate();
-      navigate("/vendedor/novo-pedido");
+      navigate("/gestao");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -69,20 +61,20 @@ export default function SellerLogin() {
     return (
       <ForcePasswordChange
         currentPassword={password}
-        onSuccess={() => navigate("/vendedor/novo-pedido")}
+        onSuccess={() => navigate("/gestao")}
       />
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm animate-fade-in-up">
         <div className="text-center mb-8">
           <img src={LOGO_URL} alt="Integrarte" className="h-24 w-auto mx-auto mb-3 drop-shadow-sm" />
-          <h2 className="text-lg font-bold text-primary">
-            <HighlightedTitle color="blue">Área do Vendedor</HighlightedTitle>
+          <h2 className="text-lg font-bold text-purple-700">
+            <HighlightedTitle color="purple">ERP Integrarte</HighlightedTitle>
           </h2>
-          <p className="text-sm text-muted-foreground">Acesse para lançar pedidos</p>
+          <p className="text-sm text-muted-foreground">Gestão da instituição — acesso restrito</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">
@@ -97,7 +89,7 @@ export default function SellerLogin() {
                 placeholder="Nome de usuário"
                 autoComplete="username"
                 required
-                className="h-11 border-2 border-gray-200 focus:border-primary rounded-lg"
+                className="h-11 border-2 border-gray-200 focus:border-purple-500 rounded-lg"
               />
             </div>
             <div className="space-y-1.5">
@@ -111,7 +103,7 @@ export default function SellerLogin() {
                   placeholder="••••••••"
                   autoComplete="current-password"
                   required
-                  className="h-11 border-2 border-gray-200 focus:border-primary rounded-lg pr-10"
+                  className="h-11 border-2 border-gray-200 focus:border-purple-500 rounded-lg pr-10"
                 />
                 <button
                   type="button"
@@ -124,7 +116,7 @@ export default function SellerLogin() {
               <button
                 type="button"
                 onClick={() => setForgotOpen(true)}
-                className="text-xs text-muted-foreground hover:text-primary transition-colors"
+                className="text-xs text-muted-foreground hover:text-purple-600 transition-colors"
               >
                 Esqueci minha senha
               </button>
@@ -133,7 +125,7 @@ export default function SellerLogin() {
             <Button
               type="submit"
               disabled={loginMutation.isPending}
-              className="w-full h-11 rounded-lg font-bold text-base bg-primary hover:bg-primary/90 shadow-md mt-2"
+              className="w-full h-11 rounded-lg font-bold text-base bg-purple-600 hover:bg-purple-700 shadow-md mt-2"
             >
               {loginMutation.isPending ? "Entrando..." : "Entrar"}
             </Button>
@@ -141,7 +133,7 @@ export default function SellerLogin() {
         </div>
 
         <div className="text-center mt-6">
-          <a href="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors">
+          <a href="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-purple-600 transition-colors">
             <ArrowLeft className="w-4 h-4" />
             Voltar ao menu
           </a>

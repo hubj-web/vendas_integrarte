@@ -14,4 +14,9 @@ export const ENV = {
   // Google Maps API
   googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY ?? "",
   googleCloudProjectId: process.env.GOOGLE_CLOUD_PROJECT_ID ?? "",
+  // Envio de e-mail via Gmail (senha de app, não a senha normal da conta)
+  gmailUser: process.env.GMAIL_USER ?? "",
+  gmailAppPassword: process.env.GMAIL_APP_PASSWORD ?? "",
+  // URL pública do sistema, usada para montar links em e-mails (ex: redefinir senha)
+  appUrl: process.env.APP_URL ?? "https://vendasintegrarte-production.up.railway.app",
 };

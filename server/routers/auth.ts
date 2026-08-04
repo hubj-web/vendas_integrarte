@@ -9,6 +9,7 @@ import { COOKIE_NAME } from "../../shared/const";
 import { getSessionCookieOptions } from "../_core/cookies";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { sdk } from "../_core/sdk";
+import { sendPasswordResetEmail } from "../email";
 
 export const authRouter = router({
   me: publicProcedure.query((opts) => opts.ctx.user),
@@ -95,8 +96,13 @@ export const authRouter = router({
           .set({ resetToken: token, resetTokenExpiresAt: expiresAt })
           .where(eq(users.id, user.id));
       }
-      // In production, send email. For now, return token in dev.
-      return { success: true, devToken: process.env.NODE_ENV === "development" ? token : undefined };
+
+      const emailSent = await sendPasswordResetEmail({ to: user.email, name: user.name, token });
+      if (!emailSent) {
+        console.warn(`[Auth] Não foi possível enviar e-mail de redefinição para ${user.email}. Token: ${token}`);
+      }
+
+      return { success: true };
     }),
 
   resetPassword: publicProcedure

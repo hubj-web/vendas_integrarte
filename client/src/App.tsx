@@ -46,6 +46,8 @@ import OptimizedRouteGenerator from "./pages/OptimizedRouteGenerator";
 import NotFound from "./pages/NotFound";
 import Home from "./pages/Home";
 import GestaoIntegrarte from "./pages/GestaoIntegrarte";
+import ResetPassword from "./pages/ResetPassword";
+import Profile from "./pages/Profile";
 
 // ── SELLER AREA ──
 function SellerArea() {
@@ -67,6 +69,7 @@ function SellerArea() {
         <Route path="/vendedor/novo-pedido" component={SellerNewOrder} />
         <Route path="/vendedor/meus-pedidos" component={MyOrders} />
         <Route path="/vendedor/estoque" component={Stock} />
+        <Route path="/vendedor/perfil" component={Profile} />
         <Route path="/vendedor/pedido/:id" component={SellerOrderDetail} />
         <Route path="/vendedor/pedido/:id/editar" component={SellerNewOrder} />
         <Route path="/vendedor">
@@ -122,6 +125,7 @@ function DelivererArea() {
       <Switch>
         <Route path="/entregador" component={DelivererRoutes} />
         <Route path="/entregador/rotas" component={DelivererRoutes} />
+        <Route path="/entregador/perfil" component={Profile} />
         <Route component={NotFound} />
       </Switch>
     </DelivererLayout>
@@ -213,6 +217,9 @@ function Router() {
       <Route path="/admin/dashboard">
         <AdminGuard><AppLayout><Dashboard /></AppLayout></AdminGuard>
       </Route>
+      <Route path="/admin/perfil">
+        <AdminGuard><AppLayout><Profile /></AppLayout></AdminGuard>
+      </Route>
 
       {/* ── ADMIN LOGIN (last — /admin is a prefix and would swallow everything above) ── */}
       <Route path="/admin">
@@ -232,6 +239,9 @@ function Router() {
       <Route path="/vendedor/estoque">
         <SellerGuard><SellerLayout><Stock /></SellerLayout></SellerGuard>
       </Route>
+      <Route path="/vendedor/perfil">
+        <SellerGuard><SellerLayout><Profile /></SellerLayout></SellerGuard>
+      </Route>
       <Route path="/vendedor/pedido/:id">
         <SellerGuard><SellerLayout><SellerOrderDetail /></SellerLayout></SellerGuard>
       </Route>
@@ -243,6 +253,9 @@ function Router() {
       </Route>
       <Route path="/gestao">
         <GestaoIntegrarte />
+      </Route>
+      <Route path="/redefinir-senha">
+        <ResetPassword />
       </Route>
 
       <Route component={NotFound} />

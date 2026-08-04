@@ -9,6 +9,7 @@ import { useLocation } from "wouter";
 import { COOKIE_NAME } from "@/const";
 import ForcePasswordChange from "@/components/ForcePasswordChange";
 import { HighlightedTitle } from "@/components/HighlightedTitle";
+import { ForgotPasswordDialog } from "@/components/ForgotPasswordDialog";
 
 const LOGO_URL = "/integrarte-logo.png";
 
@@ -18,6 +19,7 @@ export default function AdminLogin() {
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [needsPasswordChange, setNeedsPasswordChange] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
   const utils = trpc.useUtils();
 
   const logoutMutation = trpc.auth.logout.useMutation();
@@ -118,6 +120,13 @@ export default function AdminLogin() {
                   {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={() => setForgotOpen(true)}
+                className="text-xs text-muted-foreground hover:text-primary transition-colors"
+              >
+                Esqueci minha senha
+              </button>
             </div>
 
             <Button
@@ -137,6 +146,8 @@ export default function AdminLogin() {
           </a>
         </div>
       </div>
+
+      <ForgotPasswordDialog open={forgotOpen} onOpenChange={setForgotOpen} />
     </div>
   );
 }

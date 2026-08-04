@@ -41,7 +41,17 @@ export default function Users() {
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
   const { data: users = [], isLoading } = trpc.users.list.useQuery({ search: search || undefined });
-  const createMutation = trpc.users.create.useMutation({ onSuccess: () => { utils.users.list.invalidate(); toast.success("Usuário criado!"); setOpen(false); } });
+  const createMutation = trpc.users.create.useMutation({
+    onSuccess: (data) => {
+      utils.users.list.invalidate();
+      if (data.emailSent) {
+        toast.success("Usuário criado! E-mail de boas-vindas enviado.");
+      } else {
+        toast.success("Usuário criado! (Não foi possível enviar o e-mail — confira o endereço cadastrado.)");
+      }
+      setOpen(false);
+    },
+  });
   const updateMutation = trpc.users.update.useMutation({ onSuccess: () => { utils.users.list.invalidate(); toast.success("Usuário atualizado!"); setOpen(false); } });
   const deleteMutation = trpc.users.delete.useMutation({ onSuccess: () => { utils.users.list.invalidate(); toast.success("Usuário desativado!"); setDeleteId(null); } });
   const resetMutation = trpc.users.resetPassword.useMutation({

@@ -5,14 +5,14 @@ const LOGO_URL = "/integrarte-logo.png";
 
 const menuItems = [
   {
-    label: "Administrativo Vendas",
+    label: "CRM INTEGRARTE",
     description: "Pedidos, produtos, rotas e relatórios",
     href: "/admin",
     icon: ClipboardList,
     color: "from-emerald-500 to-emerald-600",
   },
   {
-    label: "Vendas",
+    label: "VENDAS",
     description: "Lançar pedidos e consultar estoque",
     href: "/vendedor",
     icon: ShoppingCart,
@@ -26,7 +26,7 @@ const menuItems = [
     color: "from-orange-500 to-orange-600",
   },
   {
-    label: "Gestão Integrarte",
+    label: "ERP INTEGRARTE",
     description: "Voluntários, suprimentos e atividades",
     href: "/gestao",
     icon: HeartHandshake,

@@ -1,6 +1,9 @@
-import { Link } from "wouter";
-import { ArrowLeft, Users, Package, CalendarDays, Construction } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { trpc } from "@/lib/trpc";
+import { ArrowLeft, Users, Package, CalendarDays, Construction, LogOut } from "lucide-react";
 import { HighlightedTitle } from "@/components/HighlightedTitle";
+import { Button } from "@/components/ui/button";
+import GestaoLogin from "./GestaoLogin";
 
 const LOGO_URL = "/integrarte-logo.png";
 
@@ -10,21 +13,57 @@ const sections = [
   { label: "Atividades", icon: CalendarDays, description: "Agenda e registro de atividades" },
 ];
 
+function hasAdminRole(user: { role?: string } | null | undefined): boolean {
+  return !!user && user.role === "admin";
+}
+
 export default function GestaoIntegrarte() {
+  const { data: user, isLoading } = trpc.auth.me.useQuery();
+  const [, navigate] = useLocation();
+  const logoutMutation = trpc.auth.logout.useMutation();
+  const utils = trpc.useUtils();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-purple-300 border-t-purple-600 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!hasAdminRole(user)) return <GestaoLogin />;
+
+  async function handleLogout() {
+    try {
+      sessionStorage.removeItem("manus-cookie");
+    } catch {
+      // ignora se sessionStorage não estiver disponível
+    }
+    await logoutMutation.mutateAsync();
+    await utils.auth.me.invalidate();
+    navigate("/gestao");
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-lg">
-        <Link href="/">
-          <button className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
-            <ArrowLeft className="w-4 h-4" />
-            Voltar ao menu
-          </button>
-        </Link>
+        <div className="flex items-center justify-between mb-6">
+          <Link href="/">
+            <button className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <ArrowLeft className="w-4 h-4" />
+              Voltar ao menu
+            </button>
+          </Link>
+          <Button variant="ghost" size="sm" onClick={handleLogout} className="text-muted-foreground hover:text-destructive gap-1.5 text-xs">
+            <LogOut className="w-3.5 h-3.5" />
+            Sair
+          </Button>
+        </div>
 
         <div className="text-center mb-8">
           <img src={LOGO_URL} alt="Integrarte" className="h-20 w-auto mx-auto mb-3 drop-shadow-sm" />
           <h1 className="text-xl font-bold text-foreground">
-            <HighlightedTitle color="purple">Gestão Integrarte</HighlightedTitle>
+            <HighlightedTitle color="purple">ERP Integrarte</HighlightedTitle>
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Gestão da instituição — voluntários, suprimentos e atividades

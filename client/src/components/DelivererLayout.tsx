@@ -1,8 +1,8 @@
 import { type ReactNode } from "react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Button } from "@/components/ui/button";
-import { LogOut } from "lucide-react";
-import { useLocation } from "wouter";
+import { LogOut, UserCircle } from "lucide-react";
+import { Link, useLocation } from "wouter";
 
 const LOGO_URL = "/integrarte-logo.png";
 
@@ -38,15 +38,23 @@ export default function DelivererLayout({ children }: DelivererLayoutProps) {
               </div>
             )}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleLogout}
-            className="text-muted-foreground hover:text-destructive gap-1.5 text-xs"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            Sair
-          </Button>
+          <div className="flex items-center gap-1">
+            <Link href="/entregador/perfil">
+              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary gap-1.5 text-xs">
+                <UserCircle className="w-3.5 h-3.5" />
+                Perfil
+              </Button>
+            </Link>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleLogout}
+              className="text-muted-foreground hover:text-destructive gap-1.5 text-xs"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Sair
+            </Button>
+          </div>
         </div>
       </header>
 

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { users } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
+import { sendWelcomeEmail } from "../email";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin" && !hasRole(ctx.user, "admin")) {
@@ -60,6 +61,48 @@ export const usersRouter = router({
       return rows;
     }),
 
+  /**
+   * Permite que o próprio usuário logado edite seus dados (nome/e-mail) —
+   * diferente de "update", que é o admin editando qualquer pessoa.
+   * Trocar o e-mail exige a senha atual, por segurança (é o identificador de login).
+   */
+  updateOwnProfile: protectedProcedure
+    .input(z.object({
+      name: z.string().min(2).optional(),
+      email: z.string().email().optional(),
+      currentPassword: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [me] = await db.select().from(users).where(eq(users.id, ctx.user.id)).limit(1);
+      if (!me) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const updateData: Record<string, unknown> = {};
+      if (input.name) updateData.name = input.name;
+
+      if (input.email && input.email !== me.email) {
+        if (!input.currentPassword) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Informe sua senha atual para trocar o e-mail." });
+        }
+        const valid = me.passwordHash ? await bcrypt.compare(input.currentPassword, me.passwordHash) : false;
+        if (!valid) throw new TRPCError({ code: "UNAUTHORIZED", message: "Senha atual incorreta." });
+
+        const existing = await db.select().from(users).where(eq(users.email, input.email)).limit(1);
+        if (existing.length > 0 && existing[0].id !== ctx.user.id) {
+          throw new TRPCError({ code: "CONFLICT", message: "Este e-mail já está em uso por outra conta." });
+        }
+        updateData.email = input.email;
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        await db.update(users).set(updateData).where(eq(users.id, ctx.user.id));
+      }
+
+      return { success: true };
+    }),
+
   create: adminProcedure
     .input(z.object({
       name: z.string().min(2),
@@ -95,7 +138,12 @@ export const usersRouter = router({
         lastSignedIn: new Date(),
       });
 
-      return { success: true };
+      const emailSent = await sendWelcomeEmail({
+        to: input.email, name: input.name,
+        temporaryPassword: input.password, role: primaryRole,
+      });
+
+      return { success: true, emailSent };
     }),
 
   update: adminProcedure
@@ -129,13 +177,21 @@ export const usersRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+      const [existing] = await db.select().from(users).where(eq(users.id, input.id)).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+
       const tempPassword = nanoid(10);
       const hash = await bcrypt.hash(tempPassword, 12);
       await db.update(users)
         .set({ passwordHash: hash, mustChangePassword: true })
         .where(eq(users.id, input.id));
 
-      return { success: true, tempPassword };
+      const emailSent = await sendWelcomeEmail({
+        to: existing.email, name: existing.name,
+        temporaryPassword: tempPassword, role: existing.role,
+      });
+
+      return { success: true, tempPassword, emailSent };
     }),
 
   delete: adminProcedure
