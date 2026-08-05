@@ -13,34 +13,58 @@ import { ptBR } from "date-fns/locale";
 const fmt = (v: string | number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
 
+function monthOptions() {
+  const opts: { value: string; label: string }[] = [];
+  const now = new Date();
+  for (let i = 0; i <= 11; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+    opts.push({ value, label: label.charAt(0).toUpperCase() + label.slice(1) });
+  }
+  return opts;
+}
+
 export default function MyOrders() {
   const [status, setStatus] = useState("all");
+  const [mes, setMes] = useState("all");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 15;
 
   const { data, isLoading } = trpc.seller.myOrders.useQuery(
-    { status, page, pageSize: PAGE_SIZE }
+    { status, mes: mes === "all" ? undefined : mes, page, pageSize: PAGE_SIZE }
   );
 
   const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 1;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold text-foreground">Meus Pedidos</h2>
-        <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1); }}>
-          <SelectTrigger className="w-44 h-9 text-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos</SelectItem>
-            <SelectItem value="production">Em produção</SelectItem>
-            <SelectItem value="in_route">Em rota</SelectItem>
-            <SelectItem value="delivered">Entregue</SelectItem>
-            <SelectItem value="paid">Pago</SelectItem>
-            <SelectItem value="cancelled">Cancelado</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select value={mes} onValueChange={(v) => { setMes(v); setPage(1); }}>
+            <SelectTrigger className="w-44 h-9 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os meses</SelectItem>
+              {monthOptions().map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1); }}>
+            <SelectTrigger className="w-44 h-9 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="production">Em produção</SelectItem>
+              <SelectItem value="in_route">Em rota</SelectItem>
+              <SelectItem value="delivered">Entregue</SelectItem>
+              <SelectItem value="paid">Pago</SelectItem>
+              <SelectItem value="cancelled">Cancelado</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {isLoading ? (
