@@ -1,5 +1,4 @@
 import nodemailer from "nodemailer";
-import type SMTPTransport from "nodemailer/lib/smtp-transport";
 import { ENV } from "./_core/env";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -19,7 +18,7 @@ function isConfigured(): boolean {
 }
 
 function getTransport() {
-  const options = {
+  return nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 465,
     secure: true,
@@ -27,14 +26,8 @@ function getTransport() {
       user: ENV.gmailUser,
       pass: ENV.gmailAppPassword,
     },
-    // O ambiente de produção (Railway) não tem saída IPv6 funcional — sem isso,
-    // o Node às vezes escolhe o endereço IPv6 do Gmail e a conexão trava/falha
-    // com ENETUNREACH. Forçando IPv4 evita esse problema. (O pacote @types/nodemailer
-    // instalado ainda não declara "family" mesmo a lib em si suportando — daí o "as any".)
-    family: 4,
     connectionTimeout: 15000,
-  } as SMTPTransport.Options;
-  return nodemailer.createTransport(options);
+  });
 }
 
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {

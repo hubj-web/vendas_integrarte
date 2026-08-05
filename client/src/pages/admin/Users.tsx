@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, KeyRound, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, KeyRound, Search, UserX } from "lucide-react";
 
 const roleLabels: Record<string, string> = { admin: "Administrador", launcher: "Vendedor", delivery: "Entregador" };
 const roleColors: Record<string, string> = {
@@ -57,6 +57,10 @@ export default function Users() {
     onSuccess: () => { utils.users.list.invalidate(); toast.success("Usuário desativado!"); setDeleteId(null); },
     onError: (e) => toast.error(e.message),
   });
+  const hardDeleteMutation = trpc.users.hardDelete.useMutation({
+    onSuccess: () => { utils.users.list.invalidate(); toast.success("Usuário excluído permanentemente."); setHardDeleteId(null); },
+    onError: (e) => toast.error(e.message),
+  });
   const resetMutation = trpc.users.resetPassword.useMutation({
     onSuccess: (data) => {
       toast.success("Senha redefinida!");
@@ -68,6 +72,7 @@ export default function Users() {
 
   const [open, setOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [hardDeleteId, setHardDeleteId] = useState<{ id: number; name: string } | null>(null);
   const [resetId, setResetId] = useState<number | null>(null);
   const [editing, setEditing] = useState<any>(null);
   const [form, setForm] = useState({ name: "", email: "", roles: ["launcher"] as string[], password: "" });
@@ -161,7 +166,8 @@ export default function Users() {
                     <div className="flex items-center justify-end gap-1">
                       <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" title="Editar" onClick={() => openEdit(u)}><Pencil className="w-3.5 h-3.5" /></Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-orange-400" title="Redefinir senha" onClick={() => setResetId(u.id)}><KeyRound className="w-3.5 h-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-destructive" title="Desativar" onClick={() => setDeleteId(u.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-amber-500" title="Desativar (pode reverter depois)" onClick={() => setDeleteId(u.id)}><UserX className="w-3.5 h-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-destructive" title="Excluir permanentemente" onClick={() => setHardDeleteId({ id: u.id, name: u.name })}><Trash2 className="w-3.5 h-3.5" /></Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -207,6 +213,31 @@ export default function Users() {
 
       <AlertDialog open={deleteId !== null} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent className="bg-card border-border"><AlertDialogHeader><AlertDialogTitle>Desativar usuário?</AlertDialogTitle><AlertDialogDescription>O usuário não poderá mais acessar o sistema.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => deleteId && deleteMutation.mutate({ id: deleteId })} className="bg-destructive text-white">Desativar</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={hardDeleteId !== null} onOpenChange={() => setHardDeleteId(null)}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir "{hardDeleteId?.name}" permanentemente?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Essa ação <strong>não pode ser desfeita</strong> — diferente de "Desativar", o usuário é
+              apagado de vez do sistema. Pedidos, entregas ou pagamentos antigos ligados a essa pessoa
+              continuam existindo normalmente, só que sem conseguir mostrar o nome dela mais.
+              <br /><br />
+              Se você só quer impedir o acesso (mas manter o histórico completo), use "Desativar" em vez disso.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => hardDeleteId && hardDeleteMutation.mutate({ id: hardDeleteId.id })}
+              className="bg-destructive text-white"
+              disabled={hardDeleteMutation.isPending}
+            >
+              Excluir permanentemente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
       </AlertDialog>
 
       <AlertDialog open={resetId !== null} onOpenChange={() => setResetId(null)}>

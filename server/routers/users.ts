@@ -209,4 +209,25 @@ export const usersRouter = router({
       await db.update(users).set({ active: false }).where(eq(users.id, input.id));
       return { success: true };
     }),
+
+  /**
+   * Exclui o usuário permanentemente do banco (diferente de "delete", que só
+   * desativa). Pedidos/entregas/pagamentos antigos ligados a esse usuário
+   * continuam existindo, só que sem conseguir mostrar o nome dele mais.
+   */
+  hardDelete: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      if (input.id === ctx.user.id) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Você não pode excluir sua própria conta." });
+      }
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.id, input.id)).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado." });
+
+      await db.delete(users).where(eq(users.id, input.id));
+      return { success: true };
+    }),
 });

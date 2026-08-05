@@ -1,4 +1,11 @@
 import "dotenv/config";
+import dns from "dns";
+// O ambiente de produção (Railway) não tem saída IPv6 funcional. Sem isso, o
+// Node às vezes resolve hosts externos (ex: smtp.gmail.com) para o endereço
+// IPv6 primeiro, e a conexão trava/falha com ENETUNREACH — isso já quebrou o
+// envio de e-mail em produção. Forçando IPv4 primeiro na resolução de DNS,
+// pra qualquer conexão de saída do servidor (não só e-mail).
+dns.setDefaultResultOrder("ipv4first");
 import express from "express";
 import { createServer } from "http";
 import net from "net";
