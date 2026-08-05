@@ -97,10 +97,10 @@ export const authRouter = router({
           .where(eq(users.id, user.id));
       }
 
-      const emailSent = await sendPasswordResetEmail({ to: user.email, name: user.name, token });
-      if (!emailSent) {
-        console.warn(`[Auth] Não foi possível enviar e-mail de redefinição para ${user.email}. Token: ${token}`);
-      }
+      // Não trava a resposta esperando o e-mail sair
+      sendPasswordResetEmail({ to: user.email, name: user.name, token }).catch((err) => {
+        console.error(`[Auth] Falha ao enviar e-mail de redefinição para ${user.email}:`, err);
+      });
 
       return { success: true };
     }),

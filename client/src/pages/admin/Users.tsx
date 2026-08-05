@@ -42,13 +42,9 @@ export default function Users() {
   const [search, setSearch] = useState("");
   const { data: users = [], isLoading } = trpc.users.list.useQuery({ search: search || undefined });
   const createMutation = trpc.users.create.useMutation({
-    onSuccess: (data) => {
+    onSuccess: () => {
       utils.users.list.invalidate();
-      if (data.emailSent) {
-        toast.success("Usuário criado! E-mail de boas-vindas enviado.");
-      } else {
-        toast.success("Usuário criado! (Não foi possível enviar o e-mail — confira o endereço cadastrado.)");
-      }
+      toast.success("Usuário criado! Enviando e-mail de boas-vindas...");
       setOpen(false);
     },
     onError: (e) => toast.error(e.message),

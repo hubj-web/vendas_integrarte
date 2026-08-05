@@ -138,12 +138,14 @@ export const usersRouter = router({
         lastSignedIn: new Date(),
       });
 
-      const emailSent = await sendWelcomeEmail({
+      // Não trava a resposta esperando o e-mail sair — se o envio demorar ou
+      // falhar, o usuário já foi criado normalmente de qualquer forma.
+      sendWelcomeEmail({
         to: input.email, name: input.name,
         temporaryPassword: input.password, role: primaryRole,
-      });
+      }).catch((err) => console.error("[Users] Falha ao enviar e-mail de boas-vindas:", err));
 
-      return { success: true, emailSent };
+      return { success: true };
     }),
 
   update: adminProcedure
@@ -186,12 +188,13 @@ export const usersRouter = router({
         .set({ passwordHash: hash, mustChangePassword: true })
         .where(eq(users.id, input.id));
 
-      const emailSent = await sendWelcomeEmail({
+      // Idem: não trava a resposta esperando o e-mail sair
+      sendWelcomeEmail({
         to: existing.email, name: existing.name,
         temporaryPassword: tempPassword, role: existing.role,
-      });
+      }).catch((err) => console.error("[Users] Falha ao enviar e-mail de reset:", err));
 
-      return { success: true, tempPassword, emailSent };
+      return { success: true, tempPassword };
     }),
 
   delete: adminProcedure
