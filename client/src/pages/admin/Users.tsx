@@ -51,15 +51,23 @@ export default function Users() {
       }
       setOpen(false);
     },
+    onError: (e) => toast.error(e.message),
   });
-  const updateMutation = trpc.users.update.useMutation({ onSuccess: () => { utils.users.list.invalidate(); toast.success("Usuário atualizado!"); setOpen(false); } });
-  const deleteMutation = trpc.users.delete.useMutation({ onSuccess: () => { utils.users.list.invalidate(); toast.success("Usuário desativado!"); setDeleteId(null); } });
+  const updateMutation = trpc.users.update.useMutation({
+    onSuccess: () => { utils.users.list.invalidate(); toast.success("Usuário atualizado!"); setOpen(false); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteMutation = trpc.users.delete.useMutation({
+    onSuccess: () => { utils.users.list.invalidate(); toast.success("Usuário desativado!"); setDeleteId(null); },
+    onError: (e) => toast.error(e.message),
+  });
   const resetMutation = trpc.users.resetPassword.useMutation({
     onSuccess: (data) => {
       toast.success("Senha redefinida!");
       if (data.tempPassword) toast.info(`Senha temporária: ${data.tempPassword}`, { duration: 20000 });
       setResetId(null);
     },
+    onError: (e) => toast.error(e.message),
   });
 
   const [open, setOpen] = useState(false);
