@@ -892,17 +892,17 @@ export const periodosVendaRouter = router({
   create: adminProcedure
     .input(z.object({
       descricao: z.string().optional(),
-      dataAbertura: z.string(),
+      dataAbertura: z.string(), // "2026-07-30T12:00" (datetime-local)
       dataFechamento: z.string(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      const abertura = new Date(input.dataAbertura + "T00:00:00");
-      const fechamento = new Date(input.dataFechamento + "T23:59:59");
+      const abertura = new Date(input.dataAbertura);
+      const fechamento = new Date(input.dataFechamento);
       if (fechamento < abertura) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "A data de fechamento não pode ser antes da abertura." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A data/hora de fechamento não pode ser antes da abertura." });
       }
 
       await db.insert(periodosVenda).values({

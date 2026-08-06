@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { Plus, CalendarRange, CheckCircle2, XCircle, Trash2 } from "lucide-react";
 
 function fmtData(v: string | Date) {
-  return new Date(v).toLocaleDateString("pt-BR");
+  return new Date(v).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 export default function PeriodosVenda() {
@@ -129,12 +129,12 @@ export default function PeriodosVenda() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Data de abertura</Label>
-                <Input type="date" value={form.dataAbertura} onChange={(e) => setForm(f => ({ ...f, dataAbertura: e.target.value }))} />
+                <Label>Abertura (data e hora)</Label>
+                <Input type="datetime-local" value={form.dataAbertura} onChange={(e) => setForm(f => ({ ...f, dataAbertura: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label>Data de fechamento</Label>
-                <Input type="date" value={form.dataFechamento} onChange={(e) => setForm(f => ({ ...f, dataFechamento: e.target.value }))} />
+                <Label>Fechamento (data e hora)</Label>
+                <Input type="datetime-local" value={form.dataFechamento} onChange={(e) => setForm(f => ({ ...f, dataFechamento: e.target.value }))} />
               </div>
             </div>
           </div>
