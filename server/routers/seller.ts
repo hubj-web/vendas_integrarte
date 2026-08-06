@@ -267,28 +267,18 @@ export const sellerRouter = router({
   myOrders: protectedProcedure
     .input(z.object({
       status: z.string().optional(),
-      mes: z.string().optional(), // "2026-08"
       page: z.number().default(1),
       pageSize: z.number().default(20),
     }))
     .query(async ({ input, ctx }) => {
-      const { user } = requireLauncherRole(ctx);
+      const { user, isAdmin } = requireLauncherRole(ctx);
       const db = await getDb();
       if (!db) return { orders: [], total: 0 };
-      const { count, gte, lte } = await import("drizzle-orm");
-      // "Meus Pedidos" mostra sempre só os pedidos lançados pela própria pessoa
-      // logada — mesmo sendo admin (a visão de todos os pedidos já existe na
-      // tela "Pedidos" do CRM).
-      const conditions = [eq(orders.launcherId, user.id)];
+      const { count } = await import("drizzle-orm");
+      // Admin vê todos os pedidos; vendedor vê só os próprios
+      const conditions = isAdmin ? [] : [eq(orders.launcherId, user.id)];
       if (input.status && input.status !== "all") {
         conditions.push(eq(orders.status, input.status as any));
-      }
-      if (input.mes) {
-        const [ano, mes] = input.mes.split("-").map(Number);
-        const inicio = new Date(ano, mes - 1, 1);
-        const fim = new Date(ano, mes, 0, 23, 59, 59);
-        conditions.push(gte(orders.createdAt, inicio));
-        conditions.push(lte(orders.createdAt, fim));
       }
       const offset = (input.page - 1) * input.pageSize;
       const rows = await db.select({

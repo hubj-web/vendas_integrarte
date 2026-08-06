@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, User, UserPlus,
-  ChevronRight, Check, Tag, MapPin, ArrowLeft, X
+  ChevronRight, Check, Tag, MapPin, ArrowLeft, X, AlertCircle
 } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Link } from "wouter";
@@ -49,6 +49,7 @@ export default function SellerNewOrder() {
     : (editOrderId ? `/vendedor/pedido/${editOrderId}` : "/vendedor/meus-pedidos");
 
   const { data: catalog } = trpc.seller.catalog.useQuery();
+  const { data: periodoStatus } = trpc.seller.periodoVendaStatus.useQuery(undefined, { enabled: !isAdminRoute });
 
   // Fetch order detail when in edit mode
   const { data: existingOrder, isLoading: isLoadingOrder, error: orderError } = trpc.seller.orderDetail.useQuery(
@@ -389,6 +390,7 @@ export default function SellerNewOrder() {
         subtotal: c.subtotal.toFixed(2),
         flavorIds: c.flavorIds || [],
       })),
+      viaAdmin: isAdminRoute,
     };
 
     if (isEditMode && editOrderId) {
@@ -479,6 +481,16 @@ export default function SellerNewOrder() {
           {isEditMode ? `Editar Pedido #${editOrderId}` : "Novo Pedido"}
         </h2>
       </div>
+
+      {!isAdminRoute && !isEditMode && periodoStatus && !periodoStatus.ativo && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm">
+          <AlertCircle className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
+          <p className="text-orange-800">
+            <strong>Período de vendas fechado.</strong> Só é possível vender o que já está no
+            Integrarte Estoque — se pedir algo indisponível, o sistema vai avisar na hora de salvar.
+          </p>
+        </div>
+      )}
 
       {/* ── CUSTOMER ── */}
       <Card className="bg-card border-border">

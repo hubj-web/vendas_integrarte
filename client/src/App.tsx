@@ -46,13 +46,6 @@ import OptimizedRouteGenerator from "./pages/OptimizedRouteGenerator";
 import NotFound from "./pages/NotFound";
 import Home from "./pages/Home";
 import GestaoIntegrarte from "./pages/GestaoIntegrarte";
-import GestaoGuard from "./components/GestaoGuard";
-import GestaoLayout from "./components/GestaoLayout";
-import Alunos from "./pages/gestao/Alunos";
-import Professores from "./pages/gestao/Professores";
-import Modalidades from "./pages/gestao/Modalidades";
-import Frequencia from "./pages/gestao/Frequencia";
-import Pagamentos from "./pages/gestao/Pagamentos";
 import ResetPassword from "./pages/ResetPassword";
 import Profile from "./pages/Profile";
 
@@ -259,22 +252,7 @@ function Router() {
         <Home />
       </Route>
       <Route path="/gestao">
-        <GestaoGuard><GestaoLayout><GestaoIntegrarte /></GestaoLayout></GestaoGuard>
-      </Route>
-      <Route path="/gestao/alunos">
-        <GestaoGuard><GestaoLayout><Alunos /></GestaoLayout></GestaoGuard>
-      </Route>
-      <Route path="/gestao/professores">
-        <GestaoGuard><GestaoLayout><Professores /></GestaoLayout></GestaoGuard>
-      </Route>
-      <Route path="/gestao/modalidades">
-        <GestaoGuard><GestaoLayout><Modalidades /></GestaoLayout></GestaoGuard>
-      </Route>
-      <Route path="/gestao/frequencia">
-        <GestaoGuard><GestaoLayout><Frequencia /></GestaoLayout></GestaoGuard>
-      </Route>
-      <Route path="/gestao/pagamentos">
-        <GestaoGuard><GestaoLayout><Pagamentos /></GestaoLayout></GestaoGuard>
+        <GestaoIntegrarte />
       </Route>
       <Route path="/redefinir-senha">
         <ResetPassword />
