@@ -326,3 +326,143 @@ export const paymentRecords = mysqlTable("payment_records", {
   registeredBy: int("registeredBy").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ─── GESTÃO INTEGRARTE — Escola de Artes Espírita ─────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Modalidades (Canto, Violão, Dança, Teatro, ...) — catálogo editável.
+// "grupoExclusivo" marca as modalidades que competem entre si (aluno só pode
+// escolher UMA desse grupo — hoje são Canto/Violão/Dança); as demais (ex:
+// Teatro) podem ser combinadas livremente com uma do grupo exclusivo.
+export const modalidades = mysqlTable("modalidades", {
+  id: int("id").autoincrement().primaryKey(),
+  nome: varchar("nome", { length: 100 }).notNull().unique(),
+  grupoExclusivo: boolean("grupoExclusivo").default(false).notNull(),
+  valorMensal: decimal("valorMensal", { precision: 10, scale: 2 }).notNull().default("50.00"),
+  idadeMinima: int("idadeMinima"), // ex: Canto/Violão/Teatro/Dança = 12; Iniciação = 4
+  idadeMaxima: int("idadeMaxima"), // ex: Iniciação à Expressão Artística = 11 (sem máximo = null)
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const alunos = mysqlTable("alunos", {
+  id: int("id").autoincrement().primaryKey(),
+  nomeCompleto: varchar("nomeCompleto", { length: 200 }).notNull(),
+  dataNascimento: timestamp("dataNascimento"),
+  cpf: varchar("cpf", { length: 14 }),
+  email: varchar("email", { length: 255 }),
+  telefone: varchar("telefone", { length: 20 }),
+  maiorIdade: boolean("maiorIdade").notNull().default(true),
+  responsavelNome: varchar("responsavelNome", { length: 200 }),
+  responsavelVinculo: varchar("responsavelVinculo", { length: 100 }),
+  responsavelEmail: varchar("responsavelEmail", { length: 255 }),
+  responsavelTelefone: varchar("responsavelTelefone", { length: 20 }),
+  responsavelPresenteMenor10: boolean("responsavelPresenteMenor10"),
+  autorizacaoImagem: boolean("autorizacaoImagem").default(false).notNull(),
+  possuiDeficiencia: boolean("possuiDeficiencia").default(false).notNull(),
+  deficienciaQual: text("deficienciaQual"),
+  dataMatricula: timestamp("dataMatricula").defaultNow().notNull(),
+  // Status da matrícula: aluno que desiste no meio do ano só pode voltar no
+  // próximo período de matrículas — guardamos a data pra saber quando isso libera.
+  statusMatricula: mysqlEnum("statusMatricula", ["ativo", "desistente"]).default("ativo").notNull(),
+  dataDesistencia: timestamp("dataDesistencia"),
+  motivoDesistencia: text("motivoDesistencia"),
+  active: boolean("active").default(true).notNull(),
+  observacoes: text("observacoes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// Controle de frequência — aula teórica de sábado (obrigatória p/ todas as
+// modalidades) e/ou aula prática de uma modalidade específica. Falta no
+// teórico conta como falta integral (todas as modalidades daquele dia).
+export const frequencia = mysqlTable("frequencia", {
+  id: int("id").autoincrement().primaryKey(),
+  alunoId: int("alunoId").notNull(),
+  data: timestamp("data").notNull(),
+  tipo: mysqlEnum("tipo", ["teorico", "pratico"]).default("teorico").notNull(),
+  modalidadeId: int("modalidadeId"), // preenchido só quando tipo = "pratico"
+  presente: boolean("presente").notNull(),
+  justificada: boolean("justificada").default(false).notNull(),
+  justificativa: text("justificativa"),
+  observacoes: text("observacoes"),
+  registradoPor: int("registradoPor"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+
+export const alunoModalidades = mysqlTable("aluno_modalidades", {
+  id: int("id").autoincrement().primaryKey(),
+  alunoId: int("alunoId").notNull(),
+  modalidadeId: int("modalidadeId").notNull(),
+  dataInicio: timestamp("dataInicio").defaultNow().notNull(),
+  active: boolean("active").default(true).notNull(),
+});
+
+export const professores = mysqlTable("professores", {
+  id: int("id").autoincrement().primaryKey(),
+  nomeCompleto: varchar("nomeCompleto", { length: 200 }).notNull(),
+  cpf: varchar("cpf", { length: 14 }),
+  email: varchar("email", { length: 255 }),
+  telefone: varchar("telefone", { length: 20 }),
+  valorBolsaMensal: decimal("valorBolsaMensal", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  chavePix: varchar("chavePix", { length: 255 }),
+  dataInicio: timestamp("dataInicio").defaultNow().notNull(),
+  active: boolean("active").default(true).notNull(),
+  observacoes: text("observacoes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// Vínculo professor ↔ modalidade (um professor pode lecionar mais de uma)
+export const professorModalidades = mysqlTable("professor_modalidades", {
+  id: int("id").autoincrement().primaryKey(),
+  professorId: int("professorId").notNull(),
+  modalidadeId: int("modalidadeId").notNull(),
+});
+
+// Controle mensal da contribuição de custeio dos alunos
+export const pagamentosAlunos = mysqlTable("pagamentos_alunos", {
+  id: int("id").autoincrement().primaryKey(),
+  alunoId: int("alunoId").notNull(),
+  mesReferencia: varchar("mesReferencia", { length: 7 }).notNull(), // "2026-08"
+  valorEsperado: decimal("valorEsperado", { precision: 10, scale: 2 }).notNull(),
+  valorPago: decimal("valorPago", { precision: 10, scale: 2 }),
+  dataPagamento: timestamp("dataPagamento"),
+  formaPagamento: mysqlEnum("formaPagamento", ["pix", "dinheiro", "transferencia", "outro"]),
+  status: mysqlEnum("status", ["pendente", "pago", "atrasado", "isento"]).default("pendente").notNull(),
+  observacoes: text("observacoes"),
+  registradoPor: int("registradoPor"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// Controle mensal da bolsa cultura dos professores
+export const pagamentosProfessores = mysqlTable("pagamentos_professores", {
+  id: int("id").autoincrement().primaryKey(),
+  professorId: int("professorId").notNull(),
+  mesReferencia: varchar("mesReferencia", { length: 7 }).notNull(),
+  valorEsperado: decimal("valorEsperado", { precision: 10, scale: 2 }).notNull(),
+  valorPago: decimal("valorPago", { precision: 10, scale: 2 }),
+  dataPagamento: timestamp("dataPagamento"),
+  formaPagamento: mysqlEnum("formaPagamento", ["pix", "dinheiro", "transferencia", "outro"]),
+  status: mysqlEnum("status", ["pendente", "pago", "atrasado"]).default("pendente").notNull(),
+  observacoes: text("observacoes"),
+  registradoPor: int("registradoPor"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ─── PERÍODOS DE VENDA — controla quando os vendedores podem lançar pedido
+// normal (produção nova) vs. só vender o que já está no Integrarte Estoque ───
+// ══════════════════════════════════════════════════════════════════════════════
+export const periodosVenda = mysqlTable("periodos_venda", {
+  id: int("id").autoincrement().primaryKey(),
+  descricao: varchar("descricao", { length: 200 }),
+  dataAbertura: timestamp("dataAbertura").notNull(),
+  dataFechamento: timestamp("dataFechamento").notNull(),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});

@@ -38,6 +38,7 @@ import ProductTypes from "./pages/admin/ProductTypes";
 import Minipizzas from "./pages/admin/Minipizzas";
 import Jellies from "./pages/admin/Jellies";
 import DeliveryMethods from "./pages/admin/DeliveryMethods";
+import PeriodosVenda from "./pages/admin/PeriodosVenda";
 import Users from "./pages/admin/Users";
 import Exports from "./pages/Exports";
 import Backup from "./pages/admin/Backup";
@@ -46,6 +47,13 @@ import OptimizedRouteGenerator from "./pages/OptimizedRouteGenerator";
 import NotFound from "./pages/NotFound";
 import Home from "./pages/Home";
 import GestaoIntegrarte from "./pages/GestaoIntegrarte";
+import GestaoGuard from "./components/GestaoGuard";
+import GestaoLayout from "./components/GestaoLayout";
+import Alunos from "./pages/gestao/Alunos";
+import Professores from "./pages/gestao/Professores";
+import Modalidades from "./pages/gestao/Modalidades";
+import Frequencia from "./pages/gestao/Frequencia";
+import Pagamentos from "./pages/gestao/Pagamentos";
 import ResetPassword from "./pages/ResetPassword";
 import Profile from "./pages/Profile";
 
@@ -173,6 +181,9 @@ function Router() {
       <Route path="/admin/config/formas-entrega">
         <AdminGuard><AppLayout><DeliveryMethods /></AppLayout></AdminGuard>
       </Route>
+      <Route path="/admin/config/periodo-vendas">
+        <AdminGuard><AppLayout><PeriodosVenda /></AppLayout></AdminGuard>
+      </Route>
       <Route path="/admin/config/usuarios">
         <AdminGuard><AppLayout><Users /></AppLayout></AdminGuard>
       </Route>
@@ -252,7 +263,22 @@ function Router() {
         <Home />
       </Route>
       <Route path="/gestao">
-        <GestaoIntegrarte />
+        <GestaoGuard><GestaoLayout><GestaoIntegrarte /></GestaoLayout></GestaoGuard>
+      </Route>
+      <Route path="/gestao/alunos">
+        <GestaoGuard><GestaoLayout><Alunos /></GestaoLayout></GestaoGuard>
+      </Route>
+      <Route path="/gestao/professores">
+        <GestaoGuard><GestaoLayout><Professores /></GestaoLayout></GestaoGuard>
+      </Route>
+      <Route path="/gestao/modalidades">
+        <GestaoGuard><GestaoLayout><Modalidades /></GestaoLayout></GestaoGuard>
+      </Route>
+      <Route path="/gestao/frequencia">
+        <GestaoGuard><GestaoLayout><Frequencia /></GestaoLayout></GestaoGuard>
+      </Route>
+      <Route path="/gestao/pagamentos">
+        <GestaoGuard><GestaoLayout><Pagamentos /></GestaoLayout></GestaoGuard>
       </Route>
       <Route path="/redefinir-senha">
         <ResetPassword />

@@ -5,19 +5,89 @@
  * autenticada (ctx.user.id), nunca por um ID informado pelo cliente.
  */
 import { TRPCError } from "@trpc/server";
-import { and, asc, desc, eq, inArray, like, or, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, like, lte, or, ne } from "drizzle-orm";
 import { z } from "zod";
 import {
   customers, deliveryMethods, jellyFlavors, minipizzaFlavors,
   minipizzaTypes, minipizzaTypeFlavorMatrix, orderItems, orderItemFlavors, orderJellies,
   orderMinipizzaFlavors, orderMinipizzas, orders, orderStatusHistory,
   productCategories, productFlavors, productTypes, products, users, routeOrders, paymentRecords,
+  periodosVenda,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { googleSheets } from "../google-sheets";
 import { uploadReceiptToDrive } from "../google-drive";
 import { sendOrderNotification } from "../telegram";
+
+type DB = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+/** Verifica se hoje cai dentro de algum período de venda aberto. */
+async function periodoVendaAtivo(db: DB): Promise<boolean> {
+  const hoje = new Date();
+  const periodos = await db.select({ id: periodosVenda.id }).from(periodosVenda)
+    .where(and(lte(periodosVenda.dataAbertura, hoje), gte(periodosVenda.dataFechamento, hoje)));
+  return periodos.length > 0;
+}
+
+/** Busca os lotes de estoque (pedidos de cliente interno) de um produto+sabor, mais antigos primeiro. */
+async function buscarLotesEstoque(db: DB, productId: number, flavorIds: number[]) {
+  const stockOrders = await db.select({ id: orders.id })
+    .from(orders)
+    .leftJoin(customers, eq(orders.customerId, customers.id))
+    .where(and(eq(customers.isInternal, true), ne(orders.status, "cancelled")));
+  const stockOrderIds = stockOrders.map(o => o.id);
+  if (stockOrderIds.length === 0) return [];
+
+  const itemRows = await db.select({
+    id: orderItems.id, orderId: orderItems.orderId,
+    quantity: orderItems.quantity, unitPrice: orderItems.unitPrice, subtotal: orderItems.subtotal,
+  }).from(orderItems)
+    .where(and(inArray(orderItems.orderId, stockOrderIds), eq(orderItems.productId, productId)));
+  if (itemRows.length === 0) return [];
+
+  const itemIds = itemRows.map(i => i.id);
+  const flavorRows = await db.select({ orderItemId: orderItemFlavors.orderItemId, flavorName: orderItemFlavors.flavorName })
+    .from(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId, itemIds));
+  const flavorsByItem: Record<number, string[]> = {};
+  for (const f of flavorRows) (flavorsByItem[f.orderItemId] ??= []).push(f.flavorName);
+
+  let requestedFlavorNames: string[] = [];
+  if (flavorIds.length > 0) {
+    const names = await db.select({ name: productFlavors.name }).from(productFlavors).where(inArray(productFlavors.id, flavorIds));
+    requestedFlavorNames = names.map(n => n.name).sort();
+  }
+  const requestedKey = requestedFlavorNames.join("|");
+
+  return itemRows
+    .filter(it => (flavorsByItem[it.id] ?? []).slice().sort().join("|") === requestedKey)
+    .sort((a, b) => a.orderId - b.orderId);
+}
+
+/** Desconta uma quantidade dos lotes de estoque já buscados (mais antigos primeiro). */
+async function descontarLotesEstoque(db: DB, lotes: Awaited<ReturnType<typeof buscarLotesEstoque>>, quantidade: number) {
+  let remaining = quantidade;
+  for (const lote of lotes) {
+    if (remaining <= 0) break;
+    const take = Math.min(lote.quantity, remaining);
+    remaining -= take;
+    const newQty = lote.quantity - take;
+
+    if (newQty <= 0) {
+      await db.delete(orderItemFlavors).where(eq(orderItemFlavors.orderItemId, lote.id));
+      await db.delete(orderItems).where(eq(orderItems.id, lote.id));
+    } else {
+      const newSubtotal = (parseFloat(lote.unitPrice) * newQty).toFixed(2);
+      await db.update(orderItems).set({ quantity: newQty, subtotal: newSubtotal }).where(eq(orderItems.id, lote.id));
+    }
+
+    const [stockOrder] = await db.select({ totalAmount: orders.totalAmount }).from(orders).where(eq(orders.id, lote.orderId));
+    if (stockOrder) {
+      const newTotal = (parseFloat(stockOrder.totalAmount) - parseFloat(lote.unitPrice) * take).toFixed(2);
+      await db.update(orders).set({ totalAmount: newTotal }).where(eq(orders.id, lote.orderId));
+    }
+  }
+}
 import type { TrpcContext } from "../_core/context";
 
 // Helper: garante que o usuário autenticado é vendedor (função principal ou
@@ -147,11 +217,42 @@ export const sellerRouter = router({
         subtotal: z.string(),
         flavorIds: z.array(z.number()).optional(),
       })),
+      // true quando lançado pelo CRM (/admin/pedidos/novo) — nesse caso não
+      // se aplica a trava de período de vendas fechado.
+      viaAdmin: z.boolean().default(false),
     }))
     .mutation(async ({ input, ctx }) => {
       const { user } = requireLauncherRole(ctx);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Se o período de vendas está fechado (e não é lançamento pelo CRM), só
+      // pode vender o que já está no Integrarte Estoque — confere TUDO antes
+      // de criar qualquer coisa, pra não deixar pedido pela metade.
+      let periodoFechado = false;
+      let lotesPorItem: { item: (typeof input.items)[number]; lotes: Awaited<ReturnType<typeof buscarLotesEstoque>> }[] = [];
+      if (!input.viaAdmin) {
+        const ativo = await periodoVendaAtivo(db);
+        periodoFechado = !ativo;
+        if (periodoFechado) {
+          for (const item of input.items) {
+            const lotes = await buscarLotesEstoque(db, item.productId, item.flavorIds ?? []);
+            const disponivel = lotes.reduce((acc, l) => acc + l.quantity, 0);
+            if (disponivel < item.quantity) {
+              const [prod] = await db.select({ name: products.name }).from(products).where(eq(products.id, item.productId));
+              const nomeItem = prod?.name ?? "Item";
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: disponivel === 0
+                  ? `"${nomeItem}" não existe — o período de vendas está fechado, só é possível vender o que já está no Integrarte Estoque.`
+                  : `Só há ${disponivel} de "${nomeItem}" no Integrarte Estoque (pedido: ${item.quantity}) — o período de vendas está fechado.`,
+              });
+            }
+            lotesPorItem.push({ item, lotes });
+          }
+        }
+      }
+
       const result = await db.insert(orders).values({
         customerId: input.customerId,
         launcherId: user.id,
@@ -194,10 +295,18 @@ export const sellerRouter = router({
           }
         }
       }
+
+      // Se veio do Integrarte Estoque (período fechado), desconta os lotes agora
+      // que o pedido já foi criado com sucesso.
+      if (periodoFechado) {
+        for (const { item, lotes } of lotesPorItem) {
+          await descontarLotesEstoque(db, lotes, item.quantity);
+        }
+      }
       
       await db.insert(orderStatusHistory).values({
         orderId, userId: user.id, fromStatus: null, toStatus: "production",
-        notes: "Pedido criado pelo vendedor",
+        notes: periodoFechado ? "Pedido criado pelo vendedor (vendido do Integrarte Estoque — período fechado)" : "Pedido criado pelo vendedor",
       });
 
       // Async background task to append to Google Sheets and Drive
@@ -267,18 +376,28 @@ export const sellerRouter = router({
   myOrders: protectedProcedure
     .input(z.object({
       status: z.string().optional(),
+      mes: z.string().optional(), // "2026-08"
       page: z.number().default(1),
       pageSize: z.number().default(20),
     }))
     .query(async ({ input, ctx }) => {
-      const { user, isAdmin } = requireLauncherRole(ctx);
+      const { user } = requireLauncherRole(ctx);
       const db = await getDb();
       if (!db) return { orders: [], total: 0 };
-      const { count } = await import("drizzle-orm");
-      // Admin vê todos os pedidos; vendedor vê só os próprios
-      const conditions = isAdmin ? [] : [eq(orders.launcherId, user.id)];
+      const { count, gte, lte } = await import("drizzle-orm");
+      // "Meus Pedidos" mostra sempre só os pedidos lançados pela própria pessoa
+      // logada — mesmo sendo admin (a visão de todos os pedidos já existe na
+      // tela "Pedidos" do CRM).
+      const conditions = [eq(orders.launcherId, user.id)];
       if (input.status && input.status !== "all") {
         conditions.push(eq(orders.status, input.status as any));
+      }
+      if (input.mes) {
+        const [ano, mes] = input.mes.split("-").map(Number);
+        const inicio = new Date(ano, mes - 1, 1);
+        const fim = new Date(ano, mes, 0, 23, 59, 59);
+        conditions.push(gte(orders.createdAt, inicio));
+        conditions.push(lte(orders.createdAt, fim));
       }
       const offset = (input.page - 1) * input.pageSize;
       const rows = await db.select({
@@ -741,6 +860,66 @@ export const sellerRouter = router({
       });
       // Ao cancelar, o pedido deixa de fazer parte de qualquer rota de entrega
       await db.delete(routeOrders).where(eq(routeOrders.orderId, input.orderId));
+      return { success: true };
+    }),
+
+  /**
+   * Diz se hoje está dentro de um período de vendas aberto — usado pra
+   * mostrar aviso na tela "Novo Pedido" quando estiver fechado.
+   */
+  periodoVendaStatus: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return { ativo: true, periodo: null };
+    const hoje = new Date();
+    const [periodo] = await db.select().from(periodosVenda)
+      .where(and(lte(periodosVenda.dataAbertura, hoje), gte(periodosVenda.dataFechamento, hoje)))
+      .limit(1);
+    return { ativo: !!periodo, periodo: periodo ?? null };
+  }),
+});
+
+/**
+ * Router de administração dos Períodos de Venda — abrir/fechar o período
+ * oficial de lançamento de pedidos, com histórico dos períodos anteriores.
+ */
+export const periodosVendaRouter = router({
+  list: adminProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select().from(periodosVenda).orderBy(desc(periodosVenda.dataAbertura));
+  }),
+
+  create: adminProcedure
+    .input(z.object({
+      descricao: z.string().optional(),
+      dataAbertura: z.string(),
+      dataFechamento: z.string(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const abertura = new Date(input.dataAbertura + "T00:00:00");
+      const fechamento = new Date(input.dataFechamento + "T23:59:59");
+      if (fechamento < abertura) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A data de fechamento não pode ser antes da abertura." });
+      }
+
+      await db.insert(periodosVenda).values({
+        descricao: input.descricao,
+        dataAbertura: abertura,
+        dataFechamento: fechamento,
+        createdBy: ctx.user.id,
+      });
+      return { success: true };
+    }),
+
+  delete: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.delete(periodosVenda).where(eq(periodosVenda.id, input.id));
       return { success: true };
     }),
 });
