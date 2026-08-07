@@ -609,7 +609,7 @@ const routesRouter = router({
         .from(orders)
         .leftJoin(customers, eq(orders.customerId, customers.id))
         .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
-        .where(eq(orders.status, "production"))
+        .where(and(eq(orders.status, "production"), eq(customers.isInternal, false)))
         .orderBy(asc(orders.deliveryDate));
 
       return rows;

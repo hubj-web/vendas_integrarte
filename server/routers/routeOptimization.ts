@@ -654,6 +654,7 @@ export const routeOptimizationRouter = router({
         eq(orders.status, "production"),
         gte(orders.createdAt, dateFromObj),
         lte(orders.createdAt, dateToObj),
+        eq(customers.isInternal, false),
       ];
 
       if (input.deliveryMethodId) {

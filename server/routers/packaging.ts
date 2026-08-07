@@ -243,6 +243,7 @@ export const packagingRouter = router({
         .leftJoin(routeOrders, eq(routeOrders.orderId, orders.id))
         .where(and(
           inArray(orders.status, ["production", "packaged"]),
+          eq(customers.isInternal, false),
           input?.deliveryMethodId ? eq(orders.deliveryMethodId, input.deliveryMethodId) : undefined
         ));
 
