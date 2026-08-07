@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { Plus, CalendarRange, CheckCircle2, XCircle, Trash2, Pencil } from "lucide-react";
+import { Plus, CalendarRange, Trash2, Pencil } from "lucide-react";
 
 function fmtData(v: string | Date) {
   return new Date(v).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -60,7 +60,6 @@ export default function PeriodosVenda() {
   }
 
   const hoje = new Date();
-  const periodoAtivo = periodos?.find(p => new Date(p.dataAbertura) <= hoje && new Date(p.dataFechamento) >= hoje);
 
   function handleSave() {
     if (!form.dataAbertura || !form.dataFechamento) {
@@ -85,36 +84,6 @@ export default function PeriodosVenda() {
           </Button>
         }
       />
-
-      <div className="mb-6">
-        {periodoAtivo ? (
-          <Card className="border-emerald-500/30 bg-emerald-500/5">
-            <CardContent className="p-4 flex items-center gap-3">
-              <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0" />
-              <div>
-                <p className="font-semibold text-foreground">Período de vendas ABERTO</p>
-                <p className="text-sm text-muted-foreground">
-                  {periodoAtivo.descricao || "Período atual"} — {fmtData(periodoAtivo.dataAbertura)} até {fmtData(periodoAtivo.dataFechamento)}.
-                  Vendedores podem lançar pedidos normalmente.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="border-orange-500/30 bg-orange-500/5">
-            <CardContent className="p-4 flex items-center gap-3">
-              <XCircle className="w-6 h-6 text-orange-500 shrink-0" />
-              <div>
-                <p className="font-semibold text-foreground">Período de vendas FECHADO</p>
-                <p className="text-sm text-muted-foreground">
-                  Vendedores só conseguem vender o que já está no Integrarte Estoque. Abra um novo
-                  período quando quiser liberar o lançamento normal de pedidos.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
 
       <h3 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-1.5">
         <CalendarRange className="w-4 h-4" /> Histórico de períodos
