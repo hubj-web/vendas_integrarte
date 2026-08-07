@@ -152,7 +152,8 @@ function orderStopsByNearestNeighbor(
     let nearestDist = Infinity;
 
     for (let i = 0; i < remaining.length; i++) {
-      const dist = distanceMatrix[currentIdx][remaining[i]];
+      const raw = distanceMatrix?.[currentIdx]?.[remaining[i]];
+      const dist = typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
       if (dist < nearestDist) {
         nearestDist = dist;
         nearestIdx = i;
@@ -178,13 +179,21 @@ function calculateRouteTotalDistance(
 ): number {
   if (orderedStops.length === 0) return 0;
 
-  let total = distanceMatrix[originIndex][orderedStops[0]]; // origem → primeira parada
+  // Lê um valor da matriz com segurança — se por algum motivo a matriz não tiver
+  // aquela posição preenchida (índice fora do esperado, célula ausente etc.),
+  // usa 0 em vez de deixar "undefined"/NaN se espalhar pelo resto da soma.
+  const safeDist = (i: number, j: number): number => {
+    const v = distanceMatrix?.[i]?.[j];
+    return typeof v === "number" && Number.isFinite(v) ? v : 0;
+  };
+
+  let total = safeDist(originIndex, orderedStops[0]); // origem → primeira parada
 
   for (let i = 1; i < orderedStops.length; i++) {
-    total += distanceMatrix[orderedStops[i - 1]][orderedStops[i]];
+    total += safeDist(orderedStops[i - 1], orderedStops[i]);
   }
 
-  total += distanceMatrix[orderedStops[orderedStops.length - 1]][originIndex]; // última parada → origem
+  total += safeDist(orderedStops[orderedStops.length - 1], originIndex); // última parada → origem
 
   return total;
 }
@@ -378,8 +387,16 @@ function balanceRoutesByNeighborhood(
     const MAX_ITERATIONS = 30;
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
       const distances = routeGroups.map((_, r) => routeDistance(r));
-      const maxRoute = distances.indexOf(Math.max(...distances));
-      const minRoute = distances.indexOf(Math.min(...distances));
+
+      // Busca manual do maior/menor — evita o comportamento estranho de
+      // Array.indexOf com NaN (indexOf nunca acha NaN, pois usa ===, e NaN
+      // nunca é igual a si mesmo — isso faria maxRoute/minRoute virar -1 e
+      // quebrar o acesso a routeGroups[-1] logo abaixo).
+      let maxRoute = 0, minRoute = 0;
+      for (let r = 1; r < distances.length; r++) {
+        if (!(distances[r] <= distances[maxRoute])) maxRoute = r; // trata NaN como "maior"
+        if (distances[r] < distances[minRoute]) minRoute = r;
+      }
 
       if (maxRoute === minRoute || routeGroups[maxRoute].length <= 1) break;
 
