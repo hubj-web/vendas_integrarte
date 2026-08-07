@@ -12,7 +12,7 @@ import { z } from "zod";
 import {
   estoqueAtual, estoqueAtualFlavors,
   pedidosEstoque, pedidosEstoqueItens, pedidosEstoqueItemFlavors,
-  products, productFlavors, suppliers,
+  products, productFlavors, productCategories, suppliers,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { adminProcedure, router } from "../_core/trpc";
@@ -26,9 +26,11 @@ export const estoqueRouter = router({
     const linhas = await db.select({
       id: estoqueAtual.id, productId: estoqueAtual.productId,
       productName: products.name, unit: products.unit,
+      categoryId: products.categoryId, categoryName: productCategories.name,
       quantidade: estoqueAtual.quantidade, custoMedioUnitario: estoqueAtual.custoMedioUnitario,
     }).from(estoqueAtual)
       .leftJoin(products, eq(estoqueAtual.productId, products.id))
+      .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
       .where(gte(estoqueAtual.quantidade, 1));
 
     if (linhas.length === 0) return [];
@@ -44,13 +46,18 @@ export const estoqueRouter = router({
     // média ponderada do custo entre lotes diferentes do mesmo item)
     const grupos: Record<string, {
       productId: number; productName: string | null; unit: string | null;
+      categoryId: number | null; categoryName: string | null;
       flavorNames: string[]; quantidade: number; valorTotalCusto: number;
     }> = {};
     for (const l of linhas) {
       const flavors = (flavorsByLinha[l.id] ?? []).slice().sort();
       const key = `${l.productId}::${flavors.join("|")}`;
       if (!grupos[key]) {
-        grupos[key] = { productId: l.productId, productName: l.productName, unit: l.unit, flavorNames: flavors, quantidade: 0, valorTotalCusto: 0 };
+        grupos[key] = {
+          productId: l.productId, productName: l.productName, unit: l.unit,
+          categoryId: l.categoryId, categoryName: l.categoryName,
+          flavorNames: flavors, quantidade: 0, valorTotalCusto: 0,
+        };
       }
       grupos[key].quantidade += l.quantidade;
       grupos[key].valorTotalCusto += l.quantidade * parseFloat(l.custoMedioUnitario);
@@ -58,7 +65,7 @@ export const estoqueRouter = router({
 
     return Object.values(grupos)
       .map(g => ({ ...g, custoMedioUnitario: g.quantidade > 0 ? (g.valorTotalCusto / g.quantidade).toFixed(2) : "0.00" }))
-      .sort((a, b) => (a.productName ?? "").localeCompare(b.productName ?? ""));
+      .sort((a, b) => (a.categoryName ?? "").localeCompare(b.categoryName ?? "") || (a.productName ?? "").localeCompare(b.productName ?? ""));
   }),
 });
 
