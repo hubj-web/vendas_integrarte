@@ -87,16 +87,20 @@ async function calculateDistanceMatrix(
   const n = points.length;
   const matrix: number[][] = Array.from({ length: n }, () => Array(n).fill(0));
 
-  // Processar em lotes de 25 origens
-  for (let batchStart = 0; batchStart < n; batchStart += 25) {
-    const batchEnd = Math.min(batchStart + 25, n);
+  // A Distance Matrix API do Google limita a 100 combinações (origens × destinos)
+  // por requisição — usar lotes de 25×25 (625) sempre estourava esse limite e
+  // retornava MAX_ELEMENTS_EXCEEDED. Usando lotes de 10×10 (100), fica dentro do limite.
+  const BATCH_SIZE = 10;
+
+  for (let batchStart = 0; batchStart < n; batchStart += BATCH_SIZE) {
+    const batchEnd = Math.min(batchStart + BATCH_SIZE, n);
     const batchOrigins = points.slice(batchStart, batchEnd);
 
     const originsStr = batchOrigins.map(p => `${p.latitude},${p.longitude}`).join("|");
 
-    // Processar em lotes de 25 destinos
-    for (let destStart = 0; destStart < n; destStart += 25) {
-      const destEnd = Math.min(destStart + 25, n);
+    // Processar em lotes de 10 destinos (10×10 = 100, dentro do limite da API)
+    for (let destStart = 0; destStart < n; destStart += BATCH_SIZE) {
+      const destEnd = Math.min(destStart + BATCH_SIZE, n);
       const batchDestinations = points.slice(destStart, destEnd);
 
       const destinationsStr = batchDestinations.map(p => `${p.latitude},${p.longitude}`).join("|");
@@ -837,36 +841,52 @@ export const routeOptimizationRouter = router({
         );
       }
 
-      routeClusters = balanceRoutesByNeighborhood(ordersToProcess, originIdx, matrixForClustering, numRoutes);
+      try {
+        routeClusters = balanceRoutesByNeighborhood(ordersToProcess, originIdx, matrixForClustering, numRoutes);
 
-      routeMetrics = routeClusters.map((cluster) => {
-        let totalDist = 0;
-        // cluster contém índices de ordersToProcess (0-based); na matriz de
-        // distância a origem ocupa o índice 0, então o pedido i está no índice i+1.
-        const visits = cluster.map((orderIdx, i) => {
-          let distFromPrev: number;
-          if (i === 0) {
-            distFromPrev = matrixForClustering[originIdx][orderIdx + 1];
-          } else {
-            distFromPrev = matrixForClustering[cluster[i - 1] + 1][orderIdx + 1];
+        const safeMatrixRead = (i: number, j: number): number => {
+          const v = matrixForClustering?.[i]?.[j];
+          return typeof v === "number" && Number.isFinite(v) ? v : 0;
+        };
+
+        routeMetrics = routeClusters.map((cluster) => {
+          let totalDist = 0;
+          // cluster contém índices de ordersToProcess (0-based); na matriz de
+          // distância a origem ocupa o índice 0, então o pedido i está no índice i+1.
+          const visits = cluster.map((orderIdx, i) => {
+            let distFromPrev: number;
+            if (i === 0) {
+              distFromPrev = safeMatrixRead(originIdx, orderIdx + 1);
+            } else {
+              distFromPrev = safeMatrixRead(cluster[i - 1] + 1, orderIdx + 1);
+            }
+            totalDist += distFromPrev;
+            return {
+              shipmentIndex: orderIdx,
+              distanceMeters: distFromPrev,
+            };
+          });
+
+          // Adicionar distância de volta à origem
+          if (cluster.length > 0) {
+            totalDist += safeMatrixRead(cluster[cluster.length - 1] + 1, originIdx);
           }
-          totalDist += distFromPrev;
+
           return {
-            shipmentIndex: orderIdx,
-            distanceMeters: distFromPrev,
+            totalDistanceMeters: Math.round(totalDist),
+            visits,
           };
         });
-
-        // Adicionar distância de volta à origem
-        if (cluster.length > 0) {
-          totalDist += matrixForClustering[cluster[cluster.length - 1] + 1][originIdx];
-        }
-
-        return {
-          totalDistanceMeters: Math.round(totalDist),
-          visits,
-        };
-      });
+      } catch (err) {
+        // Registra o erro completo (com stack) nos logs do servidor — se isso
+        // acontecer de novo, dá pra ver exatamente a linha que quebrou, em vez
+        // de só a mensagem genérica que chega no navegador.
+        console.error("[Roteirização] Falha ao agrupar/calcular rotas:", err);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Não foi possível calcular as rotas com os pedidos selecionados. Tente novamente ou reduza a quantidade de pedidos.",
+        });
+      }
 
       // 6. Salva as rotas no banco
       const createdRouteIds: number[] = [];
