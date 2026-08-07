@@ -329,10 +329,14 @@ function balanceRoutesByNeighborhood(
   distanceMatrix: number[][],
   numRoutes: number
 ): number[][] {
+  // Proteção: nunca deixa numRoutes chegar em 0/negativo/inválido aqui dentro,
+  // mesmo que algo mais acima falhe em validar — evita acessar routeGroups[-1].
+  const safeNumRoutes = Math.max(1, Math.floor(numRoutes) || 1);
+
   // routeGroups[r] = lista de grupos (bairros) atribuídos à rota r; cada grupo é uma
   // lista de índices de matriz. Mantemos os grupos separados (em vez de já juntar tudo
   // num array só) para permitir reequilibrar depois, movendo bairros inteiros entre rotas.
-  const routeGroups: number[][][] = Array.from({ length: numRoutes }, () => []);
+  const routeGroups: number[][][] = Array.from({ length: safeNumRoutes }, () => []);
 
   const routeDistance = (r: number): number => {
     const flat = routeGroups[r].flat();
@@ -352,7 +356,7 @@ function balanceRoutesByNeighborhood(
     let bestRoute = 0;
     let bestNewDistance = Infinity;
 
-    for (let r = 0; r < numRoutes; r++) {
+    for (let r = 0; r < safeNumRoutes; r++) {
       const simulatedFlat = [...routeGroups[r].flat(), ...groupMatrixIndices];
       const simulatedOrdered = orderStopsByNearestNeighbor(simulatedFlat, originIndex, distanceMatrix);
       const simulatedDistance = calculateRouteTotalDistance(simulatedOrdered, originIndex, distanceMatrix);
@@ -370,7 +374,7 @@ function balanceRoutesByNeighborhood(
   //    o bairro (grupo inteiro) da rota mais carregada para a mais vazia — mas só efetiva
   //    a troca se isso realmente reduzir a diferença entre elas. Bairros nunca são
   //    divididos: ou o bairro inteiro muda de rota, ou fica onde está.
-  if (numRoutes > 1) {
+  if (safeNumRoutes > 1) {
     const MAX_ITERATIONS = 30;
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
       const distances = routeGroups.map((_, r) => routeDistance(r));
@@ -690,7 +694,7 @@ export const routeOptimizationRouter = router({
   generateOptimizedRoutes: protectedProcedure
     .input(z.object({
       selectedOrderIds: z.array(z.number()),
-      numRoutes: z.number().min(1),
+      numRoutes: z.number().int().min(1),
       startingAddress: z.string(),
       routeNamePrefix: z.string().default("Rota"),
     }))

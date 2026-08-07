@@ -204,7 +204,10 @@ export default function OptimizedRouteGenerator() {
                       min={1}
                       max={20}
                       value={numRoutes}
-                      onChange={(e) => setNumRoutes(Number(e.target.value))}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        setNumRoutes(Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1);
+                      }}
                       className="bg-input w-24"
                     />
                     <p className="text-xs text-muted-foreground">
