@@ -173,6 +173,66 @@ function orderStopsByNearestNeighbor(
 }
 
 /**
+ * Melhora uma rota já ordenada (ex: pelo vizinho mais próximo) usando a técnica
+ * "2-opt": testa inverter trechos da rota e mantém a troca sempre que isso reduzir
+ * o KM total. O "vizinho mais próximo" é rápido, mas decide passo a passo sem
+ * enxergar o caminho inteiro — por isso às vezes deixa uma parada "esquecida"
+ * que exige voltar depois, aumentando o total. O 2-opt corrige esse tipo de caso.
+ */
+function twoOptImprove(
+  route: number[],
+  originIndex: number,
+  distanceMatrix: number[][]
+): number[] {
+  if (route.length < 3) return route;
+
+  const safeDist = (i: number, j: number): number => {
+    const v = distanceMatrix?.[i]?.[j];
+    return typeof v === "number" && Number.isFinite(v) ? v : 0;
+  };
+
+  const totalDistance = (r: number[]): number => {
+    let total = safeDist(originIndex, r[0]);
+    for (let i = 1; i < r.length; i++) total += safeDist(r[i - 1], r[i]);
+    total += safeDist(r[r.length - 1], originIndex);
+    return total;
+  };
+
+  let best = [...route];
+  let bestDistance = totalDistance(best);
+
+  // Limite de segurança: com rotas de até ~20 paradas isso termina bem rápido;
+  // o limite existe só pra garantir que nunca trave em rotas gigantes.
+  const MAX_PASSES = 40;
+  let improved = true;
+  let passes = 0;
+
+  while (improved && passes < MAX_PASSES) {
+    improved = false;
+    passes++;
+
+    for (let i = 0; i < best.length - 1; i++) {
+      for (let j = i + 1; j < best.length; j++) {
+        const candidate = [
+          ...best.slice(0, i),
+          ...best.slice(i, j + 1).reverse(),
+          ...best.slice(j + 1),
+        ];
+        const candidateDistance = totalDistance(candidate);
+
+        if (candidateDistance < bestDistance - 0.01) {
+          best = candidate;
+          bestDistance = candidateDistance;
+          improved = true;
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+/**
  * Calcula a distância total de uma rota (origem → paradas → origem) usando a matriz de distância.
  * Inclui a volta ao ponto de origem para o KM total real.
  */
@@ -444,7 +504,11 @@ function balanceRoutesByNeighborhood(
   // 3) Ordenar paradas dentro de cada rota usando vizinho mais próximo
   const clusters = routeGroups.map(groups => {
     const flat = groups.flat();
-    return flat.length > 0 ? orderStopsByNearestNeighbor(flat, originIndex, distanceMatrix) : flat;
+    if (flat.length === 0) return flat;
+    const nearestNeighborOrder = orderStopsByNearestNeighbor(flat, originIndex, distanceMatrix);
+    // Segunda passada: tenta melhorar a ordem já montada, corrigindo os casos em
+    // que o vizinho mais próximo "esqueceu" uma parada no caminho e precisou voltar.
+    return twoOptImprove(nearestNeighborOrder, originIndex, distanceMatrix);
   });
 
   // Converter de índice de matriz de volta para índice de ordersToProcess (0-based)

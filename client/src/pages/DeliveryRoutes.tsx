@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import {
-  MapPin, Truck, ExternalLink, ChevronDown, ChevronUp,
+  MapPin, Truck, ExternalLink, ChevronDown, ChevronUp, ChevronRight,
   Loader2, Calendar, Zap, Trash2, CheckSquare, Square, X, UserPlus, RefreshCw, FileDown, ArrowRightLeft, CheckCircle2, PackageX,
 } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
@@ -115,6 +115,33 @@ export default function DeliveryRoutes() {
         return routeMonth === month;
       });
 
+  // Agrupa rotas pelo "prefixo" do nome — ex: "Rota Agosto 2026 #1", "#2", "#3"
+  // viram um grupo só chamado "Rota Agosto 2026", recolhível.
+  function routeNamePrefix(name: string): string {
+    return name.replace(/\s*#\d+\s*$/, "").trim() || name;
+  }
+
+  const routeGroups = useMemo(() => {
+    const map = new Map<string, typeof filteredRoutes>();
+    for (const route of filteredRoutes) {
+      const key = routeNamePrefix(route.name);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(route);
+    }
+    return Array.from(map.entries());
+  }, [filteredRoutes]);
+
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  function toggleGroup(key: string) {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   function toggleRouteSelection(id: number) {
     setSelectedRouteIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   }
@@ -190,8 +217,25 @@ export default function DeliveryRoutes() {
           <p>Nenhuma rota encontrada.</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {filteredRoutes.map((route) => {
+        <div className="space-y-4">
+          {routeGroups.map(([groupKey, groupRoutes]) => {
+            const isCollapsed = collapsedGroups.has(groupKey);
+            const showGroupHeader = routeGroups.length > 1 || groupRoutes.length > 1;
+            return (
+              <div key={groupKey}>
+                {showGroupHeader && (
+                  <button
+                    onClick={() => toggleGroup(groupKey)}
+                    className="w-full flex items-center gap-2.5 px-1 py-2 text-left hover:bg-muted/20 rounded-lg transition-colors"
+                  >
+                    {isCollapsed ? <ChevronRight className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                    <span className="text-sm font-semibold text-foreground">{groupKey}</span>
+                    <span className="text-xs text-muted-foreground bg-muted/40 px-2 py-0.5 rounded-full">{groupRoutes.length}</span>
+                  </button>
+                )}
+                {!isCollapsed && (
+                  <div className="space-y-3 mt-1">
+                    {groupRoutes.map((route) => {
             const isSelected = selectedRouteIds.includes(route.id);
             return (
               <Card key={route.id} className={`border-border transition-all ${selectionMode && isSelected ? "bg-primary/5 border-primary/30" : "bg-card"}`}>
@@ -278,6 +322,11 @@ export default function DeliveryRoutes() {
                   )}
                 </CardContent>
               </Card>
+            );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
