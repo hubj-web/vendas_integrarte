@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { Plus, CalendarRange, CheckCircle2, XCircle, Trash2 } from "lucide-react";
+import { Plus, CalendarRange, CheckCircle2, XCircle, Trash2, Pencil } from "lucide-react";
 
 function fmtData(v: string | Date) {
   return new Date(v).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -20,17 +20,44 @@ export default function PeriodosVenda() {
   const utils = trpc.useUtils();
   const { data: periodos, isLoading } = trpc.periodosVenda.list.useQuery();
   const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({ descricao: "", dataAbertura: "", dataFechamento: "" });
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
   const createMutation = trpc.periodosVenda.create.useMutation({
-    onSuccess: () => { utils.periodosVenda.list.invalidate(); toast.success("Período criado!"); setOpen(false); setForm({ descricao: "", dataAbertura: "", dataFechamento: "" }); },
+    onSuccess: () => { utils.periodosVenda.list.invalidate(); toast.success("Período criado!"); closeDialog(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateMutation = trpc.periodosVenda.update.useMutation({
+    onSuccess: () => { utils.periodosVenda.list.invalidate(); toast.success("Período atualizado!"); closeDialog(); },
     onError: (e) => toast.error(e.message),
   });
   const deleteMutation = trpc.periodosVenda.delete.useMutation({
     onSuccess: () => { utils.periodosVenda.list.invalidate(); toast.success("Período removido."); setDeleteId(null); },
     onError: (e) => toast.error(e.message),
   });
+
+  function closeDialog() {
+    setOpen(false);
+    setEditId(null);
+    setForm({ descricao: "", dataAbertura: "", dataFechamento: "" });
+  }
+
+  function toDatetimeLocal(v: string | Date) {
+    const d = new Date(v);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function openEdit(p: { id: number; descricao: string | null; dataAbertura: string | Date; dataFechamento: string | Date }) {
+    setEditId(p.id);
+    setForm({
+      descricao: p.descricao ?? "",
+      dataAbertura: toDatetimeLocal(p.dataAbertura),
+      dataFechamento: toDatetimeLocal(p.dataFechamento),
+    });
+    setOpen(true);
+  }
 
   const hoje = new Date();
   const periodoAtivo = periodos?.find(p => new Date(p.dataAbertura) <= hoje && new Date(p.dataFechamento) >= hoje);
@@ -40,7 +67,11 @@ export default function PeriodosVenda() {
       toast.error("Informe as duas datas.");
       return;
     }
-    createMutation.mutate(form);
+    if (editId) {
+      updateMutation.mutate({ id: editId, ...form });
+    } else {
+      createMutation.mutate(form);
+    }
   }
 
   return (
@@ -49,7 +80,7 @@ export default function PeriodosVenda() {
         title="Período de Vendas"
         description="Controle quando os vendedores podem lançar pedido normal — fora do período, só é possível vender o que já está no Integrarte Estoque"
         actions={
-          <Button onClick={() => setOpen(true)} className="gap-1.5">
+          <Button onClick={() => { setEditId(null); setForm({ descricao: "", dataAbertura: "", dataFechamento: "" }); setOpen(true); }} className="gap-1.5">
             <Plus className="w-4 h-4" /> Abrir Novo Período
           </Button>
         }
@@ -109,9 +140,14 @@ export default function PeriodosVenda() {
                     </div>
                     <p className="text-sm text-muted-foreground mt-0.5">{fmtData(p.dataAbertura)} até {fmtData(p.dataFechamento)}</p>
                   </div>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-destructive" onClick={() => setDeleteId(p.id)}>
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p)}>
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-destructive" onClick={() => setDeleteId(p.id)}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             );
@@ -119,9 +155,9 @@ export default function PeriodosVenda() {
         </div>
       )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(v) => !v && closeDialog()}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Abrir Novo Período de Vendas</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editId ? "Editar Período de Vendas" : "Abrir Novo Período de Vendas"}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label>Descrição (opcional)</Label>
@@ -139,8 +175,10 @@ export default function PeriodosVenda() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-            <Button onClick={handleSave} disabled={createMutation.isPending}>Abrir Período</Button>
+            <Button variant="outline" onClick={closeDialog}>Cancelar</Button>
+            <Button onClick={handleSave} disabled={createMutation.isPending || updateMutation.isPending}>
+              {editId ? "Salvar Alterações" : "Abrir Período"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

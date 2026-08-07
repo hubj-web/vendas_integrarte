@@ -200,6 +200,31 @@ export const sellerRouter = router({
       return { id: Number((result as any)[0].insertId) };
     }),
 
+  /** Vendedor completa/corrige o cadastro de um cliente já existente */
+  updateCustomer: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      name: z.string().min(1).optional(),
+      phone: z.string().min(1).optional(),
+      street: z.string().optional(),
+      number: z.string().optional(),
+      neighborhood: z.string().optional(),
+      city: z.string().optional(),
+      complement: z.string().optional(),
+      zipCode: z.string().optional(),
+      locationReference: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      requireLauncherRole(ctx);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { id, ...data } = input;
+      if (Object.keys(data).length > 0) {
+        await db.update(customers).set(data).where(eq(customers.id, id));
+      }
+      return { success: true };
+    }),
+
   /** Lança um novo pedido */
   createOrder: protectedProcedure
     .input(z.object({
@@ -911,6 +936,31 @@ export const periodosVendaRouter = router({
         dataFechamento: fechamento,
         createdBy: ctx.user.id,
       });
+      return { success: true };
+    }),
+
+  update: adminProcedure
+    .input(z.object({
+      id: z.number(),
+      descricao: z.string().optional(),
+      dataAbertura: z.string(),
+      dataFechamento: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const abertura = new Date(input.dataAbertura);
+      const fechamento = new Date(input.dataFechamento);
+      if (fechamento < abertura) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A data/hora de fechamento não pode ser antes da abertura." });
+      }
+
+      await db.update(periodosVenda).set({
+        descricao: input.descricao,
+        dataAbertura: abertura,
+        dataFechamento: fechamento,
+      }).where(eq(periodosVenda.id, input.id));
       return { success: true };
     }),
 

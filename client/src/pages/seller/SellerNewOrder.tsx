@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { useLocation, useRoute } from "wouter";
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, User, UserPlus,
-  ChevronRight, Check, Tag, MapPin, ArrowLeft, X, AlertCircle
+  ChevronRight, Check, Tag, MapPin, ArrowLeft, X, AlertCircle, Pencil
 } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Link } from "wouter";
@@ -50,6 +50,21 @@ export default function SellerNewOrder() {
 
   const { data: catalog } = trpc.seller.catalog.useQuery();
   const { data: periodoStatus } = trpc.seller.periodoVendaStatus.useQuery(undefined, { enabled: !isAdminRoute });
+  const { data: estoqueDisponivel } = trpc.seller.stockAvailable.useQuery(undefined, {
+    enabled: !isAdminRoute && periodoStatus?.ativo === false,
+  });
+
+  // Soma o estoque disponível por produto (somando todas as combinações de sabor),
+  // só usado pra mostrar "X em estoque" na lista antes do vendedor escolher —
+  // a validação de verdade (por sabor exato) acontece no servidor ao salvar.
+  const estoquePorProduto = useMemo(() => {
+    const map: Record<number, number> = {};
+    for (const linha of estoqueDisponivel ?? []) {
+      map[linha.productId] = (map[linha.productId] ?? 0) + linha.totalQuantity;
+    }
+    return map;
+  }, [estoqueDisponivel]);
+  const mostrarEstoque = !isAdminRoute && periodoStatus?.ativo === false;
 
   // Fetch order detail when in edit mode
   const { data: existingOrder, isLoading: isLoadingOrder, error: orderError } = trpc.seller.orderDetail.useQuery(
@@ -81,6 +96,35 @@ export default function SellerNewOrder() {
   } | null>(null);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", locationReference: "", street: "", number: "", complement: "", neighborhood: "", city: "", zipCode: "" });
+  const [showEditCustomer, setShowEditCustomer] = useState(false);
+  const [editCustomerForm, setEditCustomerForm] = useState({ name: "", phone: "", locationReference: "", street: "", number: "", complement: "", neighborhood: "", city: "", zipCode: "" });
+
+  const updateCustomerMutation = trpc.seller.updateCustomer.useMutation({
+    onSuccess: () => {
+      if (selectedCustomer) {
+        setSelectedCustomer({ ...selectedCustomer, ...editCustomerForm });
+      }
+      toast.success("Cliente atualizado!");
+      setShowEditCustomer(false);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  function openEditCustomer() {
+    if (!selectedCustomer) return;
+    setEditCustomerForm({
+      name: selectedCustomer.name ?? "",
+      phone: selectedCustomer.phone ?? "",
+      locationReference: selectedCustomer.locationReference ?? "",
+      street: selectedCustomer.street ?? "",
+      number: selectedCustomer.number ?? "",
+      complement: selectedCustomer.complement ?? "",
+      neighborhood: selectedCustomer.neighborhood ?? "",
+      city: selectedCustomer.city ?? "",
+      zipCode: selectedCustomer.zipCode ?? "",
+    });
+    setShowEditCustomer(true);
+  }
 
   const { data: searchResults } = trpc.seller.searchCustomers.useQuery(
     { query: customerSearch },
@@ -501,6 +545,7 @@ export default function SellerNewOrder() {
         </CardHeader>
         <CardContent className="pt-0 space-y-3">
           {selectedCustomer ? (
+            <>
             <div className="flex items-center justify-between bg-primary/5 border border-primary/20 rounded-lg p-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
@@ -518,6 +563,11 @@ export default function SellerNewOrder() {
                 Alterar
               </Button>
             </div>
+            <Button variant="outline" size="sm" className="w-full mt-2 gap-1.5" onClick={openEditCustomer}>
+              <Pencil className="w-3.5 h-3.5" />
+              Completar/Corrigir Cadastro
+            </Button>
+            </>
           ) : (
             <div className="space-y-2">
               <div className="relative">
@@ -724,18 +774,27 @@ export default function SellerNewOrder() {
 
       {/* ── SUBMIT ── */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-md border-t border-border z-10 max-w-md mx-auto">
-        <Button
-          className="w-full h-12 text-lg font-bold shadow-lg shadow-primary/20"
-          disabled={cart.length === 0 || createOrderMutation.isPending || updateOrderMutation.isPending}
-          onClick={submitOrder}
-        >
-          {createOrderMutation.isPending || updateOrderMutation.isPending
-            ? "Processando..."
-            : isEditMode
-              ? `Atualizar Pedido — ${fmt(totalAmount)}`
-              : `Confirmar Pedido — ${fmt(totalAmount)}`
-          }
-        </Button>
+        <div className="flex gap-2">
+          {isEditMode && (
+            <Link href={returnPath} className="flex-1">
+              <Button variant="outline" className="w-full h-12 text-base">
+                Cancelar
+              </Button>
+            </Link>
+          )}
+          <Button
+            className="flex-1 h-12 text-lg font-bold shadow-lg shadow-primary/20"
+            disabled={cart.length === 0 || createOrderMutation.isPending || updateOrderMutation.isPending}
+            onClick={submitOrder}
+          >
+            {createOrderMutation.isPending || updateOrderMutation.isPending
+              ? "Processando..."
+              : isEditMode
+                ? `Atualizar — ${fmt(totalAmount)}`
+                : `Confirmar Pedido — ${fmt(totalAmount)}`
+            }
+          </Button>
+        </div>
       </div>
 
       {/* ── DIALOGS ── */}
@@ -751,6 +810,7 @@ export default function SellerNewOrder() {
             ) : (
               activeCategoryProducts.map(p => {
                 const hasFlavors = (p.maxFlavors ?? 0) > 0;
+                const emEstoque = estoquePorProduto[p.id] ?? 0;
                 return (
                   <div key={p.id} className="flex items-center justify-between gap-4 bg-accent/20 p-3 rounded-xl border border-border/40">
                     <div className="flex-1">
@@ -758,6 +818,13 @@ export default function SellerNewOrder() {
                       <p className="text-xs text-primary font-bold">{fmt(Number(p.price))}</p>
                       {hasFlavors && (
                         <p className="text-[10px] text-purple-400 mt-0.5">Até {p.maxFlavors} sabor(es)</p>
+                      )}
+                      {mostrarEstoque && (
+                        emEstoque > 0 ? (
+                          <p className="text-[10px] text-emerald-600 font-semibold mt-0.5">{emEstoque} em estoque</p>
+                        ) : (
+                          <p className="text-[10px] text-red-500 font-semibold mt-0.5">Sem estoque — período fechado</p>
+                        )
                       )}
                     </div>
                     {hasFlavors ? (
@@ -799,6 +866,20 @@ export default function SellerNewOrder() {
             <DialogTitle>{flavorProduct?.name} - Escolha os Sabores</DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {mostrarEstoque && (
+              <div className="rounded-lg border border-orange-200 bg-orange-50 p-2.5 text-xs text-orange-800">
+                <p className="font-semibold mb-1">Período fechado — combinações disponíveis no estoque:</p>
+                {(estoqueDisponivel ?? []).filter(l => l.productId === flavorProduct?.id).length > 0 ? (
+                  <ul className="space-y-0.5">
+                    {(estoqueDisponivel ?? []).filter(l => l.productId === flavorProduct?.id).map((l, i) => (
+                      <li key={i}>• {l.flavorNames.length > 0 ? l.flavorNames.join(", ") : "Sem sabor"} — {l.totalQuantity} disponível</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>Nenhuma combinação deste produto está disponível no estoque.</p>
+                )}
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Escolha até {flavorProduct?.maxFlavors} sabor(es):
@@ -897,6 +978,62 @@ export default function SellerNewOrder() {
               onClick={() => createCustomerMutation.mutate(newCustomer)}
             >
               {createCustomerMutation.isPending ? "Salvando..." : "Cadastrar Cliente"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Editar/completar cadastro do cliente já selecionado */}
+      <Dialog open={showEditCustomer} onOpenChange={setShowEditCustomer}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Completar/Corrigir Cadastro</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Nome</Label>
+              <Input value={editCustomerForm.name} onChange={(e) => setEditCustomerForm({ ...editCustomerForm, name: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Telefone</Label>
+              <Input value={editCustomerForm.phone} onChange={(e) => setEditCustomerForm({ ...editCustomerForm, phone: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Ponto de Referência</Label>
+              <Input value={editCustomerForm.locationReference} onChange={(e) => setEditCustomerForm({ ...editCustomerForm, locationReference: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Rua</Label>
+                <Input value={editCustomerForm.street} onChange={(e) => setEditCustomerForm({ ...editCustomerForm, street: e.target.value })} className="bg-input border-border" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Número</Label>
+                <Input value={editCustomerForm.number} onChange={(e) => setEditCustomerForm({ ...editCustomerForm, number: e.target.value })} className="bg-input border-border" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Complemento (Apto/Bloco)</Label>
+              <Input value={editCustomerForm.complement} onChange={(e) => setEditCustomerForm({ ...editCustomerForm, complement: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Bairro</Label>
+              <Input value={editCustomerForm.neighborhood} onChange={(e) => setEditCustomerForm({ ...editCustomerForm, neighborhood: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Cidade</Label>
+              <Input value={editCustomerForm.city} onChange={(e) => setEditCustomerForm({ ...editCustomerForm, city: e.target.value })} className="bg-input border-border" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">CEP</Label>
+              <Input value={editCustomerForm.zipCode} onChange={(e) => setEditCustomerForm({ ...editCustomerForm, zipCode: e.target.value })} className="bg-input border-border" placeholder="00000-000" />
+            </div>
+            <Button
+              className="w-full font-bold"
+              disabled={!editCustomerForm.name || !editCustomerForm.phone || updateCustomerMutation.isPending || !selectedCustomer}
+              onClick={() => selectedCustomer && updateCustomerMutation.mutate({ id: selectedCustomer.id, ...editCustomerForm })}
+            >
+              {updateCustomerMutation.isPending ? "Salvando..." : "Salvar Alterações"}
             </Button>
           </div>
         </DialogContent>
