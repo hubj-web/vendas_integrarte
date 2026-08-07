@@ -244,6 +244,7 @@ export default function Reports() {
                 <StatCard title="Dinheiro" value={fmt(financialReport.cashReceived)} icon={DollarSign} color="bg-teal-500/10 text-teal-400" />
                 <StatCard title="Pendente" value={fmt(financialReport.totalPending)} icon={Package} color="bg-orange-500/10 text-orange-400" sub={`${(financialReport.pendingOrders?.length || 0)} pedidos`} />
                 <StatCard title="Custo" value={fmt(financialReport.totalCost)} icon={Package} color="bg-red-500/10 text-red-400" sub="Do período vendido" />
+                <StatCard title="Compras de Estoque" value={fmt(financialReport.custoComprasEstoque)} icon={Truck} color="bg-orange-500/10 text-orange-400" sub="Pedidos recebidos no período" />
                 <StatCard
                   title="Lucro"
                   value={fmt(financialReport.profit)}

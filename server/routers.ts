@@ -13,6 +13,7 @@ import { routeOptimizationRouter } from "./routers/routeOptimization";
 import { suppliersRouter } from "./routers/suppliers";
 import { packagingRouter } from "./routers/packaging";
 import { gestaoRouter } from "./routers/gestao";
+import { estoqueRouter, pedidosEstoqueRouter } from "./routers/estoque";
 export const appRouter = router({
   system: systemRouter,
   auth: authRouter,
@@ -29,6 +30,8 @@ export const appRouter = router({
   suppliers: suppliersRouter,
   packaging: packagingRouter,
   gestao: gestaoRouter,
+  estoque: estoqueRouter,
+  pedidosEstoque: pedidosEstoqueRouter,
 });
 
 export type AppRouter = typeof appRouter;

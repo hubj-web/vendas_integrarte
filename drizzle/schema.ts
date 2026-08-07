@@ -466,3 +466,55 @@ export const periodosVenda = mysqlTable("periodos_venda", {
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ─── ESTOQUE INTEGRARTE — substitui o "cliente fake" por um estoque de verdade
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Nível atual de estoque — uma linha por combinação de produto+sabores.
+export const estoqueAtual = mysqlTable("estoque_atual", {
+  id: int("id").autoincrement().primaryKey(),
+  productId: int("productId").notNull(),
+  quantidade: int("quantidade").notNull().default(0),
+  custoMedioUnitario: decimal("custoMedioUnitario", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const estoqueAtualFlavors = mysqlTable("estoque_atual_flavors", {
+  id: int("id").autoincrement().primaryKey(),
+  estoqueAtualId: int("estoqueAtualId").notNull(),
+  productFlavorId: int("productFlavorId").notNull(),
+  flavorName: varchar("flavorName", { length: 100 }).notNull(),
+});
+
+// Pedido de Estoque — a "lista de compras" enviada ao fornecedor, com fluxo
+// Rascunho → Enviado → Recebido. Ao marcar como Recebido, dá entrada automática
+// no estoque_atual e o custo entra nos relatórios financeiros.
+export const pedidosEstoque = mysqlTable("pedidos_estoque", {
+  id: int("id").autoincrement().primaryKey(),
+  fornecedorId: int("fornecedorId").notNull(),
+  descricao: varchar("descricao", { length: 200 }),
+  status: mysqlEnum("status", ["rascunho", "enviado", "recebido", "cancelado"]).default("rascunho").notNull(),
+  dataEnvio: timestamp("dataEnvio"),
+  dataRecebimento: timestamp("dataRecebimento"),
+  observacoes: text("observacoes"),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const pedidosEstoqueItens = mysqlTable("pedidos_estoque_itens", {
+  id: int("id").autoincrement().primaryKey(),
+  pedidoEstoqueId: int("pedidoEstoqueId").notNull(),
+  productId: int("productId").notNull(),
+  quantidade: int("quantidade").notNull(),
+  custoUnitario: decimal("custoUnitario", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const pedidosEstoqueItemFlavors = mysqlTable("pedidos_estoque_item_flavors", {
+  id: int("id").autoincrement().primaryKey(),
+  pedidoEstoqueItemId: int("pedidoEstoqueItemId").notNull(),
+  productFlavorId: int("productFlavorId").notNull(),
+  flavorName: varchar("flavorName", { length: 100 }).notNull(),
+});

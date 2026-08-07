@@ -7,6 +7,7 @@ import {
   customers, users, deliveryRecords, paymentRecords,
   products, minipizzaTypes, minipizzaFlavors, jellyFlavors,
   orderItemFlavors, orderMinipizzaFlavors, productCategories,
+  pedidosEstoque, pedidosEstoqueItens,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -135,7 +136,28 @@ async function computeFinancialReport(db: NonNullable<Awaited<ReturnType<typeof 
 
   const profit = totalRevenue - totalCost;
 
-  return { totalReceived, pixReceived, cashReceived, totalPending, pendingOrders, totalRevenue, totalCost, profit, profitByCategory };
+  // Custo com Pedidos de Estoque recebidos no período (compra pros fornecedores,
+  // separado do custo dos produtos efetivamente vendidos acima — é despesa da
+  // instituição, não custo diretamente ligado a uma venda específica).
+  let custoComprasEstoque = 0;
+  try {
+    const pedidosRecebidos = await db.select({ id: pedidosEstoque.id }).from(pedidosEstoque)
+      .where(and(eq(pedidosEstoque.status, "recebido"), gte(pedidosEstoque.dataRecebimento, from), lte(pedidosEstoque.dataRecebimento, to)));
+    if (pedidosRecebidos.length > 0) {
+      const itensEstoque = await db.select({ quantidade: pedidosEstoqueItens.quantidade, custoUnitario: pedidosEstoqueItens.custoUnitario })
+        .from(pedidosEstoqueItens).where(inArray(pedidosEstoqueItens.pedidoEstoqueId, pedidosRecebidos.map(p => p.id)));
+      custoComprasEstoque = itensEstoque.reduce((acc, i) => acc + i.quantidade * parseFloat(i.custoUnitario), 0);
+    }
+  } catch (err) {
+    console.error("[Relatório Financeiro] Falha ao calcular custo de compras de estoque:", err);
+  }
+
+  const profitFinal = profit - custoComprasEstoque;
+
+  return {
+    totalReceived, pixReceived, cashReceived, totalPending, pendingOrders,
+    totalRevenue, totalCost, custoComprasEstoque, profit: profitFinal, profitByCategory,
+  };
 }
 
 export const reportsRouter = router({
@@ -449,6 +471,7 @@ export const reportsRouter = router({
           { label: "Recebido em Dinheiro", value: report.cashReceived },
           { label: "Pendente de Pagamento", value: report.totalPending },
           { label: "Custo (período vendido)", value: report.totalCost },
+          { label: "Compras de Estoque (recebidas)", value: report.custoComprasEstoque },
           { label: "Lucro", value: report.profit, highlight: true },
         ];
 
