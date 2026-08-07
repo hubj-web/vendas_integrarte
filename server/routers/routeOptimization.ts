@@ -882,6 +882,8 @@ export const routeOptimizationRouter = router({
         // acontecer de novo, dá pra ver exatamente a linha que quebrou, em vez
         // de só a mensagem genérica que chega no navegador.
         console.error("[Roteirização] Falha ao agrupar/calcular rotas:", err);
+        console.error("[Roteirização] Stack trace:", err instanceof Error ? err.stack : String(err));
+        console.error("[Roteirização] Contexto: numOrders=", ordersToProcess.length, "numRoutes=", numRoutes, "matrixSize=", matrixForClustering?.length);
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Não foi possível calcular as rotas com os pedidos selecionados. Tente novamente ou reduza a quantidade de pedidos.",
