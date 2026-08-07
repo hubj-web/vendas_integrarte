@@ -329,6 +329,12 @@ function groupOrderIndicesByNeighborhood(ordersToProcess: OrderWithLocation[]): 
         groups[bigger].push(...groups[smaller]);
         delete groups[smaller];
         merged.add(smaller);
+
+        // Se "a" foi o grupo apagado (ficou menor que "b" dessa vez), ele deixa
+        // de existir em `groups` — não dá pra continuar comparando "a" com os
+        // próximos "b"s do laço interno (isso é o que causava o erro "Cannot
+        // read properties of undefined" quando havia 3+ bairros parecidos entre si).
+        if (smaller === a) break;
       }
     }
   }
