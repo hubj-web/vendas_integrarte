@@ -59,6 +59,13 @@ import Frequencia from "./pages/gestao/Frequencia";
 import Pagamentos from "./pages/gestao/Pagamentos";
 import ResetPassword from "./pages/ResetPassword";
 import Profile from "./pages/Profile";
+import StorePage from "./pages/store/Store";
+import StoreReceipt from "./pages/store/StoreReceipt";
+import LojaPublica from "./pages/admin/LojaPublica";
+
+function StoreReceiptRoute({ params }: { params: { id: string } }) {
+  return <StoreReceipt orderId={Number(params.id)} />;
+}
 
 // ── SELLER AREA ──
 function SellerArea() {
@@ -243,6 +250,9 @@ function Router() {
       <Route path="/admin/perfil">
         <AdminGuard><AppLayout><Profile /></AppLayout></AdminGuard>
       </Route>
+      <Route path="/admin/loja-publica">
+        <AdminGuard><AppLayout><LojaPublica /></AppLayout></AdminGuard>
+      </Route>
 
       {/* ── ADMIN LOGIN (last — /admin is a prefix and would swallow everything above) ── */}
       <Route path="/admin">
@@ -294,6 +304,12 @@ function Router() {
       </Route>
       <Route path="/redefinir-senha">
         <ResetPassword />
+      </Route>
+
+      {/* ── LOJA PÚBLICA (sem login) ── */}
+      <Route path="/loja/pedido/:id" component={StoreReceiptRoute} />
+      <Route path="/loja">
+        <StorePage />
       </Route>
 
       <Route component={NotFound} />

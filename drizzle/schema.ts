@@ -204,7 +204,11 @@ export const orders = mysqlTable("orders", {
   deliveryMethodId: int("deliveryMethodId").notNull(),
   deliveryDate: timestamp("deliveryDate"),
   deliveryAddress: text("deliveryAddress"),
-  paymentMethod: mysqlEnum("paymentMethod", ["cash", "pix"]).notNull(),
+  paymentMethod: mysqlEnum("paymentMethod", ["cash", "pix", "credit_card"]).notNull(),
+  // Origem do pedido: 'periodo' = fluxo normal (vendedor, período de vendas),
+  // 'loja_publica' = comprado pelo cliente direto na loja on-line (sem login).
+  // Aditivo — todo pedido antigo/existente fica com o default 'periodo'.
+  channel: mysqlEnum("channel", ["periodo", "loja_publica"]).default("periodo").notNull(),
   status: mysqlEnum("status", ["production", "in_route", "packaged", "delivered", "paid", "cancelled"]).default("production").notNull(),
   paymentStatus: mysqlEnum("paymentStatus", ["pending", "paid", "partial", "cancelled"]).default("pending").notNull(),
   totalAmount: decimal("totalAmount", { precision: 10, scale: 2 }).notNull(),
@@ -518,3 +522,52 @@ export const pedidosEstoqueItemFlavors = mysqlTable("pedidos_estoque_item_flavor
   productFlavorId: int("productFlavorId").notNull(),
   flavorName: varchar("flavorName", { length: 100 }).notNull(),
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ─── LOJA PÚBLICA — venda on-line sem login, exclusivamente do Estoque ────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Configuração única da loja (uma linha só). Controla se está aberta e uma
+// mensagem opcional exibida quando fechada.
+export const storeSettings = mysqlTable("store_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  isOpen: boolean("isOpen").default(false).notNull(),
+  closedMessage: text("closedMessage"),
+  updatedBy: int("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// Curadoria: quais produtos do Estoque aparecem na loja pública, e a que
+// preço (pode divergir do preço do produto usado no período de vendas).
+// Se um produto não tem linha aqui, NÃO aparece na loja (opt-in explícito).
+export const storeProductVisibility = mysqlTable("store_product_visibility", {
+  id: int("id").autoincrement().primaryKey(),
+  productId: int("productId").notNull().unique(),
+  visible: boolean("visible").default(true).notNull(),
+  storePrice: decimal("storePrice", { precision: 10, scale: 2 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// Dados do pagamento on-line (Mercado Pago) de um pedido da loja pública.
+// Separado de payment_records de propósito: payment_records é o registro
+// MANUAL feito pelo vendedor (dinheiro/pix combinado); aqui é o rastro do
+// pagamento automático via Mercado Pago (PIX ou cartão), com webhook.
+export const storeOrderPayments = mysqlTable("store_order_payments", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull().unique(),
+  method: mysqlEnum("method", ["pix", "credit_card"]).notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "rejected", "cancelled", "expired"]).default("pending").notNull(),
+  mpPaymentId: varchar("mpPaymentId", { length: 100 }),
+  mpPreferenceId: varchar("mpPreferenceId", { length: 100 }),
+  qrCode: text("qrCode"),
+  qrCodeBase64: text("qrCodeBase64"),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  expiresAt: timestamp("expiresAt"),
+  approvedAt: timestamp("approvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type StoreOrderPayment = typeof storeOrderPayments.$inferSelect;
+export type StoreProductVisibility = typeof storeProductVisibility.$inferSelect;

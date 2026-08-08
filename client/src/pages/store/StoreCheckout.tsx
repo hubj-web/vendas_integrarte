@@ -1,0 +1,354 @@
+import { useEffect, useRef, useState } from "react";
+import { useLocation } from "wouter";
+import { trpc } from "@/lib/trpc";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Separator } from "@/components/ui/separator";
+import { toast } from "sonner";
+import { ArrowLeft, Loader2, QrCode, CreditCard, Copy, Check } from "lucide-react";
+
+const fmt = (v: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+
+interface CartItem {
+  key: string;
+  productId: number;
+  name: string;
+  unitPrice: number;
+  quantity: number;
+  flavorIds: number[];
+  flavorNames: string[];
+}
+
+interface Props {
+  cart: CartItem[];
+  total: number;
+  onBack: () => void;
+  onSuccess: () => void;
+}
+
+declare global {
+  interface Window {
+    MercadoPago?: any;
+  }
+}
+
+type Step = "dados" | "pagamento" | "pix_aguardando" | "concluido";
+
+export default function StoreCheckout({ cart, total, onBack, onSuccess }: Props) {
+  const [, navigate] = useLocation();
+  const [step, setStep] = useState<Step>("dados");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [deliveryMethodId, setDeliveryMethodId] = useState<number | null>(null);
+  const [address, setAddress] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"pix" | "credit_card">("pix");
+  const [orderId, setOrderId] = useState<number | null>(null);
+  const [pixData, setPixData] = useState<{ qrCode?: string; qrCodeBase64?: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const { data: deliveryMethods = [] } = trpc.publicStore.deliveryMethods.useQuery();
+  const { data: mpConfig } = trpc.publicStore.mpPublicKey.useQuery();
+
+  const selectedMethod = deliveryMethods.find(m => m.id === deliveryMethodId);
+  const requiresAddress = !!selectedMethod?.requiresAddress;
+
+  const createOrder = trpc.publicStore.createOrder.useMutation();
+  const { data: orderStatus } = trpc.publicStore.orderStatus.useQuery(
+    { orderId: orderId! },
+    { enabled: !!orderId && step === "pix_aguardando", refetchInterval: 4000 }
+  );
+
+  useEffect(() => {
+    if (orderStatus?.paymentStatus === "paid") {
+      onSuccess();
+      navigate(`/loja/pedido/${orderId}`);
+    }
+  }, [orderStatus?.paymentStatus]);
+
+  function validateDados() {
+    if (!name.trim()) { toast.error("Informe seu nome."); return false; }
+    if (phone.replace(/\D/g, "").length < 10) { toast.error("Informe um telefone válido."); return false; }
+    if (!deliveryMethodId) { toast.error("Escolha como quer receber."); return false; }
+    if (requiresAddress && !address.trim()) { toast.error("Informe o endereço de entrega."); return false; }
+    return true;
+  }
+
+  async function submitPix() {
+    try {
+      const result = await createOrder.mutateAsync({
+        customerName: name, customerPhone: phone,
+        deliveryMethodId: deliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
+        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds })),
+        paymentMethod: "pix",
+      });
+      setOrderId(result.orderId);
+      if (result.paymentStatus === "approved") {
+        onSuccess();
+        navigate(`/loja/pedido/${result.orderId}`);
+      } else {
+        setPixData({ qrCode: result.qrCode, qrCodeBase64: result.qrCodeBase64 });
+        setStep("pix_aguardando");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Não foi possível criar o pedido.");
+    }
+  }
+
+  function copyPix() {
+    if (!pixData?.qrCode) return;
+    navigator.clipboard.writeText(pixData.qrCode);
+    setCopied(true);
+    toast.success("Código PIX copiado!");
+    setTimeout(() => setCopied(false), 2500);
+  }
+
+  if (step === "pix_aguardando" && pixData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-muted/20">
+        <Card className="max-w-sm w-full">
+          <CardHeader className="text-center">
+            <QrCode className="mx-auto h-8 w-8 text-primary mb-1" />
+            <CardTitle>Escaneie para pagar</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-center">
+            {pixData.qrCodeBase64 && (
+              <img
+                src={`data:image/png;base64,${pixData.qrCodeBase64}`}
+                alt="QR Code PIX"
+                className="mx-auto w-56 h-56 border rounded-lg"
+              />
+            )}
+            <p className="text-sm text-muted-foreground">
+              Abra o app do seu banco, escaneie o QR code ou copie o código abaixo.
+            </p>
+            <Button variant="outline" className="w-full gap-2" onClick={copyPix}>
+              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              {copied ? "Copiado!" : "Copiar código PIX"}
+            </Button>
+            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground pt-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Aguardando confirmação do pagamento…
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Assim que o pagamento cair, esta tela atualiza sozinha e mostra seu recibo.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-muted/20 pb-8">
+      <header className="bg-primary text-primary-foreground py-4 px-4 flex items-center gap-3 sticky top-0 z-10">
+        <Button size="icon" variant="ghost" className="text-primary-foreground hover:bg-primary-foreground/10" onClick={onBack}>
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <h1 className="font-semibold">Finalizar pedido</h1>
+      </header>
+
+      <div className="max-w-md mx-auto p-4 space-y-4">
+        <Card>
+          <CardContent className="pt-4 space-y-2 text-sm">
+            {cart.map(item => (
+              <div key={item.key} className="flex justify-between">
+                <span>{item.quantity}x {item.name}{item.flavorNames.length > 0 ? ` (${item.flavorNames.join(", ")})` : ""}</span>
+                <span>{fmt(item.unitPrice * item.quantity)}</span>
+              </div>
+            ))}
+            <Separator className="my-2" />
+            <div className="flex justify-between font-semibold">
+              <span>Total</span>
+              <span>{fmt(total)}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {step === "dados" && (
+          <Card>
+            <CardHeader><CardTitle className="text-base">Seus dados</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <div>
+                <Label>Nome completo</Label>
+                <Input value={name} onChange={e => setName(e.target.value)} placeholder="Seu nome" />
+              </div>
+              <div>
+                <Label>Telefone (WhatsApp)</Label>
+                <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(00) 00000-0000" />
+                <p className="text-xs text-muted-foreground mt-1">Usado como identificação — sem necessidade de senha.</p>
+              </div>
+              <div>
+                <Label>Como você quer receber?</Label>
+                <RadioGroup value={deliveryMethodId ? String(deliveryMethodId) : ""} onValueChange={v => setDeliveryMethodId(Number(v))} className="mt-1">
+                  {deliveryMethods.map(m => (
+                    <div key={m.id} className="flex items-center space-x-2 border rounded-lg p-3">
+                      <RadioGroupItem value={String(m.id)} id={`dm-${m.id}`} />
+                      <Label htmlFor={`dm-${m.id}`} className="flex-1 cursor-pointer">
+                        <span className="font-medium">{m.name}</span>
+                        {m.description && <p className="text-xs text-muted-foreground">{m.description}</p>}
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              </div>
+              {requiresAddress && (
+                <div>
+                  <Label>Endereço completo</Label>
+                  <Textarea value={address} onChange={e => setAddress(e.target.value)} placeholder="Rua, número, bairro, referência" />
+                </div>
+              )}
+              <Button className="w-full" onClick={() => validateDados() && setStep("pagamento")}>
+                Continuar para pagamento
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {step === "pagamento" && (
+          <Card>
+            <CardHeader><CardTitle className="text-base">Forma de pagamento</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <RadioGroup value={paymentMethod} onValueChange={v => setPaymentMethod(v as any)}>
+                <div className="flex items-center space-x-2 border rounded-lg p-3">
+                  <RadioGroupItem value="pix" id="pm-pix" />
+                  <Label htmlFor="pm-pix" className="flex-1 cursor-pointer flex items-center gap-2">
+                    <QrCode className="h-4 w-4" /> PIX (aprovação na hora)
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2 border rounded-lg p-3">
+                  <RadioGroupItem value="credit_card" id="pm-card" />
+                  <Label htmlFor="pm-card" className="flex-1 cursor-pointer flex items-center gap-2">
+                    <CreditCard className="h-4 w-4" /> Cartão de crédito
+                  </Label>
+                </div>
+              </RadioGroup>
+
+              {paymentMethod === "pix" && (
+                <Button className="w-full" disabled={createOrder.isPending} onClick={submitPix}>
+                  {createOrder.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Gerar QR Code PIX
+                </Button>
+              )}
+
+              {paymentMethod === "credit_card" && (
+                <CardPaymentBrick
+                  amount={total}
+                  publicKey={mpConfig?.publicKey}
+                  configured={!!mpConfig?.configured}
+                  onSubmit={async (cardData) => {
+                    try {
+                      const result = await createOrder.mutateAsync({
+                        customerName: name, customerPhone: phone,
+                        deliveryMethodId: deliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
+                        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds })),
+                        paymentMethod: "credit_card",
+                        cardToken: cardData.token, installments: cardData.installments,
+                        paymentMethodId: cardData.paymentMethodId, issuerId: cardData.issuerId,
+                      });
+                      setOrderId(result.orderId);
+                      if (result.paymentStatus === "approved") {
+                        onSuccess();
+                        navigate(`/loja/pedido/${result.orderId}`);
+                      } else {
+                        toast.error("Pagamento não aprovado. Verifique os dados do cartão.");
+                      }
+                    } catch (err: any) {
+                      toast.error(err?.message || "Não foi possível processar o pagamento.");
+                    }
+                  }}
+                />
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Card Payment Brick do Mercado Pago — carrega o SDK JS oficial e monta o
+ * formulário de cartão embutido na própria loja (nome, número, validade, CVV,
+ * parcelas). O token gerado nunca passa pelos nossos dados — vai direto do
+ * navegador do cliente pro Mercado Pago.
+ */
+function CardPaymentBrick({
+  amount, publicKey, configured, onSubmit,
+}: {
+  amount: number;
+  publicKey?: string;
+  configured: boolean;
+  onSubmit: (data: { token: string; installments: number; paymentMethodId: string; issuerId?: string }) => Promise<void>;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const brickRef = useRef<any>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!configured || !publicKey) return;
+    let cancelled = false;
+
+    async function init() {
+      if (!window.MercadoPago) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://sdk.mercadopago.com/js/v2";
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error("Falha ao carregar o Mercado Pago."));
+          document.head.appendChild(script);
+        });
+      }
+      if (cancelled) return;
+      const mp = new window.MercadoPago(publicKey, { locale: "pt-BR" });
+      const bricksBuilder = mp.bricks();
+      brickRef.current = await bricksBuilder.create("cardPayment", "card-payment-brick-container", {
+        initialization: { amount },
+        callbacks: {
+          onReady: () => setReady(true),
+          onSubmit: async (cardFormData: any) => {
+            await onSubmit({
+              token: cardFormData.token,
+              installments: cardFormData.installments,
+              paymentMethodId: cardFormData.payment_method_id,
+              issuerId: cardFormData.issuer_id,
+            });
+          },
+          onError: (error: any) => {
+            console.error("Erro no Payment Brick:", error);
+            toast.error("Erro ao carregar o formulário de cartão.");
+          },
+        },
+      });
+    }
+
+    init().catch(err => {
+      console.error(err);
+      toast.error("Não foi possível carregar o pagamento por cartão.");
+    });
+
+    return () => {
+      cancelled = true;
+      brickRef.current?.unmount?.();
+    };
+  }, [configured, publicKey, amount]);
+
+  if (!configured) {
+    return <p className="text-sm text-muted-foreground">Pagamento por cartão ainda não configurado. Use PIX por enquanto.</p>;
+  }
+
+  return (
+    <div>
+      {!ready && (
+        <div className="flex items-center justify-center py-8 text-muted-foreground text-sm gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" /> Carregando formulário de cartão…
+        </div>
+      )}
+      <div id="card-payment-brick-container" ref={containerRef} />
+    </div>
+  );
+}

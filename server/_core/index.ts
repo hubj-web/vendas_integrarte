@@ -18,6 +18,7 @@ import { serveStatic, setupVite } from "./vite";
 import { overduePaymentsHandler } from "../routers/notifications";
 import { registerDbSetupRoute } from "../dbSetup";
 import { testTelegramConnection } from "../telegram";
+import { registerMercadoPagoWebhook } from "../mercadopagoWebhook";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -52,6 +53,8 @@ async function startServer() {
   registerDbSetupRoute(app);
   // Scheduled notification handlers
   app.post("/api/scheduled/overdue-payments", overduePaymentsHandler);
+  // Webhook do Mercado Pago — confirma pagamentos da Loja Pública
+  registerMercadoPagoWebhook(app);
   // tRPC API
   app.use(
     "/api/trpc",

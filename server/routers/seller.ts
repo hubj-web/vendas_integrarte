@@ -20,10 +20,10 @@ import { googleSheets } from "../google-sheets";
 import { uploadReceiptToDrive } from "../google-drive";
 import { sendOrderNotification } from "../telegram";
 
-type DB = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+export type DB = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 /** Verifica se hoje cai dentro de algum período de venda aberto. */
-async function periodoVendaAtivo(db: DB): Promise<boolean> {
+export async function periodoVendaAtivo(db: DB): Promise<boolean> {
   const hoje = new Date();
   const periodos = await db.select({ id: periodosVenda.id }).from(periodosVenda)
     .where(and(lte(periodosVenda.dataAbertura, hoje), gte(periodosVenda.dataFechamento, hoje)));
@@ -31,7 +31,7 @@ async function periodoVendaAtivo(db: DB): Promise<boolean> {
 }
 
 /** Busca as linhas de estoque de um produto+sabor, mais antigas primeiro (FIFO). */
-async function buscarLotesEstoque(db: DB, productId: number, flavorIds: number[]) {
+export async function buscarLotesEstoque(db: DB, productId: number, flavorIds: number[]) {
   const itemRows = await db.select({
     id: estoqueAtual.id, quantity: estoqueAtual.quantidade,
   }).from(estoqueAtual).where(and(eq(estoqueAtual.productId, productId), gte(estoqueAtual.quantidade, 1)));
@@ -56,7 +56,7 @@ async function buscarLotesEstoque(db: DB, productId: number, flavorIds: number[]
 }
 
 /** Desconta uma quantidade das linhas de estoque já buscadas (mais antigas primeiro). */
-async function descontarLotesEstoque(db: DB, lotes: Awaited<ReturnType<typeof buscarLotesEstoque>>, quantidade: number) {
+export async function descontarLotesEstoque(db: DB, lotes: Awaited<ReturnType<typeof buscarLotesEstoque>>, quantidade: number) {
   let remaining = quantidade;
   for (const lote of lotes) {
     if (remaining <= 0) break;

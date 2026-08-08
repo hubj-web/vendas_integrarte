@@ -18,5 +18,10 @@ export const ENV = {
   gmailUser: process.env.GMAIL_USER ?? "",
   gmailAppPassword: process.env.GMAIL_APP_PASSWORD ?? "",
   // URL pública do sistema, usada para montar links em e-mails (ex: redefinir senha)
-  appUrl: process.env.APP_URL ?? "https://vendasintegrarte-production.up.railway.app",
+  // e o webhook do Mercado Pago da Loja Pública.
+  appUrl: process.env.APP_URL ?? "https://www.integrarte.app.br",
+  // Mercado Pago — Loja Pública (PIX + cartão via Checkout Bricks)
+  mercadoPagoAccessToken: process.env.MERCADOPAGO_ACCESS_TOKEN ?? "",
+  mercadoPagoPublicKey: process.env.MERCADOPAGO_PUBLIC_KEY ?? "",
+  mercadoPagoWebhookSecret: process.env.MERCADOPAGO_WEBHOOK_SECRET ?? "",
 };
