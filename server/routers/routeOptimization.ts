@@ -746,7 +746,7 @@ export const routeOptimizationRouter = router({
       const dateToObj = new Date(input.dateTo + "T23:59:59");
 
       const whereConditions = [
-        eq(orders.status, "production"),
+        inArray(orders.status, ["production", "packaged"]),
         gte(orders.createdAt, dateFromObj),
         lte(orders.createdAt, dateToObj),
         eq(customers.isInternal, false),

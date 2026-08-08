@@ -199,6 +199,47 @@ const routesRouter = router({
 
   // Remove um único pedido da rota manualmente (ex: cliente pediu para não entregar
   // mais). O pedido volta para "produção" e as posições restantes são renumeradas.
+  /**
+   * Move uma parada uma posição pra cima ou pra baixo dentro da mesma rota —
+   * pra você poder ajustar a ordem manualmente (ex: depois de conferir o link
+   * do Google Maps e decidir que faz mais sentido inverter duas paradas). Como
+   * tudo lê a ordem daqui (impressão, PDF, app do entregador), a mudança se
+   * reflete automaticamente em todo lugar.
+   */
+  moveOrderPosition: protectedProcedure
+    .input(z.object({
+      routeId: z.number(),
+      orderId: z.number(),
+      direction: z.enum(["up", "down"]),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const stops = await db.select({ id: routeOrders.id, orderId: routeOrders.orderId, position: routeOrders.position })
+        .from(routeOrders)
+        .where(eq(routeOrders.routeId, input.routeId))
+        .orderBy(asc(routeOrders.position));
+
+      const idx = stops.findIndex(s => s.orderId === input.orderId);
+      if (idx === -1) throw new TRPCError({ code: "NOT_FOUND", message: "Parada não encontrada nessa rota." });
+
+      const swapWithIdx = input.direction === "up" ? idx - 1 : idx + 1;
+      if (swapWithIdx < 0 || swapWithIdx >= stops.length) {
+        // Já está na ponta — não tem pra onde mover, não é erro, só não faz nada.
+        return { success: true };
+      }
+
+      const current = stops[idx];
+      const swapWith = stops[swapWithIdx];
+
+      // Troca as posições das duas paradas
+      await db.update(routeOrders).set({ position: swapWith.position }).where(eq(routeOrders.id, current.id));
+      await db.update(routeOrders).set({ position: current.position }).where(eq(routeOrders.id, swapWith.id));
+
+      return { success: true };
+    }),
+
   removeOrder: protectedProcedure
     .input(z.object({ routeId: z.number(), orderId: z.number(), reason: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
@@ -609,7 +650,7 @@ const routesRouter = router({
         .from(orders)
         .leftJoin(customers, eq(orders.customerId, customers.id))
         .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
-        .where(and(eq(orders.status, "production"), eq(customers.isInternal, false)))
+        .where(and(inArray(orders.status, ["production", "packaged"]), eq(customers.isInternal, false)))
         .orderBy(asc(orders.deliveryDate));
 
       return rows;

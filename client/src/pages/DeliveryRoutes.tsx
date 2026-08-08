@@ -402,6 +402,14 @@ function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAd
     onError: (e) => toast.error(e.message),
   });
 
+  const movePositionMutation = trpc.delivery.routes.moveOrderPosition.useMutation({
+    onSuccess: () => {
+      utils.delivery.routes.getById.invalidate({ id: routeId });
+      toast.success("Ordem atualizada! Clique em MAPS de novo pra pegar o link com a nova ordem.");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   if (isLoading) return <div className="mt-3 py-4 text-center"><Loader2 className="w-4 h-4 animate-spin mx-auto text-muted-foreground" /></div>;
   if (!route) return null;
 
@@ -450,6 +458,24 @@ function RouteDetail({ routeId, startingAddress }: { routeId: number; startingAd
       <div className="space-y-1.5">
         {route.orders.map((o, idx) => (
           <div key={o.id} className="flex items-center gap-3 p-2 rounded-lg bg-muted/20 text-xs hover:bg-muted/40 transition-colors">
+            <div className="flex flex-col shrink-0 -my-1">
+              <button
+                className="h-4 flex items-center justify-center text-muted-foreground hover:text-primary disabled:opacity-20 disabled:hover:text-muted-foreground"
+                title="Mover pra cima"
+                disabled={idx === 0 || movePositionMutation.isPending}
+                onClick={() => movePositionMutation.mutate({ routeId, orderId: o.orderId!, direction: "up" })}
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+              </button>
+              <button
+                className="h-4 flex items-center justify-center text-muted-foreground hover:text-primary disabled:opacity-20 disabled:hover:text-muted-foreground"
+                title="Mover pra baixo"
+                disabled={idx === route.orders.length - 1 || movePositionMutation.isPending}
+                onClick={() => movePositionMutation.mutate({ routeId, orderId: o.orderId!, direction: "down" })}
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
             <Link href={`/admin/pedidos/${o.orderId}`} className="flex items-center gap-3 flex-1 min-w-0">
               <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary flex-shrink-0">{idx + 1}</div>
               <div className="flex-1 min-w-0">
