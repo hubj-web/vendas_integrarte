@@ -4,16 +4,56 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Boxes, Link as LinkIcon, ChevronDown, ChevronRight, Tag } from "lucide-react";
+import { Boxes, Link as LinkIcon, ChevronDown, ChevronRight, Tag, Plus } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
 
 const fmt = (v: string | number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
 
 export default function Estoque() {
+  const utils = trpc.useUtils();
   const { data: estoque, isLoading } = trpc.estoque.list.useQuery();
+  const { data: catalog } = trpc.catalog.products.list.useQuery();
   const [categoriasAbertas, setCategoriasAbertas] = useState<Set<string>>(new Set());
+
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualProductId, setManualProductId] = useState<string>("");
+  const [manualFlavorId, setManualFlavorId] = useState<string>("");
+  const [manualQtd, setManualQtd] = useState("");
+  const [manualCusto, setManualCusto] = useState("");
+
+  const { data: flavorsData } = trpc.catalog.productFlavors.listAll.useQuery(undefined, { enabled: manualOpen });
+  const selectedProduct = catalog?.find(p => p.id === Number(manualProductId));
+  const availableFlavors = (flavorsData ?? []).filter(f => f.productId === Number(manualProductId));
+
+  const adicionarManual = trpc.estoque.adicionarManual.useMutation({
+    onSuccess: () => {
+      utils.estoque.list.invalidate();
+      toast.success("Estoque adicionado!");
+      setManualOpen(false);
+      setManualProductId(""); setManualFlavorId(""); setManualQtd(""); setManualCusto("");
+    },
+    onError: (err) => toast.error(err.message || "Não foi possível adicionar."),
+  });
+
+  function submitManual() {
+    if (!manualProductId || !manualQtd || Number(manualQtd) < 1) {
+      toast.error("Escolha o produto e uma quantidade válida.");
+      return;
+    }
+    adicionarManual.mutate({
+      productId: Number(manualProductId),
+      quantidade: Number(manualQtd),
+      custoUnitario: manualCusto || "0.00",
+      flavorIds: manualFlavorId ? [Number(manualFlavorId)] : undefined,
+    });
+  }
 
   const grupos = useMemo(() => {
     if (!estoque) return [];
@@ -46,11 +86,16 @@ export default function Estoque() {
         title="Estoque Integrarte"
         description="Nível atual de cada produto — o que está disponível pra vender fora do período de vendas"
         actions={
-          <Link href="/admin/config/pedidos-estoque">
-            <Button variant="outline" className="gap-1.5">
-              <LinkIcon className="w-4 h-4" /> Pedidos de Estoque
+          <div className="flex gap-2">
+            <Button onClick={() => setManualOpen(true)} className="gap-1.5">
+              <Plus className="w-4 h-4" /> Adicionar Manualmente
             </Button>
-          </Link>
+            <Link href="/admin/config/pedidos-estoque">
+              <Button variant="outline" className="gap-1.5">
+                <LinkIcon className="w-4 h-4" /> Pedidos de Estoque
+              </Button>
+            </Link>
+          </div>
         }
       />
 
@@ -67,7 +112,7 @@ export default function Estoque() {
         <div className="text-center py-20 bg-card border border-dashed border-border rounded-xl">
           <Boxes className="w-12 h-12 mx-auto mb-4 opacity-20" />
           <h3 className="text-lg font-medium">Nenhum item em estoque no momento.</h3>
-          <p className="text-muted-foreground">Crie um Pedido de Estoque e marque como "Recebido" pra dar entrada aqui.</p>
+          <p className="text-muted-foreground">Use "Adicionar Manualmente" pra um lançamento pontual, ou crie um Pedido de Estoque e marque como "Recebido".</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -115,6 +160,59 @@ export default function Estoque() {
           })}
         </div>
       )}
+
+      <Dialog open={manualOpen} onOpenChange={setManualOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Adicionar ao Estoque Manualmente</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Pra lançar um produto pontual (ex: produção extra pra um evento) sem precisar simular um pedido de fornecedor.
+            </p>
+            <div>
+              <Label>Produto</Label>
+              <Select value={manualProductId} onValueChange={(v) => { setManualProductId(v); setManualFlavorId(""); }}>
+                <SelectTrigger><SelectValue placeholder="Escolha o produto" /></SelectTrigger>
+                <SelectContent>
+                  {(catalog ?? []).map(p => (
+                    <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {selectedProduct && (selectedProduct.maxFlavors ?? 0) > 0 && availableFlavors.length > 0 && (
+              <div>
+                <Label>Sabor</Label>
+                <Select value={manualFlavorId} onValueChange={setManualFlavorId}>
+                  <SelectTrigger><SelectValue placeholder="Escolha o sabor" /></SelectTrigger>
+                  <SelectContent>
+                    {availableFlavors.map(f => (
+                      <SelectItem key={f.id} value={String(f.id)}>{f.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Quantidade</Label>
+                <Input type="number" min={1} value={manualQtd} onChange={e => setManualQtd(e.target.value)} placeholder="Ex: 20" />
+              </div>
+              <div>
+                <Label>Custo unitário (opcional)</Label>
+                <Input type="number" step="0.01" min={0} value={manualCusto} onChange={e => setManualCusto(e.target.value)} placeholder="0.00" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setManualOpen(false)}>Cancelar</Button>
+            <Button onClick={submitManual} disabled={adicionarManual.isPending}>
+              {adicionarManual.isPending ? "Adicionando…" : "Adicionar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

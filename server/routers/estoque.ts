@@ -18,6 +18,39 @@ import { getDb } from "../db";
 import { adminProcedure, router } from "../_core/trpc";
 
 export const estoqueRouter = router({
+  /**
+   * Entrada manual de estoque — pra lançar produtos pontuais (ex: produção
+   * extra pra um evento) sem precisar simular um pedido de fornecedor.
+   * Usa a mesma tabela e lógica de `pedidosEstoqueRouter.marcarRecebido`.
+   */
+  adicionarManual: adminProcedure
+    .input(z.object({
+      productId: z.number(),
+      quantidade: z.number().min(1),
+      custoUnitario: z.string().default("0.00"),
+      flavorIds: z.array(z.number()).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const estoqueResult = await db.insert(estoqueAtual).values({
+        productId: input.productId, quantidade: input.quantidade, custoMedioUnitario: input.custoUnitario,
+      });
+      const estoqueId = Number((estoqueResult as any).insertId || (estoqueResult as any)[0]?.insertId);
+
+      if (input.flavorIds && input.flavorIds.length > 0) {
+        const flavorRows = await db.select().from(productFlavors).where(inArray(productFlavors.id, input.flavorIds));
+        if (flavorRows.length > 0) {
+          await db.insert(estoqueAtualFlavors).values(
+            flavorRows.map(f => ({ estoqueAtualId: estoqueId, productFlavorId: f.id, flavorName: f.name }))
+          );
+        }
+      }
+
+      return { success: true };
+    }),
+
   /** Estoque atual agrupado por produto + combinação exata de sabores */
   list: adminProcedure.query(async () => {
     const db = await getDb();
