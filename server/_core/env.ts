@@ -20,8 +20,13 @@ export const ENV = {
   // URL pública do sistema, usada para montar links em e-mails (ex: redefinir senha)
   // e o webhook do Mercado Pago da Loja Pública.
   appUrl: process.env.APP_URL ?? "https://www.integrarte.app.br",
-  // Mercado Pago — Loja Pública (PIX + cartão via Checkout Bricks)
+  // Mercado Pago — Loja Pública (só cartão; PIX é estático, direto pro CNPJ)
   mercadoPagoAccessToken: process.env.MERCADOPAGO_ACCESS_TOKEN ?? "",
   mercadoPagoPublicKey: process.env.MERCADOPAGO_PUBLIC_KEY ?? "",
   mercadoPagoWebhookSecret: process.env.MERCADOPAGO_WEBHOOK_SECRET ?? "",
+  // Pix estático da Loja Pública — gerado localmente, sem gateway. Confirmação
+  // do pagamento é manual (painel Loja Pública → Pedidos → Confirmar Pagamento).
+  pixKey: process.env.PIX_KEY ?? "21242789000167",
+  pixMerchantName: process.env.PIX_MERCHANT_NAME ?? "Nucleo Espirita de Artes e Cultura Integrarte",
+  pixMerchantCity: process.env.PIX_MERCHANT_CITY ?? "Uberlandia",
 };

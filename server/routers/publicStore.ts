@@ -21,6 +21,7 @@ import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
 import { buscarLotesEstoque, descontarLotesEstoque } from "./seller";
 import { createMercadoPagoPayment, mercadoPagoConfigured } from "../mercadopago";
+import { buildPixPayload, generatePixQrCodeBase64, pixConfigured } from "../pix";
 import { ENV } from "../_core/env";
 
 const SYSTEM_USER_EMAIL = "loja-publica@sistema.integrarte.local";
@@ -150,8 +151,11 @@ export const publicStoreRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      if (!mercadoPagoConfigured()) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pagamento on-line ainda não configurado." });
+      if (input.paymentMethod === "credit_card" && !mercadoPagoConfigured()) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pagamento por cartão ainda não configurado." });
+      }
+      if (input.paymentMethod === "pix" && !pixConfigured()) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pagamento por PIX ainda não configurado." });
       }
 
       const [settings] = await db.select().from(storeSettings).orderBy(desc(storeSettings.id)).limit(1);
@@ -242,10 +246,24 @@ export const publicStoreRouter = router({
         notes: "Pedido criado pela Loja Pública",
       });
 
-      // Cria o pagamento no Mercado Pago. Se algo falhar aqui, o pedido fica
-      // registrado como pendente — o cliente pode tentar de novo a partir do
-      // recibo (não perde o pedido, só o pagamento não foi efetivado).
+      // Cria o "pagamento": PIX é gerado localmente (BR Code direto pro CNPJ,
+      // sem nenhum gateway) — fica pendente até alguém confirmar manualmente
+      // no painel. Cartão continua indo pro Mercado Pago (Payment Brick), que
+      // aprova (ou não) na hora.
       try {
+        if (input.paymentMethod === "pix") {
+          const payload = buildPixPayload({ amount: totalAmount, txid: `pedido${orderId}` });
+          const qrCodeBase64 = await generatePixQrCodeBase64(payload);
+
+          await db.insert(storeOrderPayments).values({
+            orderId, method: "pix", status: "pending",
+            qrCode: payload, qrCodeBase64,
+            amount: totalAmount.toFixed(2),
+          });
+
+          return { success: true, orderId, paymentStatus: "pending", qrCode: payload, qrCodeBase64 };
+        }
+
         const mpResult = await createMercadoPagoPayment({
           orderId, amount: totalAmount, method: input.paymentMethod,
           customerName: input.customerName, customerEmail: `${input.customerPhone.replace(/\D/g, "")}@loja.integrarte.app.br`,

@@ -132,10 +132,11 @@ export default function StoreCheckout({ cart, total, onBack, onSuccess }: Props)
             </Button>
             <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground pt-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Aguardando confirmação do pagamento…
+              Aguardando confirmação da equipe…
             </div>
             <p className="text-xs text-muted-foreground">
-              Assim que o pagamento cair, esta tela atualiza sozinha e mostra seu recibo.
+              Assim que alguém confirmar o pagamento, esta tela atualiza sozinha e mostra seu recibo.
+              Pode levar alguns minutos.
             </p>
           </CardContent>
         </Card>

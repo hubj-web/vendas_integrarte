@@ -31,6 +31,10 @@ export default function LojaPublica() {
   const setVisibility = trpc.storeAdmin.setProductVisibility.useMutation({
     onSuccess: () => { utils.storeAdmin.listStockProducts.invalidate(); },
   });
+  const confirmPayment = trpc.storeAdmin.confirmPayment.useMutation({
+    onSuccess: () => { utils.storeAdmin.orders.invalidate(); toast.success("Pagamento confirmado! Estoque atualizado."); },
+    onError: (err) => toast.error(err.message || "Não foi possível confirmar."),
+  });
 
   const [closedMessage, setClosedMessage] = useState(settings?.closedMessage ?? "");
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
@@ -152,6 +156,7 @@ export default function LojaPublica() {
                     <TableHead>Status Pgto</TableHead>
                     <TableHead>Status Pedido</TableHead>
                     <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Ação</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -171,10 +176,17 @@ export default function LojaPublica() {
                       </TableCell>
                       <TableCell>{o.status}</TableCell>
                       <TableCell className="text-right">{fmt(o.totalAmount)}</TableCell>
+                      <TableCell className="text-right">
+                        {o.paymentStatus !== "paid" && o.paymentMethod === "pix" && (
+                          <Button size="sm" variant="outline" disabled={confirmPayment.isPending} onClick={() => confirmPayment.mutate({ orderId: o.id })}>
+                            Confirmar Pagamento
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                   {orders.length === 0 && (
-                    <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum pedido da loja pública ainda.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Nenhum pedido da loja pública ainda.</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>

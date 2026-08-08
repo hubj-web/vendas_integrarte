@@ -7,11 +7,12 @@ import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
-  customers, deliveryMethods, orders, products, productCategories,
+  customers, deliveryMethods, orders, orderItems, orderItemFlavors, products, productCategories,
   storeOrderPayments, storeProductVisibility, storeSettings, estoqueAtual,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { adminProcedure, router } from "../_core/trpc";
+import { buscarLotesEstoque, descontarLotesEstoque } from "./seller";
 
 export const storeAdminRouter = router({
   /** Configuração atual da loja (aberta/fechada) */
@@ -91,6 +92,37 @@ export const storeAdminRouter = router({
           productId: input.productId, visible: input.visible, storePrice: input.storePrice ?? null,
         });
       }
+      return { success: true };
+    }),
+
+  /**
+   * Confirma manualmente que o PIX caiu na conta (usado pelo PIX estático, que
+   * não tem gateway/webhook). Marca o pedido como pago e desconta o estoque
+   * — mesma lógica usada pelo webhook do Mercado Pago pro cartão.
+   */
+  confirmPayment: adminProcedure
+    .input(z.object({ orderId: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [payment] = await db.select().from(storeOrderPayments).where(eq(storeOrderPayments.orderId, input.orderId)).limit(1);
+      if (!payment) throw new TRPCError({ code: "NOT_FOUND", message: "Pagamento não encontrado para este pedido." });
+      if (payment.status === "approved") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Este pagamento já foi confirmado." });
+      }
+
+      await db.update(storeOrderPayments).set({ status: "approved", approvedAt: new Date() }).where(eq(storeOrderPayments.orderId, input.orderId));
+      await db.update(orders).set({ paymentStatus: "paid" }).where(eq(orders.id, input.orderId));
+
+      const items = await db.select().from(orderItems).where(eq(orderItems.orderId, input.orderId));
+      for (const item of items) {
+        const flavorRows = await db.select({ productFlavorId: orderItemFlavors.productFlavorId })
+          .from(orderItemFlavors).where(eq(orderItemFlavors.orderItemId, item.id));
+        const lotes = await buscarLotesEstoque(db, item.productId, flavorRows.map(f => f.productFlavorId));
+        await descontarLotesEstoque(db, lotes, item.quantity);
+      }
+
       return { success: true };
     }),
 
