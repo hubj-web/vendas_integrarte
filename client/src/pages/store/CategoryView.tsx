@@ -2,8 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { ArrowLeft, ShoppingCart, ImageIcon, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ShoppingCart, ImageIcon, Plus, Minus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { CartItem } from "./Store";
 import { BRAND } from "./brand";
@@ -32,6 +31,33 @@ interface Props {
 
 function cartKey(productId: number, flavorId?: number) {
   return `${productId}::${flavorId ?? "none"}`;
+}
+
+/** Botões -/+ sempre visíveis, com o número escolhido bem destacado no meio. */
+function QuantityStepper({ value, onChange, max }: { value: number; onChange: (v: number) => void; max: number }) {
+  return (
+    <div className="flex items-center rounded-lg overflow-hidden border" style={{ borderColor: BRAND.blue }}>
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(0, value - 1))}
+        disabled={value <= 0}
+        className="w-8 h-8 flex items-center justify-center disabled:opacity-30 hover:opacity-80"
+        style={{ background: BRAND.yellowLight, color: BRAND.blue }}
+      >
+        <Minus className="h-3.5 w-3.5" />
+      </button>
+      <span className="w-9 text-center font-semibold text-sm" style={{ color: BRAND.blue }}>{value}</span>
+      <button
+        type="button"
+        onClick={() => onChange(Math.min(max, value + 1))}
+        disabled={value >= max}
+        className="w-8 h-8 flex items-center justify-center disabled:opacity-30 hover:opacity-80"
+        style={{ background: BRAND.yellowLight, color: BRAND.blue }}
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
 }
 
 export default function CategoryView({ categoryName, products, cart, cartTotal, onAddToCart, onRemoveFromCart, onContinueShopping, onPay }: Props) {
@@ -144,11 +170,10 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
                         <div key={f.id} className="flex items-center justify-between gap-2 py-1">
                           <span className="text-sm flex-1 min-w-0 truncate">{f.name}</span>
                           <span className="text-sm font-medium shrink-0" style={{ color: BRAND.blue }}>{fmt(product.price)}</span>
-                          <Input
-                            type="number" min={0} max={product.availableQuantity}
+                          <QuantityStepper
                             value={drafts[key] ?? 0}
-                            onChange={e => setDraft(key, parseInt(e.target.value), product.availableQuantity)}
-                            className="w-14 h-8 text-center shrink-0"
+                            onChange={v => setDraft(key, v, product.availableQuantity)}
+                            max={product.availableQuantity}
                           />
                           <Button size="sm" className="shrink-0 gap-1 text-white" style={{ background: BRAND.green }} onClick={() => handleInsert(product, f)}>
                             <Plus className="h-3.5 w-3.5" /> Inserir
@@ -160,11 +185,10 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
                 ) : (
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-semibold" style={{ color: BRAND.blue }}>{fmt(product.price)}</span>
-                    <Input
-                      type="number" min={0} max={product.availableQuantity}
+                    <QuantityStepper
                       value={drafts[cartKey(product.id)] ?? 0}
-                      onChange={e => setDraft(cartKey(product.id), parseInt(e.target.value), product.availableQuantity)}
-                      className="w-16 h-9 text-center"
+                      onChange={v => setDraft(cartKey(product.id), v, product.availableQuantity)}
+                      max={product.availableQuantity}
                     />
                     <Button className="gap-1.5 text-white" style={{ background: BRAND.green }} onClick={() => handleInsert(product)}>
                       <Plus className="h-4 w-4" /> Inserir
