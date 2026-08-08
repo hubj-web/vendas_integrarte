@@ -9,6 +9,7 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
+import { storagePut } from "../storage";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
@@ -23,15 +24,15 @@ const categoriesRouter = router({
     return db.select().from(productCategories).orderBy(asc(productCategories.sortOrder), asc(productCategories.name));
   }),
   create: adminProcedure
-    .input(z.object({ name: z.string().min(2), description: z.string().optional(), sortOrder: z.number().optional() }))
+    .input(z.object({ name: z.string().min(2), description: z.string().optional(), sortOrder: z.number().optional(), imageUrl: z.string().optional() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.insert(productCategories).values({ name: input.name, description: input.description || "", sortOrder: input.sortOrder ?? 0 });
+      await db.insert(productCategories).values({ name: input.name, description: input.description || "", sortOrder: input.sortOrder ?? 0, imageUrl: input.imageUrl });
       return { success: true };
     }),
   update: adminProcedure
-    .input(z.object({ id: z.number(), name: z.string().min(2).optional(), description: z.string().optional(), sortOrder: z.number().optional(), active: z.boolean().optional() }))
+    .input(z.object({ id: z.number(), name: z.string().min(2).optional(), description: z.string().optional(), sortOrder: z.number().optional(), active: z.boolean().optional(), imageUrl: z.string().nullable().optional() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -48,6 +49,19 @@ const categoriesRouter = router({
       if (linked.length > 0) throw new TRPCError({ code: "CONFLICT", message: "Categoria possui produtos associados. Remova os vínculos antes de excluir." });
       await db.delete(productCategories).where(eq(productCategories.id, input.id));
       return { success: true };
+    }),
+  /** Sobe a imagem de capa da categoria (mostrada na Loja Pública) e já salva o link nela. */
+  uploadImage: adminProcedure
+    .input(z.object({ id: z.number(), imageBase64: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const buffer = Buffer.from(input.imageBase64.replace(/^data:image\/\w+;base64,/, ""), "base64");
+      const contentTypeMatch = input.imageBase64.match(/^data:(image\/\w+);base64,/);
+      const contentType = contentTypeMatch?.[1] ?? "image/jpeg";
+      const { url } = await storagePut(`category-images/${input.id}-${Date.now()}.jpg`, buffer, contentType);
+      await db.update(productCategories).set({ imageUrl: url }).where(eq(productCategories.id, input.id));
+      return { success: true, url };
     }),
 });
 
@@ -109,6 +123,7 @@ const productsRouter = router({
         categoryName: productCategories.name,
         supplierId: products.supplierId,
         maxFlavors: products.maxFlavors,
+        variationType: products.variationType,
       })
         .from(products)
         .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
@@ -129,6 +144,7 @@ const productsRouter = router({
       supplierId: z.number().nullable().optional(),
       description: z.string().optional(), active: z.boolean().default(true),
       maxFlavors: z.number().min(0).default(0),
+      variationType: z.enum(["sabor", "tamanho", "cor"]).default("sabor"),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -145,6 +161,7 @@ const productsRouter = router({
         description: input.description,
         active: input.active,
         maxFlavors: input.maxFlavors,
+        variationType: input.variationType,
       });
       return { success: true };
     }),
@@ -157,6 +174,7 @@ const productsRouter = router({
       supplierId: z.number().nullable().optional(),
       description: z.string().optional(), active: z.boolean().optional(),
       maxFlavors: z.number().min(0).optional(),
+      variationType: z.enum(["sabor", "tamanho", "cor"]).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();

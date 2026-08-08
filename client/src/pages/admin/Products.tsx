@@ -20,8 +20,11 @@ type Product = {
   productTypeId: number;
   categoryId: number | null; categoryName: string | null;
   maxFlavors: number | null;
+  variationType: "sabor" | "tamanho" | "cor" | null;
   supplierId: number | null;
 };
+
+const VARIATION_LABELS: Record<string, string> = { sabor: "Sabor", tamanho: "Tamanho", cor: "Cor" };
 
 type Flavor = {
   id: number; productId: number; name: string;
@@ -70,7 +73,7 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
 
-  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", supplierId: "" });
+  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", supplierId: "" });
 
   // Flavor management dialog
   const [showFlavors, setShowFlavors] = useState(false);
@@ -78,7 +81,7 @@ export default function Products() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", supplierId: "" });
+    setForm({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", supplierId: "" });
     setOpen(true);
   }
 
@@ -93,6 +96,7 @@ export default function Products() {
       description: p.description ?? "",
       active: p.active,
       maxFlavors: String(p.maxFlavors ?? 0),
+      variationType: p.variationType ?? "sabor",
       supplierId: p.supplierId ? String(p.supplierId) : "",
     });
     setOpen(true);
@@ -109,6 +113,7 @@ export default function Products() {
 
     const categoryId = parseInt(form.categoryId);
     const maxFlavors = parseInt(form.maxFlavors) || 0;
+    const variationType = form.variationType as "sabor" | "tamanho" | "cor";
 
     const supplierId = form.supplierId ? parseInt(form.supplierId) : null;
     if (editing) {
@@ -123,6 +128,7 @@ export default function Products() {
         description: form.description,
         active: form.active,
         maxFlavors,
+        variationType,
       });
     } else {
       createMutation.mutate({
@@ -135,6 +141,7 @@ export default function Products() {
         description: form.description || undefined,
         active: form.active,
         maxFlavors,
+        variationType,
       });
     }
   }
@@ -292,19 +299,32 @@ export default function Products() {
                 <Input type="number" step="0.01" min="0" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} required className="bg-input" placeholder="0,00" />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Máximo de Sabores</Label>
-              <Input
-                type="number" min="0" step="1"
-                value={form.maxFlavors}
-                onChange={e => setForm(f => ({ ...f, maxFlavors: e.target.value }))}
-                className="bg-input"
-                placeholder="0 = sem sabores"
-              />
-              <p className="text-xs text-muted-foreground">
-                Defina quantos sabores o cliente pode escolher. 0 = produto sem sabores.
-              </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Tipo de Variação</Label>
+                <Select value={form.variationType} onValueChange={v => setForm(f => ({ ...f, variationType: v }))}>
+                  <SelectTrigger className="bg-input"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sabor">Sabor</SelectItem>
+                    <SelectItem value="tamanho">Tamanho</SelectItem>
+                    <SelectItem value="cor">Cor</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Máximo de Opções</Label>
+                <Input
+                  type="number" min="0" step="1"
+                  value={form.maxFlavors}
+                  onChange={e => setForm(f => ({ ...f, maxFlavors: e.target.value }))}
+                  className="bg-input"
+                  placeholder="0 = sem variação"
+                />
+              </div>
             </div>
+            <p className="text-xs text-muted-foreground -mt-2">
+              Defina quantas opções (sabor, tamanho ou cor) o cliente pode escolher. 0 = produto sem variação.
+            </p>
             <div className="space-y-2">
               <Label>Fornecedor</Label>
               <Select value={form.supplierId} onValueChange={v => setForm(f => ({ ...f, supplierId: v }))}>
@@ -338,7 +358,7 @@ export default function Products() {
         <DialogContent className="bg-card border-border max-w-lg">
           <DialogHeader>
             <DialogTitle>
-              Sabores - {products.find(p => p.id === flavorProductId)?.name}
+              {VARIATION_LABELS[products.find(p => p.id === flavorProductId)?.variationType ?? "sabor"]}s - {products.find(p => p.id === flavorProductId)?.name}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">

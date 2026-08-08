@@ -79,7 +79,8 @@ export const publicStoreRouter = router({
 
     const prods = await db.select({
       id: products.id, name: products.name, categoryId: products.categoryId,
-      unit: products.unit, price: products.price, description: products.description, maxFlavors: products.maxFlavors,
+      unit: products.unit, price: products.price, description: products.description,
+      maxFlavors: products.maxFlavors, variationType: products.variationType,
     }).from(products).where(and(inArray(products.id, productIdsVisiveis), eq(products.active, true)));
 
     const categoriaIds = Array.from(new Set(prods.map(p => p.categoryId).filter((v): v is number => v != null)));
@@ -106,6 +107,7 @@ export const publicStoreRouter = router({
         id: p.id, name: p.name, categoryId: p.categoryId, unit: p.unit,
         price: vis?.storePrice ?? p.price,
         description: p.description, maxFlavors: p.maxFlavors ?? 0,
+        variationType: p.variationType,
         availableQuantity: qtyByProduct[p.id] ?? 0,
         flavors: Array.from((flavorsByProduct[p.id] ?? new Map()).entries()).map(([id, name]) => ({ id, name })),
       };

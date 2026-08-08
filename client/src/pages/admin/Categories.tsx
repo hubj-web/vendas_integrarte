@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,12 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Tag, GripVertical, CheckCircle, XCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, Tag, GripVertical, CheckCircle, XCircle, ImagePlus, Image as ImageIcon } from "lucide-react";
 
 type Category = {
   id: number;
   name: string;
   description: string | null;
+  imageUrl: string | null;
   sortOrder: number;
   active: boolean;
   createdAt: Date;
@@ -55,14 +56,34 @@ export default function Categories() {
     onError: (e) => toast.error(e.message),
   });
 
+  const uploadImageMutation = trpc.catalog.categories.uploadImage.useMutation({
+    onSuccess: () => { utils.catalog.categories.list.invalidate(); toast.success("Imagem atualizada!"); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function handleImageFile(id: number, file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      setImagePreview(base64);
+      uploadImageMutation.mutate({ id, imageBase64: base64 });
+    };
+    reader.readAsDataURL(file);
+  }
+
   function openCreate() {
     setEditingCategory(null);
+    setImagePreview(null);
     setForm({ name: "", description: "", sortOrder: (categories.length) * 10 });
     setDialogOpen(true);
   }
 
   function openEdit(cat: Category) {
     setEditingCategory(cat);
+    setImagePreview(cat.imageUrl ?? null);
     setForm({ name: cat.name, description: cat.description ?? "", sortOrder: cat.sortOrder });
     setDialogOpen(true);
   }
@@ -116,6 +137,13 @@ export default function Categories() {
               className={`flex items-center gap-4 p-4 rounded-xl border bg-white shadow-sm transition-all ${!cat.active ? "opacity-60" : ""}`}
             >
               <GripVertical className="w-4 h-4 text-gray-300 flex-shrink-0" />
+              {cat.imageUrl ? (
+                <img src={cat.imageUrl} alt={cat.name} className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border" />
+              ) : (
+                <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                  <ImageIcon className="w-4 h-4 text-gray-300" />
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-gray-900">{cat.name}</span>
@@ -152,6 +180,29 @@ export default function Categories() {
             <DialogTitle>{editingCategory ? "Editar Categoria" : "Nova Categoria"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            <div>
+              <Label>Imagem da categoria (aparece na Loja Pública)</Label>
+              <div className="mt-1 flex items-center gap-3">
+                {imagePreview ? (
+                  <img src={imagePreview} alt="Prévia" className="w-16 h-16 rounded-lg object-cover border" />
+                ) : (
+                  <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center border">
+                    <ImageIcon className="w-5 h-5 text-gray-300" />
+                  </div>
+                )}
+                {editingCategory ? (
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => fileInputRef.current?.click()} disabled={uploadImageMutation.isPending}>
+                    <ImagePlus className="w-4 h-4" /> {uploadImageMutation.isPending ? "Enviando…" : "Escolher imagem"}
+                  </Button>
+                ) : (
+                  <p className="text-xs text-gray-400">Salve a categoria primeiro pra poder adicionar uma imagem.</p>
+                )}
+                <input
+                  ref={fileInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={e => { const file = e.target.files?.[0]; if (file && editingCategory) handleImageFile(editingCategory.id, file); }}
+                />
+              </div>
+            </div>
             <div>
               <Label htmlFor="cat-name">Nome *</Label>
               <Input

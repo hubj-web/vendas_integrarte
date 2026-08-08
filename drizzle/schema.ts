@@ -37,6 +37,7 @@ export const productCategories = mysqlTable("product_categories", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 100 }).notNull().unique(),
   description: text("description"),
+  imageUrl: text("imageUrl"),
   sortOrder: int("sortOrder").default(0).notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -82,6 +83,9 @@ export const products = mysqlTable("products", {
   cost: decimal("cost", { precision: 10, scale: 2 }).default("0.00").notNull(),
   description: text("description"),
   maxFlavors: int("maxFlavors").default(0), // 0 = sem sabores, >0 = quantidade máxima de sabores
+  // Rótulo da variação (o que o campo "sabores" representa pra esse produto).
+  // Aditivo — todo produto já existente assume 'sabor' (comportamento atual preservado).
+  variationType: mysqlEnum("variationType", ["sabor", "tamanho", "cor"]).default("sabor").notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
