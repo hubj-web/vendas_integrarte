@@ -9,6 +9,7 @@ import { z } from "zod";
 import {
   customers, deliveryMethods, orders, orderItems, orderItemFlavors, products, productCategories,
   storeOrderPayments, storeProductVisibility, storeSettings, estoqueAtual,
+  storeDeliveryMethodVisibility,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { adminProcedure, router } from "../_core/trpc";
@@ -123,6 +124,32 @@ export const storeAdminRouter = router({
         await descontarLotesEstoque(db, lotes, item.quantity);
       }
 
+      return { success: true };
+    }),
+
+  /** Lista as formas de entrega cadastradas, com o estado atual de visibilidade na loja */
+  listDeliveryMethods: adminProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    const methods = await db.select().from(deliveryMethods).where(eq(deliveryMethods.active, true));
+    const visRows = await db.select().from(storeDeliveryMethodVisibility);
+    const visMap = new Map(visRows.map(v => [v.deliveryMethodId, v.visible]));
+    return methods.map(m => ({ ...m, visibleInStore: visMap.get(m.id) ?? true }));
+  }),
+
+  /** Liga/desliga uma forma de entrega especificamente na Loja Pública (não afeta o cadastro geral) */
+  setDeliveryMethodVisibility: adminProcedure
+    .input(z.object({ deliveryMethodId: z.number(), visible: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [existing] = await db.select({ id: storeDeliveryMethodVisibility.id }).from(storeDeliveryMethodVisibility)
+        .where(eq(storeDeliveryMethodVisibility.deliveryMethodId, input.deliveryMethodId)).limit(1);
+      if (existing) {
+        await db.update(storeDeliveryMethodVisibility).set({ visible: input.visible }).where(eq(storeDeliveryMethodVisibility.id, existing.id));
+      } else {
+        await db.insert(storeDeliveryMethodVisibility).values({ deliveryMethodId: input.deliveryMethodId, visible: input.visible });
+      }
       return { success: true };
     }),
 

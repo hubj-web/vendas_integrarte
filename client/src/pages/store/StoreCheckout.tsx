@@ -10,6 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2, QrCode, CreditCard, Copy, Check } from "lucide-react";
+import { BRAND } from "./brand";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -146,11 +147,11 @@ export default function StoreCheckout({ cart, total, onBack, onSuccess }: Props)
 
   return (
     <div className="min-h-screen bg-muted/20 pb-8">
-      <header className="bg-primary text-primary-foreground py-4 px-4 flex items-center gap-3 sticky top-0 z-10">
-        <Button size="icon" variant="ghost" className="text-primary-foreground hover:bg-primary-foreground/10" onClick={onBack}>
+      <header className="py-4 px-4 flex items-center gap-3 sticky top-0 z-10" style={{ background: BRAND.blue }}>
+        <Button size="icon" variant="ghost" className="text-white hover:bg-white/10" onClick={onBack}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h1 className="font-semibold">Finalizar pedido</h1>
+        <h1 className="font-semibold text-white">Finalizar pedido</h1>
       </header>
 
       <div className="max-w-md mx-auto p-4 space-y-4">
@@ -203,7 +204,7 @@ export default function StoreCheckout({ cart, total, onBack, onSuccess }: Props)
                   <Textarea value={address} onChange={e => setAddress(e.target.value)} placeholder="Rua, número, bairro, referência" />
                 </div>
               )}
-              <Button className="w-full" onClick={() => validateDados() && setStep("pagamento")}>
+              <Button className="w-full text-white" style={{ background: BRAND.green }} onClick={() => validateDados() && setStep("pagamento")}>
                 Continuar para pagamento
               </Button>
             </CardContent>
@@ -230,7 +231,7 @@ export default function StoreCheckout({ cart, total, onBack, onSuccess }: Props)
               </RadioGroup>
 
               {paymentMethod === "pix" && (
-                <Button className="w-full" disabled={createOrder.isPending} onClick={submitPix}>
+                <Button className="w-full text-white" style={{ background: BRAND.green }} disabled={createOrder.isPending} onClick={submitPix}>
                   {createOrder.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                   Gerar QR Code PIX
                 </Button>

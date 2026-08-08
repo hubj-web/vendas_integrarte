@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, ShoppingCart } from "lucide-react";
+import { ArrowLeft, ShoppingCart, ImageIcon, Plus } from "lucide-react";
+import { toast } from "sonner";
 import type { CartItem } from "./Store";
+import { BRAND } from "./brand";
 
 const fmt = (v: number | string) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
@@ -13,7 +15,7 @@ const VARIATION_LABEL: Record<string, string> = { sabor: "Sabor", tamanho: "Tama
 
 interface StoreProduct {
   id: number; name: string; categoryId: number | null; unit: string; price: string;
-  description: string | null; maxFlavors: number; variationType: string;
+  description: string | null; maxFlavors: number; variationType: string; imageUrl: string | null;
   availableQuantity: number; flavors: { id: number; name: string }[];
 }
 
@@ -21,99 +23,90 @@ interface Props {
   categoryName: string;
   products: StoreProduct[];
   cart: CartItem[];
-  onMergeCart: (draftItems: CartItem[]) => void;
+  cartTotal: number;
+  onAddToCart: (item: CartItem) => void;
   onContinueShopping: () => void;
   onPay: () => void;
 }
 
-/** Chave única de carrinho: produto + variação (ou "none" se produto sem variação) */
 function cartKey(productId: number, flavorId?: number) {
   return `${productId}::${flavorId ?? "none"}`;
 }
 
-export default function CategoryView({ categoryName, products, cart, onMergeCart, onContinueShopping, onPay }: Props) {
-  // Estado local (rascunho) de quantidades — inicializado a partir do carrinho já existente
-  // pra essa categoria, assim o cliente vê o que já tinha escolhido se voltar aqui.
-  const initialQtys = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const item of cart) {
-      if (products.some(p => p.id === item.productId)) {
-        map[item.key] = item.quantity;
-      }
-    }
-    return map;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+export default function CategoryView({ categoryName, products, cart, cartTotal, onAddToCart, onContinueShopping, onPay }: Props) {
+  const [drafts, setDrafts] = useState<Record<string, number>>({});
 
-  const [qtys, setQtys] = useState<Record<string, number>>(initialQtys);
-
-  function setQty(productId: number, flavorId: number | undefined, value: number, max: number) {
-    const key = cartKey(productId, flavorId);
+  function setDraft(key: string, value: number, max: number) {
     const clamped = Math.max(0, Math.min(max, isNaN(value) ? 0 : value));
-    setQtys(prev => ({ ...prev, [key]: clamped }));
+    setDrafts(prev => ({ ...prev, [key]: clamped }));
   }
 
-  function buildDraftItems(): CartItem[] {
-    const draft: CartItem[] = [];
-    for (const p of products) {
-      if (p.flavors.length > 0) {
-        for (const f of p.flavors) {
-          const key = cartKey(p.id, f.id);
-          const qty = qtys[key] ?? 0;
-          if (qty > 0) {
-            draft.push({
-              key, productId: p.id, name: p.name, unitPrice: Number(p.price),
-              quantity: qty, flavorIds: [f.id], flavorNames: [f.name], maxAvailable: p.availableQuantity,
-            });
-          } else {
-            draft.push({ key, productId: p.id, name: p.name, unitPrice: Number(p.price), quantity: 0, flavorIds: [f.id], flavorNames: [f.name], maxAvailable: p.availableQuantity });
-          }
-        }
-      } else {
-        const key = cartKey(p.id);
-        const qty = qtys[key] ?? 0;
-        draft.push({
-          key, productId: p.id, name: p.name, unitPrice: Number(p.price),
-          quantity: qty, flavorIds: [], flavorNames: [], maxAvailable: p.availableQuantity,
-        });
-      }
+  function alreadyInCart(key: string): number {
+    return cart.find(i => i.key === key)?.quantity ?? 0;
+  }
+
+  function handleInsert(product: StoreProduct, flavor?: { id: number; name: string }) {
+    const key = cartKey(product.id, flavor?.id);
+    const draftQty = drafts[key] ?? 0;
+    if (draftQty <= 0) {
+      toast.error("Escolha uma quantidade antes de inserir.");
+      return;
     }
-    return draft;
+    const jaNoCarrinho = alreadyInCart(key);
+    if (jaNoCarrinho + draftQty > product.availableQuantity) {
+      toast.error(`Só há ${product.availableQuantity} em estoque.`);
+      return;
+    }
+    onAddToCart({
+      key, productId: product.id, name: product.name, unitPrice: Number(product.price),
+      quantity: draftQty, flavorIds: flavor ? [flavor.id] : [], flavorNames: flavor ? [flavor.name] : [],
+      maxAvailable: product.availableQuantity,
+    });
+    setDrafts(prev => ({ ...prev, [key]: 0 }));
+    toast.success(`${product.name}${flavor ? ` (${flavor.name})` : ""} adicionado!`);
   }
 
-  function handleContinue() {
-    onMergeCart(buildDraftItems());
-    onContinueShopping();
-  }
-
-  function handlePay() {
-    onMergeCart(buildDraftItems());
-    onPay();
-  }
-
-  const totalSelecionado = Object.values(qtys).reduce((a, b) => a + b, 0);
+  const cartCount = cart.reduce((acc, i) => acc + i.quantity, 0);
 
   return (
-    <div className="min-h-screen bg-muted/20 pb-28">
-      <header className="bg-primary text-primary-foreground py-4 px-4 flex items-center gap-3 sticky top-0 z-10">
-        <Button size="icon" variant="ghost" className="text-primary-foreground hover:bg-primary-foreground/10" onClick={onContinueShopping}>
+    <div className="min-h-screen pb-32" style={{ background: BRAND.white }}>
+      <header className="py-4 px-4 flex items-center gap-3 sticky top-0 z-10" style={{ background: BRAND.blue }}>
+        <Button size="icon" variant="ghost" className="text-white hover:bg-white/10" onClick={onContinueShopping}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h1 className="font-semibold">{categoryName}</h1>
+        <h1 className="font-semibold text-white">{categoryName}</h1>
       </header>
+
+      {/* Total em tempo real */}
+      <div className="sticky top-[60px] z-10 px-4 py-2 flex items-center justify-between text-sm" style={{ background: BRAND.yellowLight, borderBottom: `1px solid ${BRAND.yellow}` }}>
+        <span className="flex items-center gap-1.5" style={{ color: BRAND.blue }}>
+          <ShoppingCart className="h-4 w-4" /> {cartCount} {cartCount === 1 ? "item" : "itens"} no carrinho
+        </span>
+        <span className="font-bold" style={{ color: BRAND.blue }}>{fmt(cartTotal)}</span>
+      </div>
 
       <main className="max-w-3xl mx-auto p-4 space-y-3">
         {products.length === 0 ? (
           <p className="text-center text-muted-foreground py-16">Nenhum produto disponível nessa categoria.</p>
         ) : (
           products.map(product => (
-            <Card key={product.id}>
+            <Card key={product.id} style={{ borderColor: BRAND.yellow }}>
               <CardContent className="pt-4 space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-medium leading-tight">{product.name}</p>
+                <div className="flex items-start gap-3">
+                  {product.imageUrl ? (
+                    <img src={product.imageUrl} alt={product.name} className="w-16 h-16 rounded-lg object-cover border shrink-0" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-lg flex items-center justify-center border shrink-0" style={{ background: BRAND.yellowLight }}>
+                      <ImageIcon className="h-6 w-6" style={{ color: BRAND.blue, opacity: 0.3 }} />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-medium leading-tight">{product.name}</p>
+                      <Badge variant="secondary" className="shrink-0">{product.availableQuantity} {product.unit}</Badge>
+                    </div>
                     {product.description && <p className="text-xs text-muted-foreground mt-0.5">{product.description}</p>}
                   </div>
-                  <Badge variant="secondary" className="shrink-0">{product.availableQuantity} {product.unit}</Badge>
                 </div>
 
                 {product.flavors.length > 0 ? (
@@ -124,30 +117,34 @@ export default function CategoryView({ categoryName, products, cart, onMergeCart
                     {product.flavors.map(f => {
                       const key = cartKey(product.id, f.id);
                       return (
-                        <div key={f.id} className="flex items-center justify-between gap-3 py-1">
-                          <span className="text-sm">{f.name}</span>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-primary">{fmt(product.price)}</span>
-                            <Input
-                              type="number" min={0} max={product.availableQuantity}
-                              value={qtys[key] ?? 0}
-                              onChange={e => setQty(product.id, f.id, parseInt(e.target.value), product.availableQuantity)}
-                              className="w-16 h-8 text-center"
-                            />
-                          </div>
+                        <div key={f.id} className="flex items-center justify-between gap-2 py-1">
+                          <span className="text-sm flex-1 min-w-0 truncate">{f.name}</span>
+                          <span className="text-sm font-medium shrink-0" style={{ color: BRAND.blue }}>{fmt(product.price)}</span>
+                          <Input
+                            type="number" min={0} max={product.availableQuantity}
+                            value={drafts[key] ?? 0}
+                            onChange={e => setDraft(key, parseInt(e.target.value), product.availableQuantity)}
+                            className="w-14 h-8 text-center shrink-0"
+                          />
+                          <Button size="sm" className="shrink-0 gap-1 text-white" style={{ background: BRAND.green }} onClick={() => handleInsert(product, f)}>
+                            <Plus className="h-3.5 w-3.5" /> Inserir
+                          </Button>
                         </div>
                       );
                     })}
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-primary">{fmt(product.price)}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold" style={{ color: BRAND.blue }}>{fmt(product.price)}</span>
                     <Input
                       type="number" min={0} max={product.availableQuantity}
-                      value={qtys[cartKey(product.id)] ?? 0}
-                      onChange={e => setQty(product.id, undefined, parseInt(e.target.value), product.availableQuantity)}
-                      className="w-20 h-9 text-center"
+                      value={drafts[cartKey(product.id)] ?? 0}
+                      onChange={e => setDraft(cartKey(product.id), parseInt(e.target.value), product.availableQuantity)}
+                      className="w-16 h-9 text-center"
                     />
+                    <Button className="gap-1.5 text-white" style={{ background: BRAND.green }} onClick={() => handleInsert(product)}>
+                      <Plus className="h-4 w-4" /> Inserir
+                    </Button>
                   </div>
                 )}
               </CardContent>
@@ -156,17 +153,21 @@ export default function CategoryView({ categoryName, products, cart, onMergeCart
         )}
       </main>
 
-      <div className="fixed bottom-0 inset-x-0 bg-background border-t p-4 shadow-lg">
+      <div className="fixed bottom-0 inset-x-0 p-4 shadow-lg" style={{ background: BRAND.white, borderTop: `2px solid ${BRAND.blue}` }}>
         <div className="max-w-3xl mx-auto flex items-center gap-3">
-          {totalSelecionado > 0 && (
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground shrink-0">
-              <ShoppingCart className="h-4 w-4" /> {totalSelecionado}
-            </div>
-          )}
-          <Button variant="outline" className="flex-1" onClick={handleContinue}>
+          <Button
+            variant="outline" className="flex-1 font-semibold"
+            style={{ borderColor: BRAND.blue, color: BRAND.blue }}
+            onClick={onContinueShopping}
+          >
             Continuar Comprando
           </Button>
-          <Button className="flex-1" onClick={handlePay}>
+          <Button
+            className="flex-1 font-semibold text-white"
+            style={{ background: BRAND.green }}
+            onClick={onPay}
+            disabled={cartCount === 0}
+          >
             Pagar
           </Button>
         </div>

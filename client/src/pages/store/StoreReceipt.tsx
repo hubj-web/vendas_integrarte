@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CheckCircle2, Loader2 } from "lucide-react";
+import { BRAND } from "./brand";
 
 const fmt = (v: number | string) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
@@ -31,8 +32,9 @@ export default function StoreReceipt({ orderId }: { orderId: number }) {
     <div className="min-h-screen bg-muted/20 flex items-center justify-center p-4">
       <Card className="max-w-sm w-full">
         <CardHeader className="text-center">
-          <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500 mb-1" />
-          <CardTitle>Pedido confirmado!</CardTitle>
+          <img src="/integrarte-logo.png" alt="Integrarte" className="mx-auto h-14 w-auto object-contain mb-2" />
+          <CheckCircle2 className="mx-auto h-8 w-8 mb-1" style={{ color: BRAND.green }} />
+          <CardTitle style={{ color: BRAND.blue }}>Pedido confirmado!</CardTitle>
           <p className="text-sm text-muted-foreground">Pedido #{order.id}</p>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -82,6 +82,7 @@ export const products = mysqlTable("products", {
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   cost: decimal("cost", { precision: 10, scale: 2 }).default("0.00").notNull(),
   description: text("description"),
+  imageUrl: text("imageUrl"),
   maxFlavors: int("maxFlavors").default(0), // 0 = sem sabores, >0 = quantidade máxima de sabores
   // Rótulo da variação (o que o campo "sabores" representa pra esse produto).
   // Aditivo — todo produto já existente assume 'sabor' (comportamento atual preservado).
@@ -575,3 +576,14 @@ export const storeOrderPayments = mysqlTable("store_order_payments", {
 
 export type StoreOrderPayment = typeof storeOrderPayments.$inferSelect;
 export type StoreProductVisibility = typeof storeProductVisibility.$inferSelect;
+
+// Controla quais formas de entrega aparecem na Loja Pública, sem afetar o
+// cadastro geral (usado pelo vendedor/período de vendas). Ausência de linha =
+// visível (opt-out, não opt-in) — preserva o comportamento atual, onde todas
+// as formas ativas já aparecem na loja.
+export const storeDeliveryMethodVisibility = mysqlTable("store_delivery_method_visibility", {
+  id: int("id").autoincrement().primaryKey(),
+  deliveryMethodId: int("deliveryMethodId").notNull().unique(),
+  visible: boolean("visible").default(true).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});

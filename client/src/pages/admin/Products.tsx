@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Search, Package, Cherry } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Package, Cherry, ImagePlus, Image as ImageIcon } from "lucide-react";
 
 type Product = {
   id: number; name: string; unit: string; price: string; cost: string;
@@ -21,6 +21,7 @@ type Product = {
   categoryId: number | null; categoryName: string | null;
   maxFlavors: number | null;
   variationType: "sabor" | "tamanho" | "cor" | null;
+  imageUrl: string | null;
   supplierId: number | null;
 };
 
@@ -51,6 +52,22 @@ export default function Products() {
     onSuccess: () => { utils.catalog.products.list.invalidate(); toast.success("Produto excluído!"); setDeleteId(null); },
     onError: (e) => toast.error(e.message),
   });
+  const uploadImageMutation = trpc.catalog.products.uploadImage.useMutation({
+    onSuccess: () => { utils.catalog.products.list.invalidate(); toast.success("Imagem atualizada!"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function handleImageFile(id: number, file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      setImagePreview(base64);
+      uploadImageMutation.mutate({ id, imageBase64: base64 });
+    };
+    reader.readAsDataURL(file);
+  }
 
   // Flavors
   const [flavorProductId, setFlavorProductId] = useState<number | null>(null);
@@ -81,12 +98,14 @@ export default function Products() {
 
   function openCreate() {
     setEditing(null);
+    setImagePreview(null);
     setForm({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", supplierId: "" });
     setOpen(true);
   }
 
   function openEdit(p: Product) {
     setEditing(p);
+    setImagePreview(p.imageUrl ?? null);
     setForm({
       name: p.name,
       categoryId: p.categoryId ? String(p.categoryId) : "",
@@ -267,6 +286,29 @@ export default function Products() {
             <DialogTitle>{editing ? "Editar Produto" : "Novo Produto"}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Imagem do produto (aparece na Loja Pública)</Label>
+              <div className="flex items-center gap-3">
+                {imagePreview ? (
+                  <img src={imagePreview} alt="Prévia" className="w-16 h-16 rounded-lg object-cover border" />
+                ) : (
+                  <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center border">
+                    <ImageIcon className="w-5 h-5 text-muted-foreground/40" />
+                  </div>
+                )}
+                {editing ? (
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => fileInputRef.current?.click()} disabled={uploadImageMutation.isPending}>
+                    <ImagePlus className="w-4 h-4" /> {uploadImageMutation.isPending ? "Enviando…" : "Escolher imagem"}
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Salve o produto primeiro pra poder adicionar uma imagem.</p>
+                )}
+                <input
+                  ref={fileInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={e => { const file = e.target.files?.[0]; if (file && editing) handleImageFile(editing.id, file); }}
+                />
+              </div>
+            </div>
             <div className="space-y-2">
               <Label>Nome *</Label>
               <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required className="bg-input" />

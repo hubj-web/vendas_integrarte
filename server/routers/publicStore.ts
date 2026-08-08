@@ -16,6 +16,7 @@ import {
   customers, deliveryMethods, orderItems, orderItemFlavors, orders, orderStatusHistory,
   productCategories, productFlavors, products, storeOrderPayments,
   storeProductVisibility, storeSettings, users, estoqueAtual, estoqueAtualFlavors,
+  storeDeliveryMethodVisibility,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
@@ -80,7 +81,7 @@ export const publicStoreRouter = router({
     const prods = await db.select({
       id: products.id, name: products.name, categoryId: products.categoryId,
       unit: products.unit, price: products.price, description: products.description,
-      maxFlavors: products.maxFlavors, variationType: products.variationType,
+      maxFlavors: products.maxFlavors, variationType: products.variationType, imageUrl: products.imageUrl,
     }).from(products).where(and(inArray(products.id, productIdsVisiveis), eq(products.active, true)));
 
     const categoriaIds = Array.from(new Set(prods.map(p => p.categoryId).filter((v): v is number => v != null)));
@@ -107,7 +108,7 @@ export const publicStoreRouter = router({
         id: p.id, name: p.name, categoryId: p.categoryId, unit: p.unit,
         price: vis?.storePrice ?? p.price,
         description: p.description, maxFlavors: p.maxFlavors ?? 0,
-        variationType: p.variationType,
+        variationType: p.variationType, imageUrl: p.imageUrl,
         availableQuantity: qtyByProduct[p.id] ?? 0,
         flavors: Array.from((flavorsByProduct[p.id] ?? new Map()).entries()).map(([id, name]) => ({ id, name })),
       };
@@ -116,11 +117,19 @@ export const publicStoreRouter = router({
     return { open: true, closedMessage: null, categories: categorias, products: productsOut };
   }),
 
-  /** Formas de entrega disponíveis (reaproveita o cadastro já existente) */
+  /**
+   * Formas de entrega disponíveis na loja (reaproveita o cadastro já existente,
+   * mas respeita o "desligar na loja" configurado no painel — por padrão toda
+   * forma ativa aparece, a menos que tenha sido explicitamente ocultada).
+   */
   deliveryMethods: publicProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];
-    return db.select().from(deliveryMethods).where(eq(deliveryMethods.active, true));
+    const all = await db.select().from(deliveryMethods).where(eq(deliveryMethods.active, true));
+    const hiddenRows = await db.select({ deliveryMethodId: storeDeliveryMethodVisibility.deliveryMethodId })
+      .from(storeDeliveryMethodVisibility).where(eq(storeDeliveryMethodVisibility.visible, false));
+    const hiddenIds = new Set(hiddenRows.map(h => h.deliveryMethodId));
+    return all.filter(m => !hiddenIds.has(m.id));
   }),
 
   /**

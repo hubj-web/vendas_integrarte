@@ -124,6 +124,7 @@ const productsRouter = router({
         supplierId: products.supplierId,
         maxFlavors: products.maxFlavors,
         variationType: products.variationType,
+        imageUrl: products.imageUrl,
       })
         .from(products)
         .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
@@ -208,6 +209,20 @@ const productsRouter = router({
       await db.delete(productFlavors).where(eq(productFlavors.productId, input.id));
       await db.delete(products).where(eq(products.id, input.id));
       return { success: true };
+    }),
+
+  /** Sobe a foto do produto (mostrada na Loja Pública) e já salva o link nele. */
+  uploadImage: adminProcedure
+    .input(z.object({ id: z.number(), imageBase64: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const buffer = Buffer.from(input.imageBase64.replace(/^data:image\/\w+;base64,/, ""), "base64");
+      const contentTypeMatch = input.imageBase64.match(/^data:(image\/\w+);base64,/);
+      const contentType = contentTypeMatch?.[1] ?? "image/jpeg";
+      const { url } = await storagePut(`product-images/${input.id}-${Date.now()}.jpg`, buffer, contentType);
+      await db.update(products).set({ imageUrl: url }).where(eq(products.id, input.id));
+      return { success: true, url };
     }),
 
   history: adminProcedure

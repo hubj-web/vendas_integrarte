@@ -24,12 +24,16 @@ export default function LojaPublica() {
   const { data: settings } = trpc.storeAdmin.getSettings.useQuery();
   const { data: products = [] } = trpc.storeAdmin.listStockProducts.useQuery();
   const { data: orders = [] } = trpc.storeAdmin.orders.useQuery({});
+  const { data: deliveryMethodsList = [] } = trpc.storeAdmin.listDeliveryMethods.useQuery();
 
   const updateSettings = trpc.storeAdmin.updateSettings.useMutation({
     onSuccess: () => { utils.storeAdmin.getSettings.invalidate(); toast.success("Configuração salva!"); },
   });
   const setVisibility = trpc.storeAdmin.setProductVisibility.useMutation({
     onSuccess: () => { utils.storeAdmin.listStockProducts.invalidate(); },
+  });
+  const setDeliveryVisibility = trpc.storeAdmin.setDeliveryMethodVisibility.useMutation({
+    onSuccess: () => { utils.storeAdmin.listDeliveryMethods.invalidate(); },
   });
   const confirmPayment = trpc.storeAdmin.confirmPayment.useMutation({
     onSuccess: () => { utils.storeAdmin.orders.invalidate(); toast.success("Pagamento confirmado! Estoque atualizado."); },
@@ -86,6 +90,7 @@ export default function LojaPublica() {
       <Tabs defaultValue="produtos">
         <TabsList>
           <TabsTrigger value="produtos">Produtos na Loja</TabsTrigger>
+          <TabsTrigger value="entregas">Formas de Entrega</TabsTrigger>
           <TabsTrigger value="pedidos">Pedidos ({orders.length})</TabsTrigger>
         </TabsList>
 
@@ -139,6 +144,33 @@ export default function LojaPublica() {
                   )}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="entregas" className="space-y-3 pt-3">
+          <p className="text-sm text-muted-foreground">
+            As formas de entrega são cadastradas em <strong>Configurações → Formas de Entrega</strong>.
+            Aqui você só liga/desliga quais delas aparecem pro cliente na Loja Pública — útil pra
+            esconder uma opção que não estiver configurada no momento, sem precisar desativá-la no cadastro geral.
+          </p>
+          <Card>
+            <CardContent className="pt-4 space-y-1">
+              {deliveryMethodsList.map(m => (
+                <div key={m.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                  <div>
+                    <p className="font-medium">{m.name}</p>
+                    {m.description && <p className="text-xs text-muted-foreground">{m.description}</p>}
+                  </div>
+                  <Switch
+                    checked={m.visibleInStore}
+                    onCheckedChange={(checked) => setDeliveryVisibility.mutate({ deliveryMethodId: m.id, visible: checked })}
+                  />
+                </div>
+              ))}
+              {deliveryMethodsList.length === 0 && (
+                <p className="text-center text-muted-foreground py-8">Nenhuma forma de entrega ativa cadastrada.</p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
