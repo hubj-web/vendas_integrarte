@@ -9,6 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Package, MapPin, Phone, PackageCheck, PackageOpen, Truck, Eye, HandHelping } from "lucide-react";
+import { PeriodFilterSelect } from "@/components/PeriodFilterSelect";
+import { periodValueToRange } from "@/lib/periodFilter";
 
 type PackagingItem = {
   orderId: number | null;
@@ -91,11 +93,14 @@ export default function Packaging() {
   const [deliveryMethodId, setDeliveryMethodId] = useState<string>("all");
   const [routeId, setRouteId] = useState<string>("");
   const [directMethodId, setDirectMethodId] = useState<string>("all");
+  const [routePeriod, setRoutePeriod] = useState<string>("all");
+  const [directPeriod, setDirectPeriod] = useState<string>("all");
 
   const { data: deliveryMethods = [] } = trpc.catalog.deliveryMethods.list.useQuery();
 
   const { data: routesList = [], isLoading: loadingRoutes } = trpc.packaging.routes.useQuery({
     deliveryMethodId: deliveryMethodId !== "all" ? Number(deliveryMethodId) : undefined,
+    ...periodValueToRange(routePeriod),
   });
 
   // Se a rota selecionada some da lista (ex: mudou o filtro), reseta a seleção.
@@ -112,6 +117,7 @@ export default function Packaging() {
 
   const { data: directOrders = [], isLoading: loadingDirect } = trpc.packaging.directOrders.useQuery({
     deliveryMethodId: directMethodId !== "all" ? Number(directMethodId) : undefined,
+    ...periodValueToRange(directPeriod),
   });
 
   const setPackagedMutation = trpc.packaging.setPackaged.useMutation({
@@ -141,7 +147,7 @@ export default function Packaging() {
         </TabsList>
 
         <TabsContent value="route">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <div>
               <label className="text-sm font-medium text-foreground mb-1.5 block">
                 1. Tipo de entrega a preparar
@@ -157,6 +163,13 @@ export default function Packaging() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">
+                Período (data da rota)
+              </label>
+              <PeriodFilterSelect value={routePeriod} onChange={setRoutePeriod} />
             </div>
 
             <div>
@@ -236,6 +249,11 @@ export default function Packaging() {
               </Select>
             </div>
           )}
+
+          <div className="mb-6 max-w-xs">
+            <label className="text-sm font-medium text-foreground mb-1.5 block">Período (data do pedido)</label>
+            <PeriodFilterSelect value={directPeriod} onChange={setDirectPeriod} />
+          </div>
 
           {loadingDirect && (
             <div className="space-y-3">

@@ -705,9 +705,19 @@ export const ordersRouter = router({
       return { success: true };
     }),
 
-  pendingPayments: protectedProcedure.query(async () => {
+  pendingPayments: protectedProcedure
+    .input(z.object({ dateFrom: z.string().optional(), dateTo: z.string().optional() }).optional())
+    .query(async ({ input }) => {
     const db = await getDb();
     if (!db) return [];
+
+    const conditions = [
+      or(eq(orders.paymentStatus, "pending"), eq(orders.paymentStatus, "partial")),
+      eq(orders.status, "delivered"),
+      sql`(${customers.isInternal} = false OR ${customers.isInternal} IS NULL)`,
+    ];
+    if (input?.dateFrom) conditions.push(gte(orders.createdAt, new Date(input.dateFrom + "T00:00:00")));
+    if (input?.dateTo) conditions.push(lte(orders.createdAt, new Date(input.dateTo + "T23:59:59")));
 
     const rows = await db.select({
       id: orders.id, totalAmount: orders.totalAmount, paymentMethod: orders.paymentMethod,
@@ -723,11 +733,7 @@ export const ordersRouter = router({
       .leftJoin(deliveryRecords, eq(orders.id, deliveryRecords.orderId))
       // Pedidos entregues com pagamento pendente OU parcial (ainda falta receber algo),
       // exceto de clientes internos (ex: pedidos de estoque não geram cobrança real)
-      .where(and(
-        or(eq(orders.paymentStatus, "pending"), eq(orders.paymentStatus, "partial")),
-        eq(orders.status, "delivered"),
-        sql`(${customers.isInternal} = false OR ${customers.isInternal} IS NULL)`
-      ));
+      .where(and(...conditions));
 
     // Monta a lista de produtos comprados em cada pedido (mesmo padrão usado em list)
     const orderIds = rows.map(o => o.id);

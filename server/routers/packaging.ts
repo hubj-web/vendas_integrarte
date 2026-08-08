@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { eq, asc, inArray, and } from "drizzle-orm";
+import { eq, asc, inArray, and, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
   deliveryRoutes, routeOrders, orders, customers, users, deliveryMethods,
@@ -21,10 +21,18 @@ export const packagingRouter = router({
   // Lista rotas disponíveis para empacotamento, com contagem de pedidos pendentes/prontos.
   // Filtra opcionalmente por forma de entrega (tipo de entrega a ser preparado).
   routes: adminProcedure
-    .input(z.object({ deliveryMethodId: z.number().optional() }).optional())
+    .input(z.object({
+      deliveryMethodId: z.number().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+    }).optional())
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
+
+      const routeConditions = [inArray(deliveryRoutes.status, ["planned", "in_progress"])];
+      if (input?.dateFrom) routeConditions.push(gte(deliveryRoutes.deliveryDate, new Date(input.dateFrom + "T00:00:00")));
+      if (input?.dateTo) routeConditions.push(lte(deliveryRoutes.deliveryDate, new Date(input.dateTo + "T23:59:59")));
 
       const routeRows = await db.select({
         id: deliveryRoutes.id, name: deliveryRoutes.name,
@@ -33,7 +41,7 @@ export const packagingRouter = router({
       })
         .from(deliveryRoutes)
         .leftJoin(users, eq(deliveryRoutes.deliveryUserId, users.id))
-        .where(inArray(deliveryRoutes.status, ["planned", "in_progress"]))
+        .where(and(...routeConditions))
         .orderBy(asc(deliveryRoutes.deliveryDate));
 
       if (routeRows.length === 0) return [];
@@ -225,10 +233,22 @@ export const packagingRouter = router({
   // porque foram removidos manualmente de uma rota (ex: cliente pediu para adiar).
   // Esses pedidos precisam ser empacotados e entregues normalmente, só que sem rota.
   directOrders: adminProcedure
-    .input(z.object({ deliveryMethodId: z.number().optional() }).optional())
+    .input(z.object({
+      deliveryMethodId: z.number().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+    }).optional())
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
+
+      const conditions = [
+        inArray(orders.status, ["production", "packaged"]),
+        eq(customers.isInternal, false),
+      ];
+      if (input?.deliveryMethodId) conditions.push(eq(orders.deliveryMethodId, input.deliveryMethodId));
+      if (input?.dateFrom) conditions.push(gte(orders.createdAt, new Date(input.dateFrom + "T00:00:00")));
+      if (input?.dateTo) conditions.push(lte(orders.createdAt, new Date(input.dateTo + "T23:59:59")));
 
       const orderRows = await db.select({
         orderId: orders.id, status: orders.status,
@@ -241,11 +261,7 @@ export const packagingRouter = router({
         .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
         .leftJoin(customers, eq(orders.customerId, customers.id))
         .leftJoin(routeOrders, eq(routeOrders.orderId, orders.id))
-        .where(and(
-          inArray(orders.status, ["production", "packaged"]),
-          eq(customers.isInternal, false),
-          input?.deliveryMethodId ? eq(orders.deliveryMethodId, input.deliveryMethodId) : undefined
-        ));
+        .where(and(...conditions));
 
       // Mantém só os que não estão vinculados a nenhuma rota (routeOrderId nulo)
       const unroutedOrders = orderRows.filter(o => !o.routeOrderId);

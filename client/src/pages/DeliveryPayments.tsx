@@ -17,6 +17,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Truck, CreditCard, Upload, Image, AlertTriangle, Loader2, Eye } from "lucide-react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
+import { PeriodFilterSelect } from "@/components/PeriodFilterSelect";
+import { periodValueToRange } from "@/lib/periodFilter";
 
 export default function DeliveryPayments() {
   const { user } = useLocalAuth();
@@ -25,6 +27,8 @@ export default function DeliveryPayments() {
   const [deliveryMethodFilter, setDeliveryMethodFilter] = useState<string>("all");
   const [routeFilter, setRouteFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"route" | "name" | "total_desc" | "total_asc" | "recent">("route");
+  const [deliveryPeriod, setDeliveryPeriod] = useState<string>("all");
+  const [paymentPeriod, setPaymentPeriod] = useState<string>("all");
 
   const { data: deliveryMethods = [] } = trpc.catalog.deliveryMethods.list.useQuery();
   const { data: routesList = [] } = trpc.delivery.routes.list.useQuery({});
@@ -37,6 +41,7 @@ export default function DeliveryPayments() {
     statusIn: ["production", "in_route", "packaged"],
     deliveryMethodId: deliveryMethodFilter !== "all" ? Number(deliveryMethodFilter) : undefined,
     routeId: routeFilter !== "all" ? Number(routeFilter) : undefined,
+    ...periodValueToRange(deliveryPeriod),
   });
   const pendingDeliveries = (() => {
     const list = (allOrders as any).data ?? allOrders;
@@ -63,7 +68,7 @@ export default function DeliveryPayments() {
     }
     return sorted;
   })();
-  const { data: pendingPayments = [], isLoading: loadingPay } = trpc.orders.pendingPayments.useQuery();
+  const { data: pendingPayments = [], isLoading: loadingPay } = trpc.orders.pendingPayments.useQuery(periodValueToRange(paymentPeriod));
 
   const registerDeliveryMutation = trpc.delivery.deliveryRecords.register.useMutation({
     onSuccess: () => { utils.orders.list.invalidate({}); utils.orders.pendingPayments.invalidate(); toast.success("Entrega registrada!"); setDeliveryOpen(false); },
@@ -163,7 +168,7 @@ export default function DeliveryPayments() {
     <div>
       <PageHeader title="Entregas e Pagamentos" description="Registre entregas e confirme pagamentos" />
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 max-w-2xl">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4 max-w-3xl">
         <div className="min-w-0">
           <Label className="text-xs text-muted-foreground mb-1 block">Tipo de entrega</Label>
           <Select value={deliveryMethodFilter} onValueChange={setDeliveryMethodFilter}>
@@ -191,6 +196,10 @@ export default function DeliveryPayments() {
               ))}
             </SelectContent>
           </Select>
+        </div>
+        <div className="min-w-0">
+          <Label className="text-xs text-muted-foreground mb-1 block">Período (pedidos)</Label>
+          <PeriodFilterSelect value={deliveryPeriod} onChange={setDeliveryPeriod} className="h-9 w-full" />
         </div>
         <div className="min-w-0">
           <Label className="text-xs text-muted-foreground mb-1 block">Ordenar por</Label>
@@ -293,6 +302,10 @@ export default function DeliveryPayments() {
 
         {/* Payments */}
         <TabsContent value="payments">
+          <div className="max-w-xs mb-4">
+            <Label className="text-xs text-muted-foreground mb-1 block">Período (pedidos)</Label>
+            <PeriodFilterSelect value={paymentPeriod} onChange={setPaymentPeriod} className="h-9 w-full" />
+          </div>
           {loadingPay ? (
             <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
           ) : pendingPayments.length === 0 ? (
