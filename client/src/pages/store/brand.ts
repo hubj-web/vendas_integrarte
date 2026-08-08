@@ -7,3 +7,8 @@ export const BRAND = {
   yellowLight: "#FDF4D8",
   white: "#FFFFFF",
 } as const;
+
+// Cartão de crédito está temporariamente desabilitado na loja (o Payment Brick
+// do Mercado Pago ainda trava no carregamento) — só PIX até isso ser corrigido.
+// Pra reativar: trocar pra true.
+export const CREDIT_CARD_ENABLED = true;

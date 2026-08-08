@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, ShoppingCart, ImageIcon, Plus } from "lucide-react";
+import { ArrowLeft, ShoppingCart, ImageIcon, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { CartItem } from "./Store";
 import { BRAND } from "./brand";
@@ -25,6 +25,7 @@ interface Props {
   cart: CartItem[];
   cartTotal: number;
   onAddToCart: (item: CartItem) => void;
+  onRemoveFromCart: (key: string) => void;
   onContinueShopping: () => void;
   onPay: () => void;
 }
@@ -33,7 +34,7 @@ function cartKey(productId: number, flavorId?: number) {
   return `${productId}::${flavorId ?? "none"}`;
 }
 
-export default function CategoryView({ categoryName, products, cart, cartTotal, onAddToCart, onContinueShopping, onPay }: Props) {
+export default function CategoryView({ categoryName, products, cart, cartTotal, onAddToCart, onRemoveFromCart, onContinueShopping, onPay }: Props) {
   const [drafts, setDrafts] = useState<Record<string, number>>({});
 
   function setDraft(key: string, value: number, max: number) {
@@ -77,12 +78,35 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
         <h1 className="font-semibold text-white">{categoryName}</h1>
       </header>
 
-      {/* Total em tempo real */}
-      <div className="sticky top-[60px] z-10 px-4 py-2 flex items-center justify-between text-sm" style={{ background: BRAND.yellowLight, borderBottom: `1px solid ${BRAND.yellow}` }}>
-        <span className="flex items-center gap-1.5" style={{ color: BRAND.blue }}>
-          <ShoppingCart className="h-4 w-4" /> {cartCount} {cartCount === 1 ? "item" : "itens"} no carrinho
-        </span>
-        <span className="font-bold" style={{ color: BRAND.blue }}>{fmt(cartTotal)}</span>
+      {/* Carrinho: lista de itens + total, sempre visível e atualizando em tempo real */}
+      <div className="sticky top-[60px] z-10 px-4 py-2 text-sm" style={{ background: BRAND.yellowLight, borderBottom: `1px solid ${BRAND.yellow}` }}>
+        <div className="max-w-3xl mx-auto">
+          <div className="flex items-center gap-1.5 mb-1" style={{ color: BRAND.blue }}>
+            <ShoppingCart className="h-4 w-4" />
+            <span className="font-medium">{cartCount} {cartCount === 1 ? "item" : "itens"} no carrinho</span>
+          </div>
+          {cart.length > 0 && (
+            <div className="max-h-28 overflow-y-auto space-y-1 mb-1">
+              {cart.map(item => (
+                <div key={item.key} className="flex items-center justify-between gap-2">
+                  <span className="truncate">
+                    {item.quantity}x {item.name}{item.flavorNames.length > 0 ? ` (${item.flavorNames.join(", ")})` : ""}
+                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span style={{ color: BRAND.blue }}>{fmt(item.unitPrice * item.quantity)}</span>
+                    <button onClick={() => onRemoveFromCart(item.key)} className="text-muted-foreground hover:text-destructive">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center justify-between font-bold pt-1" style={{ color: BRAND.blue, borderTop: cart.length > 0 ? `1px solid ${BRAND.yellow}` : "none" }}>
+            <span>Total</span>
+            <span>{fmt(cartTotal)}</span>
+          </div>
+        </div>
       </div>
 
       <main className="max-w-3xl mx-auto p-4 space-y-3">

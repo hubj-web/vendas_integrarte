@@ -50,6 +50,10 @@ export default function Store() {
     });
   }
 
+  function removeFromCart(key: string) {
+    setCart(prev => prev.filter(i => i.key !== key));
+  }
+
   function goToCategory(categoryId: number) {
     setSelectedCategoryId(categoryId);
     setView("category");
@@ -101,6 +105,7 @@ export default function Store() {
         cart={cart}
         cartTotal={cartTotal}
         onAddToCart={addToCart}
+        onRemoveFromCart={removeFromCart}
         onContinueShopping={goToLanding}
         onPay={() => setView("checkout")}
       />
@@ -148,20 +153,32 @@ export default function Store() {
       </main>
 
       {cartCount > 0 && (
-        <div className="fixed bottom-0 inset-x-0 p-4 shadow-lg" style={{ background: BRAND.white, borderTop: `2px solid ${BRAND.blue}` }}>
-          <div className="max-w-3xl mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-2" style={{ color: BRAND.blue }}>
-              <ShoppingCart className="h-5 w-5" />
-              <span className="text-sm">{cartCount} {cartCount === 1 ? "item" : "itens"}</span>
-              <span className="font-bold">{fmt(cartTotal)}</span>
+        <div className="fixed bottom-0 inset-x-0 shadow-lg" style={{ background: BRAND.white, borderTop: `2px solid ${BRAND.blue}` }}>
+          <div className="max-w-3xl mx-auto p-4 space-y-2">
+            <div className="max-h-32 overflow-y-auto space-y-1">
+              {cart.map(item => (
+                <div key={item.key} className="flex items-center justify-between text-sm gap-2">
+                  <span className="truncate">
+                    {item.quantity}x {item.name}{item.flavorNames.length > 0 ? ` (${item.flavorNames.join(", ")})` : ""}
+                  </span>
+                  <span className="shrink-0" style={{ color: BRAND.blue }}>{fmt(item.unitPrice * item.quantity)}</span>
+                </div>
+              ))}
             </div>
-            <button
-              onClick={() => setView("checkout")}
-              className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white hover:opacity-90 transition-opacity"
-              style={{ background: BRAND.green }}
-            >
-              Pagar
-            </button>
+            <div className="flex items-center justify-between pt-1" style={{ borderTop: `1px solid ${BRAND.yellow}` }}>
+              <div className="flex items-center gap-2 pt-2" style={{ color: BRAND.blue }}>
+                <ShoppingCart className="h-5 w-5" />
+                <span className="text-sm">{cartCount} {cartCount === 1 ? "item" : "itens"}</span>
+                <span className="font-bold">{fmt(cartTotal)}</span>
+              </div>
+              <button
+                onClick={() => setView("checkout")}
+                className="px-5 py-2.5 mt-2 rounded-lg text-sm font-semibold text-white hover:opacity-90 transition-opacity"
+                style={{ background: BRAND.green }}
+              >
+                Pagar
+              </button>
+            </div>
           </div>
         </div>
       )}

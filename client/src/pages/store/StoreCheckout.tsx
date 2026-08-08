@@ -10,7 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2, QrCode, CreditCard, Copy, Check } from "lucide-react";
-import { BRAND } from "./brand";
+import { BRAND, CREDIT_CARD_ENABLED } from "./brand";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -215,20 +215,28 @@ export default function StoreCheckout({ cart, total, onBack, onSuccess }: Props)
           <Card>
             <CardHeader><CardTitle className="text-base">Forma de pagamento</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <RadioGroup value={paymentMethod} onValueChange={v => setPaymentMethod(v as any)}>
-                <div className="flex items-center space-x-2 border rounded-lg p-3">
-                  <RadioGroupItem value="pix" id="pm-pix" />
-                  <Label htmlFor="pm-pix" className="flex-1 cursor-pointer flex items-center gap-2">
-                    <QrCode className="h-4 w-4" /> PIX (aprovação na hora)
-                  </Label>
+              {CREDIT_CARD_ENABLED && (
+                <RadioGroup value={paymentMethod} onValueChange={v => setPaymentMethod(v as any)}>
+                  <div className="flex items-center space-x-2 border rounded-lg p-3">
+                    <RadioGroupItem value="pix" id="pm-pix" />
+                    <Label htmlFor="pm-pix" className="flex-1 cursor-pointer flex items-center gap-2">
+                      <QrCode className="h-4 w-4" /> PIX (aprovação na hora)
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2 border rounded-lg p-3">
+                    <RadioGroupItem value="credit_card" id="pm-card" />
+                    <Label htmlFor="pm-card" className="flex-1 cursor-pointer flex items-center gap-2">
+                      <CreditCard className="h-4 w-4" /> Cartão de crédito
+                    </Label>
+                  </div>
+                </RadioGroup>
+              )}
+
+              {!CREDIT_CARD_ENABLED && (
+                <div className="flex items-center gap-2 border rounded-lg p-3 text-sm" style={{ borderColor: BRAND.blue, color: BRAND.blue }}>
+                  <QrCode className="h-4 w-4" /> Pagamento via PIX
                 </div>
-                <div className="flex items-center space-x-2 border rounded-lg p-3">
-                  <RadioGroupItem value="credit_card" id="pm-card" />
-                  <Label htmlFor="pm-card" className="flex-1 cursor-pointer flex items-center gap-2">
-                    <CreditCard className="h-4 w-4" /> Cartão de crédito
-                  </Label>
-                </div>
-              </RadioGroup>
+              )}
 
               {paymentMethod === "pix" && (
                 <Button className="w-full text-white" style={{ background: BRAND.green }} disabled={createOrder.isPending} onClick={submitPix}>
@@ -237,7 +245,7 @@ export default function StoreCheckout({ cart, total, onBack, onSuccess }: Props)
                 </Button>
               )}
 
-              {paymentMethod === "credit_card" && (
+              {CREDIT_CARD_ENABLED && paymentMethod === "credit_card" && (
                 <CardPaymentBrick
                   amount={total}
                   publicKey={mpConfig?.publicKey}
@@ -294,47 +302,65 @@ function CardPaymentBrick({
   useEffect(() => {
     if (!configured || !publicKey) return;
     let cancelled = false;
+    console.log("[CardBrick] iniciando — publicKey configurada:", !!publicKey, "amount:", amount);
+
+    // Se o brick não terminar de carregar em 10s, avisa (em vez de ficar girando pra sempre)
+    const timeoutId = setTimeout(() => {
+      if (!cancelled) {
+        console.warn("[CardBrick] timeout — onReady não disparou em 10s");
+        toast.error("O formulário de cartão está demorando demais. Tente recarregar a página.");
+      }
+    }, 10000);
 
     async function init() {
       if (!window.MercadoPago) {
+        console.log("[CardBrick] carregando SDK do Mercado Pago...");
         await new Promise<void>((resolve, reject) => {
           const script = document.createElement("script");
           script.src = "https://sdk.mercadopago.com/js/v2";
-          script.onload = () => resolve();
+          script.onload = () => { console.log("[CardBrick] SDK carregado."); resolve(); };
           script.onerror = () => reject(new Error("Falha ao carregar o Mercado Pago."));
           document.head.appendChild(script);
         });
       }
       if (cancelled) return;
+      console.log("[CardBrick] instanciando MercadoPago e criando o brick...");
       const mp = new window.MercadoPago(publicKey, { locale: "pt-BR" });
       const bricksBuilder = mp.bricks();
       brickRef.current = await bricksBuilder.create("cardPayment", "card-payment-brick-container", {
         initialization: { amount },
         callbacks: {
-          onReady: () => setReady(true),
-          onSubmit: async (cardFormData: any) => {
+          onReady: () => { console.log("[CardBrick] onReady disparou."); clearTimeout(timeoutId); setReady(true); },
+          onSubmit: async (data: any) => {
+            // A API do Mercado Pago retorna { selectedPaymentMethod, formData } — mas em
+            // algumas versões do SDK vem achatado direto. Aceita os dois formatos.
+            const formData = data?.formData ?? data;
+            console.log("[CardBrick] onSubmit disparou:", formData);
             await onSubmit({
-              token: cardFormData.token,
-              installments: cardFormData.installments,
-              paymentMethodId: cardFormData.payment_method_id,
-              issuerId: cardFormData.issuer_id,
+              token: formData.token,
+              installments: formData.installments,
+              paymentMethodId: formData.payment_method_id,
+              issuerId: formData.issuer_id,
             });
           },
           onError: (error: any) => {
-            console.error("Erro no Payment Brick:", error);
+            console.error("[CardBrick] onError:", error);
+            clearTimeout(timeoutId);
             toast.error("Erro ao carregar o formulário de cartão.");
           },
         },
       });
+      console.log("[CardBrick] create() resolveu.", brickRef.current);
     }
 
     init().catch(err => {
-      console.error(err);
+      console.error("[CardBrick] init() falhou:", err);
       toast.error("Não foi possível carregar o pagamento por cartão.");
     });
 
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
       brickRef.current?.unmount?.();
     };
   }, [configured, publicKey, amount]);
