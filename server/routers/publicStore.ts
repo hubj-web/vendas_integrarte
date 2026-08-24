@@ -12,17 +12,19 @@
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
+import { nanoid } from "nanoid";
 import {
   customers, deliveryMethods, orderItems, orderItemFlavors, orders, orderStatusHistory,
   productCategories, productFlavors, products, storeOrderPayments,
   storeProductVisibility, storeSettings, users, estoqueAtual, estoqueAtualFlavors,
-  storeDeliveryMethodVisibility,
+  storeDeliveryMethodVisibility, storeEvents, storeEventCategories,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
 import { buscarLotesEstoque, descontarLotesEstoque } from "./seller";
 import { createMercadoPagoPayment, mercadoPagoConfigured } from "../mercadopago";
 import { buildPixPayload, generatePixQrCodeBase64, pixConfigured } from "../pix";
+import { generateQrCodeBase64 } from "../qr";
 import { ENV } from "../_core/env";
 
 const SYSTEM_USER_EMAIL = "loja-publica@sistema.integrarte.local";
@@ -38,6 +40,75 @@ async function getSystemUserId(db: NonNullable<Awaited<ReturnType<typeof getDb>>
   return u.id;
 }
 
+/**
+ * Monta o catálogo (categorias + produtos disponíveis) — compartilhado entre a
+ * Venda Regular e os Eventos. `categoryIdFilter` restringe a um conjunto de
+ * categorias específico (usado pelos eventos); undefined = todas.
+ */
+async function buildCatalog(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, categoryIdFilter?: number[]) {
+  const estoqueLinhas = await db.select({
+    id: estoqueAtual.id, productId: estoqueAtual.productId, quantidade: estoqueAtual.quantidade,
+  }).from(estoqueAtual).where(gte(estoqueAtual.quantidade, 1));
+
+  if (estoqueLinhas.length === 0) return { categories: [], products: [] };
+
+  const estoqueIds = estoqueLinhas.map(l => l.id);
+  const flavorRows = await db.select({
+    estoqueAtualId: estoqueAtualFlavors.estoqueAtualId, productFlavorId: estoqueAtualFlavors.productFlavorId, flavorName: estoqueAtualFlavors.flavorName,
+  }).from(estoqueAtualFlavors).where(inArray(estoqueAtualFlavors.estoqueAtualId, estoqueIds));
+  const flavorsByLinha: Record<number, { id: number; name: string }[]> = {};
+  for (const f of flavorRows) (flavorsByLinha[f.estoqueAtualId] ??= []).push({ id: f.productFlavorId, name: f.flavorName });
+
+  const productIdsComEstoque = Array.from(new Set(estoqueLinhas.map(l => l.productId)));
+
+  const visibilidade = await db.select().from(storeProductVisibility)
+    .where(and(inArray(storeProductVisibility.productId, productIdsComEstoque), eq(storeProductVisibility.visible, true)));
+  const visibilidadeMap = new Map(visibilidade.map(v => [v.productId, v]));
+  const productIdsVisiveis = productIdsComEstoque.filter(id => visibilidadeMap.has(id));
+
+  if (productIdsVisiveis.length === 0) return { categories: [], products: [] };
+
+  const prodConditions = [inArray(products.id, productIdsVisiveis), eq(products.active, true)];
+  if (categoryIdFilter) prodConditions.push(inArray(products.categoryId, categoryIdFilter));
+
+  const prods = await db.select({
+    id: products.id, name: products.name, categoryId: products.categoryId,
+    unit: products.unit, price: products.price, description: products.description,
+    maxFlavors: products.maxFlavors, variationType: products.variationType, imageUrl: products.imageUrl,
+  }).from(products).where(and(...prodConditions));
+
+  const categoriaIds = Array.from(new Set(prods.map(p => p.categoryId).filter((v): v is number => v != null)));
+  const categorias = categoriaIds.length > 0
+    ? await db.select().from(productCategories).where(inArray(productCategories.id, categoriaIds))
+    : [];
+
+  const qtyByProduct: Record<number, number> = {};
+  const flavorsByProduct: Record<number, Map<number, string>> = {};
+  for (const l of estoqueLinhas) {
+    if (!productIdsVisiveis.includes(l.productId)) continue;
+    qtyByProduct[l.productId] = (qtyByProduct[l.productId] ?? 0) + l.quantidade;
+    const flavors = flavorsByLinha[l.id] ?? [];
+    if (flavors.length > 0) {
+      const m = (flavorsByProduct[l.productId] ??= new Map());
+      for (const f of flavors) m.set(f.id, f.name);
+    }
+  }
+
+  const productsOut = prods.map(p => {
+    const vis = visibilidadeMap.get(p.id);
+    return {
+      id: p.id, name: p.name, categoryId: p.categoryId, unit: p.unit,
+      price: vis?.storePrice ?? p.price,
+      description: p.description, maxFlavors: p.maxFlavors ?? 0,
+      variationType: p.variationType, imageUrl: p.imageUrl,
+      availableQuantity: qtyByProduct[p.id] ?? 0,
+      flavors: Array.from((flavorsByProduct[p.id] ?? new Map()).entries()).map(([id, name]) => ({ id, name })),
+    };
+  }).filter(p => p.availableQuantity > 0);
+
+  return { categories: categorias, products: productsOut };
+}
+
 export const publicStoreRouter = router({
   /** Chave PÚBLICA do Mercado Pago (nunca o access token) — usada pelo Payment Brick no navegador. */
   mpPublicKey: publicProcedure.query(() => ({
@@ -45,7 +116,29 @@ export const publicStoreRouter = router({
     configured: mercadoPagoConfigured() && !!ENV.mercadoPagoPublicKey,
   })),
 
-  /** Catálogo público: só estoque disponível + marcado visível na loja. Loja fechada → lista vazia. */
+  /**
+   * Tela inicial: o que está disponível pra escolher agora — a Venda Regular
+   * (se aberta) e/ou Eventos ativos (baile, festa...). O cliente entra direto
+   * se só tiver uma opção; escolhe entre elas se tiver mais de uma.
+   */
+  landing: publicProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return { regularOpen: false, regularClosedMessage: null, events: [] };
+
+    const [settings] = await db.select().from(storeSettings).orderBy(desc(storeSettings.id)).limit(1);
+    const events = await db.select().from(storeEvents).where(eq(storeEvents.isOpen, true)).orderBy(storeEvents.sortOrder);
+
+    return {
+      regularOpen: !!settings?.isOpen,
+      regularClosedMessage: settings?.closedMessage ?? null,
+      events: events.map(e => ({
+        id: e.id, name: e.name, type: e.type, description: e.description,
+        imageUrl: e.imageUrl, eventDate: e.eventDate,
+      })),
+    };
+  }),
+
+  /** Catálogo da Venda Regular — só estoque disponível + marcado visível na loja. */
   catalog: publicProcedure.query(async () => {
     const db = await getDb();
     if (!db) return { open: false, closedMessage: null, categories: [], products: [] };
@@ -55,67 +148,29 @@ export const publicStoreRouter = router({
       return { open: false, closedMessage: settings?.closedMessage ?? null, categories: [], products: [] };
     }
 
-    // Estoque atual agrupado por produto (soma de todos os lotes/sabores)
-    const estoqueLinhas = await db.select({
-      id: estoqueAtual.id, productId: estoqueAtual.productId, quantidade: estoqueAtual.quantidade,
-    }).from(estoqueAtual).where(gte(estoqueAtual.quantidade, 1));
-
-    if (estoqueLinhas.length === 0) return { open: true, closedMessage: null, categories: [], products: [] };
-
-    const estoqueIds = estoqueLinhas.map(l => l.id);
-    const flavorRows = await db.select({
-      estoqueAtualId: estoqueAtualFlavors.estoqueAtualId, productFlavorId: estoqueAtualFlavors.productFlavorId, flavorName: estoqueAtualFlavors.flavorName,
-    }).from(estoqueAtualFlavors).where(inArray(estoqueAtualFlavors.estoqueAtualId, estoqueIds));
-    const flavorsByLinha: Record<number, { id: number; name: string }[]> = {};
-    for (const f of flavorRows) (flavorsByLinha[f.estoqueAtualId] ??= []).push({ id: f.productFlavorId, name: f.flavorName });
-
-    const productIdsComEstoque = Array.from(new Set(estoqueLinhas.map(l => l.productId)));
-
-    const visibilidade = await db.select().from(storeProductVisibility)
-      .where(and(inArray(storeProductVisibility.productId, productIdsComEstoque), eq(storeProductVisibility.visible, true)));
-    const visibilidadeMap = new Map(visibilidade.map(v => [v.productId, v]));
-    const productIdsVisiveis = productIdsComEstoque.filter(id => visibilidadeMap.has(id));
-
-    if (productIdsVisiveis.length === 0) return { open: true, closedMessage: null, categories: [], products: [] };
-
-    const prods = await db.select({
-      id: products.id, name: products.name, categoryId: products.categoryId,
-      unit: products.unit, price: products.price, description: products.description,
-      maxFlavors: products.maxFlavors, variationType: products.variationType, imageUrl: products.imageUrl,
-    }).from(products).where(and(inArray(products.id, productIdsVisiveis), eq(products.active, true)));
-
-    const categoriaIds = Array.from(new Set(prods.map(p => p.categoryId).filter((v): v is number => v != null)));
-    const categorias = categoriaIds.length > 0
-      ? await db.select().from(productCategories).where(inArray(productCategories.id, categoriaIds))
-      : [];
-
-    // Quantidade total e sabores disponíveis, por produto
-    const qtyByProduct: Record<number, number> = {};
-    const flavorsByProduct: Record<number, Map<number, string>> = {};
-    for (const l of estoqueLinhas) {
-      if (!productIdsVisiveis.includes(l.productId)) continue;
-      qtyByProduct[l.productId] = (qtyByProduct[l.productId] ?? 0) + l.quantidade;
-      const flavors = flavorsByLinha[l.id] ?? [];
-      if (flavors.length > 0) {
-        const m = (flavorsByProduct[l.productId] ??= new Map());
-        for (const f of flavors) m.set(f.id, f.name);
-      }
-    }
-
-    const productsOut = prods.map(p => {
-      const vis = visibilidadeMap.get(p.id);
-      return {
-        id: p.id, name: p.name, categoryId: p.categoryId, unit: p.unit,
-        price: vis?.storePrice ?? p.price,
-        description: p.description, maxFlavors: p.maxFlavors ?? 0,
-        variationType: p.variationType, imageUrl: p.imageUrl,
-        availableQuantity: qtyByProduct[p.id] ?? 0,
-        flavors: Array.from((flavorsByProduct[p.id] ?? new Map()).entries()).map(([id, name]) => ({ id, name })),
-      };
-    }).filter(p => p.availableQuantity > 0);
-
-    return { open: true, closedMessage: null, categories: categorias, products: productsOut };
+    const { categories, products: productsOut } = await buildCatalog(db);
+    return { open: true, closedMessage: null, categories, products: productsOut };
   }),
+
+  /** Catálogo de um Evento específico — só as categorias vinculadas a ele. */
+  eventCatalog: publicProcedure
+    .input(z.object({ eventId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [event] = await db.select().from(storeEvents).where(eq(storeEvents.id, input.eventId)).limit(1);
+      if (!event || !event.isOpen) {
+        return { open: false, event: null, categories: [], products: [] };
+      }
+
+      const links = await db.select({ categoryId: storeEventCategories.categoryId }).from(storeEventCategories).where(eq(storeEventCategories.eventId, input.eventId));
+      const categoryIds = links.map(l => l.categoryId);
+      if (categoryIds.length === 0) return { open: true, event, categories: [], products: [] };
+
+      const { categories, products: productsOut } = await buildCatalog(db, categoryIds);
+      return { open: true, event, categories, products: productsOut };
+    }),
 
   /**
    * Formas de entrega disponíveis na loja (reaproveita o cadastro já existente,
@@ -148,6 +203,7 @@ export const publicStoreRouter = router({
       customerPhone: z.string().min(8),
       deliveryMethodId: z.number(),
       deliveryAddress: z.string().optional(),
+      eventId: z.number().optional(), // presente = compra dentro de um Evento; ausente = Venda Regular
       items: z.array(z.object({
         productId: z.number(),
         quantity: z.number().min(1),
@@ -169,9 +225,19 @@ export const publicStoreRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pagamento por PIX ainda não configurado." });
       }
 
-      const [settings] = await db.select().from(storeSettings).orderBy(desc(storeSettings.id)).limit(1);
-      if (!settings?.isOpen) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "A loja está fechada no momento." });
+      let allowedCategoryIds: number[] | null = null;
+      if (input.eventId) {
+        const [event] = await db.select().from(storeEvents).where(eq(storeEvents.id, input.eventId)).limit(1);
+        if (!event || !event.isOpen) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Este evento não está mais disponível." });
+        }
+        const links = await db.select({ categoryId: storeEventCategories.categoryId }).from(storeEventCategories).where(eq(storeEventCategories.eventId, input.eventId));
+        allowedCategoryIds = links.map(l => l.categoryId);
+      } else {
+        const [settings] = await db.select().from(storeSettings).orderBy(desc(storeSettings.id)).limit(1);
+        if (!settings?.isOpen) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A loja está fechada no momento." });
+        }
       }
 
       // Confere visibilidade + estoque de cada item, e calcula preços no servidor
@@ -192,6 +258,9 @@ export const publicStoreRouter = router({
         const prod = produtosMap.get(item.productId);
         if (!vis || !vis.visible || !prod || !prod.active) {
           throw new TRPCError({ code: "BAD_REQUEST", message: `Item indisponível na loja.` });
+        }
+        if (allowedCategoryIds && (!prod.categoryId || !allowedCategoryIds.includes(prod.categoryId))) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `"${prod.name}" não pertence a este evento.` });
         }
         const lotes = await buscarLotesEstoque(db, item.productId, item.flavorIds ?? []);
         const disponivel = lotes.reduce((acc, l) => acc + l.quantity, 0);
@@ -223,6 +292,7 @@ export const publicStoreRouter = router({
       }
 
       const systemUserId = await getSystemUserId(db);
+      const ticketCode = nanoid(12);
 
       const orderResult = await db.insert(orders).values({
         customerId,
@@ -231,6 +301,8 @@ export const publicStoreRouter = router({
         deliveryAddress: input.deliveryAddress,
         paymentMethod: input.paymentMethod,
         channel: "loja_publica",
+        eventId: input.eventId,
+        ticketCode,
         status: "production",
         paymentStatus: "pending",
         totalAmount: totalAmount.toFixed(2),
@@ -272,7 +344,7 @@ export const publicStoreRouter = router({
             amount: totalAmount.toFixed(2),
           });
 
-          return { success: true, orderId, paymentStatus: "pending", qrCode: payload, qrCodeBase64 };
+          return { success: true, orderId, ticketCode, paymentStatus: "pending", qrCode: payload, qrCodeBase64 };
         }
 
         const mpResult = await createMercadoPagoPayment({
@@ -300,7 +372,7 @@ export const publicStoreRouter = router({
         }
 
         return {
-          success: true, orderId,
+          success: true, orderId, ticketCode,
           paymentStatus: mpResult.status,
           qrCode: mpResult.qrCode, qrCodeBase64: mpResult.qrCodeBase64,
         };
@@ -310,30 +382,58 @@ export const publicStoreRouter = router({
       }
     }),
 
-  /** Status do pedido/pagamento — usado pela tela de recibo para saber quando confirmou */
+  /** Status do pedido/pagamento — usado pela tela de recibo (via id numérico, uso interno logo após criar) */
   orderStatus: publicProcedure
     .input(z.object({ orderId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-      const [order] = await db.select({
-        id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
-        totalAmount: orders.totalAmount, createdAt: orders.createdAt,
-        deliveryMethodId: orders.deliveryMethodId,
-        customerName: customers.name,
-      }).from(orders)
-        .leftJoin(customers, eq(orders.customerId, customers.id))
-        .where(and(eq(orders.id, input.orderId), eq(orders.channel, "loja_publica")))
-        .limit(1);
+      const [order] = await db.select({ id: orders.id }).from(orders).where(eq(orders.id, input.orderId)).limit(1);
       if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+      return resolveOrderDetails(db, eq(orders.id, input.orderId));
+    }),
 
-      const [payment] = await db.select().from(storeOrderPayments).where(eq(storeOrderPayments.orderId, input.orderId)).limit(1);
-
-      const items = await db.select({
-        productName: products.name, quantity: orderItems.quantity, subtotal: orderItems.subtotal,
-      }).from(orderItems).leftJoin(products, eq(orderItems.productId, products.id)).where(eq(orderItems.orderId, input.orderId));
-
-      return { ...order, payment: payment ?? null, items };
+  /**
+   * Recibo/ingresso pelo código público (usado no link/QR compartilhado —
+   * nunca expõe o id numérico sequencial do pedido).
+   */
+  orderByTicketCode: publicProcedure
+    .input(z.object({ ticketCode: z.string() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [order] = await db.select({ id: orders.id }).from(orders).where(eq(orders.ticketCode, input.ticketCode)).limit(1);
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Ingresso/recibo não encontrado." });
+      return resolveOrderDetails(db, eq(orders.ticketCode, input.ticketCode));
     }),
 });
+
+async function resolveOrderDetails(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, whereClause: any) {
+  const [order] = await db.select({
+    id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
+    totalAmount: orders.totalAmount, createdAt: orders.createdAt,
+    deliveryMethodId: orders.deliveryMethodId, eventId: orders.eventId, ticketCode: orders.ticketCode,
+    customerName: customers.name,
+  }).from(orders)
+    .leftJoin(customers, eq(orders.customerId, customers.id))
+    .where(whereClause)
+    .limit(1);
+  if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
+  const [payment] = await db.select().from(storeOrderPayments).where(eq(storeOrderPayments.orderId, order.id)).limit(1);
+
+  const items = await db.select({
+    productName: products.name, quantity: orderItems.quantity, subtotal: orderItems.subtotal,
+  }).from(orderItems).leftJoin(products, eq(orderItems.productId, products.id)).where(eq(orderItems.orderId, order.id));
+
+  let event: typeof storeEvents.$inferSelect | null = null;
+  if (order.eventId) {
+    const [ev] = await db.select().from(storeEvents).where(eq(storeEvents.id, order.eventId)).limit(1);
+    event = ev ?? null;
+  }
+
+  const receiptUrl = order.ticketCode ? `${ENV.appUrl}/loja/r/${order.ticketCode}` : null;
+  const receiptQrBase64 = receiptUrl ? await generateQrCodeBase64(receiptUrl) : null;
+
+  return { ...order, payment: payment ?? null, items, event, receiptUrl, receiptQrBase64 };
+}

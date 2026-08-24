@@ -28,6 +28,7 @@ interface CartItem {
 interface Props {
   cart: CartItem[];
   total: number;
+  eventId?: number;
   onBack: () => void;
   onSuccess: () => void;
 }
@@ -40,7 +41,7 @@ declare global {
 
 type Step = "dados" | "pagamento" | "pix_aguardando" | "concluido";
 
-export default function StoreCheckout({ cart, total, onBack, onSuccess }: Props) {
+export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess }: Props) {
   const [, navigate] = useLocation();
   const [step, setStep] = useState<Step>("dados");
   const [name, setName] = useState("");
@@ -49,6 +50,7 @@ export default function StoreCheckout({ cart, total, onBack, onSuccess }: Props)
   const [address, setAddress] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"pix" | "credit_card">("pix");
   const [orderId, setOrderId] = useState<number | null>(null);
+  const [ticketCode, setTicketCode] = useState<string | null>(null);
   const [pixData, setPixData] = useState<{ qrCode?: string; qrCodeBase64?: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -67,7 +69,7 @@ export default function StoreCheckout({ cart, total, onBack, onSuccess }: Props)
   useEffect(() => {
     if (orderStatus?.paymentStatus === "paid") {
       onSuccess();
-      navigate(`/loja/pedido/${orderId}`);
+      navigate(`/loja/r/${orderStatus.ticketCode ?? orderId}`);
     }
   }, [orderStatus?.paymentStatus]);
 
@@ -84,13 +86,15 @@ export default function StoreCheckout({ cart, total, onBack, onSuccess }: Props)
       const result = await createOrder.mutateAsync({
         customerName: name, customerPhone: phone,
         deliveryMethodId: deliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
+        eventId,
         items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds })),
         paymentMethod: "pix",
       });
       setOrderId(result.orderId);
+      setTicketCode(result.ticketCode);
       if (result.paymentStatus === "approved") {
         onSuccess();
-        navigate(`/loja/pedido/${result.orderId}`);
+        navigate(`/loja/r/${result.ticketCode}`);
       } else {
         setPixData({ qrCode: result.qrCode, qrCodeBase64: result.qrCodeBase64 });
         setStep("pix_aguardando");
@@ -255,15 +259,17 @@ export default function StoreCheckout({ cart, total, onBack, onSuccess }: Props)
                       const result = await createOrder.mutateAsync({
                         customerName: name, customerPhone: phone,
                         deliveryMethodId: deliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
+                        eventId,
                         items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds })),
                         paymentMethod: "credit_card",
                         cardToken: cardData.token, installments: cardData.installments,
                         paymentMethodId: cardData.paymentMethodId, issuerId: cardData.issuerId,
                       });
                       setOrderId(result.orderId);
+                      setTicketCode(result.ticketCode);
                       if (result.paymentStatus === "approved") {
                         onSuccess();
-                        navigate(`/loja/pedido/${result.orderId}`);
+                        navigate(`/loja/r/${result.ticketCode}`);
                       } else {
                         toast.error("Pagamento não aprovado. Verifique os dados do cartão.");
                       }

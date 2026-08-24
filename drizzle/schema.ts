@@ -213,7 +213,13 @@ export const orders = mysqlTable("orders", {
   // Origem do pedido: 'periodo' = fluxo normal (vendedor, período de vendas),
   // 'loja_publica' = comprado pelo cliente direto na loja on-line (sem login).
   // Aditivo — todo pedido antigo/existente fica com o default 'periodo'.
-  channel: mysqlEnum("channel", ["periodo", "loja_publica"]).default("periodo").notNull(),
+  channel: mysqlEnum("channel", ["periodo", "loja_publica", "vendedor_evento"]).default("periodo").notNull(),
+  // Vincula o pedido a um Evento da Loja (baile, festa, etc.) — null = venda
+  // regular (período de vendas) ou compra na Venda Regular da loja pública.
+  eventId: int("eventId"),
+  // Código único do pedido/ingresso — usado no link/QR code do recibo, tanto
+  // pra comprovar um ingresso quanto como identificador do recibo em geral.
+  ticketCode: varchar("ticketCode", { length: 20 }),
   status: mysqlEnum("status", ["production", "in_route", "packaged", "delivered", "paid", "cancelled"]).default("production").notNull(),
   paymentStatus: mysqlEnum("paymentStatus", ["pending", "paid", "partial", "cancelled"]).default("pending").notNull(),
   totalAmount: decimal("totalAmount", { precision: 10, scale: 2 }).notNull(),
@@ -576,6 +582,40 @@ export const storeOrderPayments = mysqlTable("store_order_payments", {
 
 export type StoreOrderPayment = typeof storeOrderPayments.$inferSelect;
 export type StoreProductVisibility = typeof storeProductVisibility.$inferSelect;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ─── EVENTOS DA LOJA — bailes, festas, vendas de ingresso ou de produtos ──────
+// ══════════════════════════════════════════════════════════════════════════════
+// A "Venda Regular" (loja sempre aberta, congelados do mês) NÃO é uma linha
+// aqui — continua controlada por `store_settings`, exatamente como já era.
+// Esta tabela é só para eventos ADICIONAIS: um baile específico, uma festa
+// com venda de ingresso, uma venda de produtos num evento gratuito, etc.
+export const storeEvents = mysqlTable("store_events", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 150 }).notNull(),
+  // 'ingresso' = vende acesso/participação no evento (ex: ingresso do baile).
+  // 'produtos' = vende produtos no/para o evento, sem ingresso (ex: bebidas no dia).
+  type: mysqlEnum("type", ["ingresso", "produtos"]).default("produtos").notNull(),
+  description: text("description"), // mensagem de boas-vindas específica do evento
+  imageUrl: text("imageUrl"), // banner mostrado no card do evento
+  isOpen: boolean("isOpen").default(false).notNull(),
+  eventDate: timestamp("eventDate"), // data do evento em si (baile, festa...)
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// Quais categorias de produto aparecem dentro de cada evento (N-N — a mesma
+// categoria pode pertencer à Venda Regular E a um ou mais eventos).
+export const storeEventCategories = mysqlTable("store_event_categories", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  categoryId: int("categoryId").notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+});
+
+export type StoreEvent = typeof storeEvents.$inferSelect;
 
 // Controla quais formas de entrega aparecem na Loja Pública, sem afetar o
 // cadastro geral (usado pelo vendedor/período de vendas). Ausência de linha =

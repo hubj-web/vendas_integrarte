@@ -6,11 +6,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Store, ExternalLink, Save } from "lucide-react";
+import { Store, ExternalLink, Save, Plus, Pencil, Trash2, CalendarDays, Ticket, ShoppingBag } from "lucide-react";
 
 const fmt = (v: number | string) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
@@ -25,6 +29,8 @@ export default function LojaPublica() {
   const { data: products = [] } = trpc.storeAdmin.listStockProducts.useQuery();
   const { data: orders = [] } = trpc.storeAdmin.orders.useQuery({});
   const { data: deliveryMethodsList = [] } = trpc.storeAdmin.listDeliveryMethods.useQuery();
+  const { data: events = [] } = trpc.storeAdmin.events.list.useQuery();
+  const { data: allCategories = [] } = trpc.catalog.categories.list.useQuery();
 
   const updateSettings = trpc.storeAdmin.updateSettings.useMutation({
     onSuccess: () => { utils.storeAdmin.getSettings.invalidate(); toast.success("Configuração salva!"); },
@@ -39,9 +45,36 @@ export default function LojaPublica() {
     onSuccess: () => { utils.storeAdmin.orders.invalidate(); toast.success("Pagamento confirmado! Estoque atualizado."); },
     onError: (err) => toast.error(err.message || "Não foi possível confirmar."),
   });
+  const createEvent = trpc.storeAdmin.events.create.useMutation({
+    onSuccess: () => { utils.storeAdmin.events.list.invalidate(); toast.success("Evento criado!"); setEventDialogOpen(false); },
+    onError: (err) => toast.error(err.message),
+  });
+  const updateEvent = trpc.storeAdmin.events.update.useMutation({
+    onSuccess: () => { utils.storeAdmin.events.list.invalidate(); },
+    onError: (err) => toast.error(err.message),
+  });
+  const deleteEvent = trpc.storeAdmin.events.delete.useMutation({
+    onSuccess: () => { utils.storeAdmin.events.list.invalidate(); toast.success("Evento excluído."); },
+    onError: (err) => toast.error(err.message),
+  });
+  const setEventCategories = trpc.storeAdmin.events.setCategories.useMutation({
+    onSuccess: () => { utils.storeAdmin.events.list.invalidate(); toast.success("Categorias atualizadas!"); },
+    onError: (err) => toast.error(err.message),
+  });
 
   const [closedMessage, setClosedMessage] = useState(settings?.closedMessage ?? "");
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
+
+  const [eventDialogOpen, setEventDialogOpen] = useState(false);
+  const [eventForm, setEventForm] = useState({ name: "", type: "produtos" as "ingresso" | "produtos", description: "", eventDate: "" });
+
+  const [categoriesDialogEventId, setCategoriesDialogEventId] = useState<number | null>(null);
+  const [categoriesDraft, setCategoriesDraft] = useState<number[]>([]);
+
+  function openCategoriesDialog(event: (typeof events)[number]) {
+    setCategoriesDialogEventId(event.id);
+    setCategoriesDraft(event.categories.map((c: any) => c.id));
+  }
 
   return (
     <div className="space-y-6">
@@ -87,12 +120,69 @@ export default function LojaPublica() {
         </Card>
       )}
 
-      <Tabs defaultValue="produtos">
+      <Tabs defaultValue="eventos">
         <TabsList>
+          <TabsTrigger value="eventos">Eventos</TabsTrigger>
           <TabsTrigger value="produtos">Produtos na Loja</TabsTrigger>
           <TabsTrigger value="entregas">Formas de Entrega</TabsTrigger>
           <TabsTrigger value="pedidos">Pedidos ({orders.length})</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="eventos" className="space-y-3 pt-3">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              A <strong>Venda Regular</strong> (aberta/fechada acima) é sempre a loja de sempre. Aqui você cria eventos
+              adicionais — um baile, uma festa — cada um com suas próprias categorias habilitadas.
+              Quando mais de uma opção estiver aberta ao mesmo tempo, o cliente escolhe qual quer ver ao entrar na loja.
+            </p>
+            <Button className="gap-1.5 shrink-0" onClick={() => { setEventForm({ name: "", type: "produtos", description: "", eventDate: "" }); setEventDialogOpen(true); }}>
+              <Plus className="w-4 h-4" /> Novo Evento
+            </Button>
+          </div>
+
+          <div className="grid gap-3">
+            {events.map((ev: any) => (
+              <Card key={ev.id}>
+                <CardContent className="pt-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                        {ev.type === "ingresso" ? <Ticket className="w-4 h-4 text-primary" /> : <ShoppingBag className="w-4 h-4 text-primary" />}
+                      </div>
+                      <div>
+                        <p className="font-semibold">{ev.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {ev.type === "ingresso" ? "Venda de ingresso" : "Venda de produtos no evento"}
+                          {ev.eventDate && <> · <CalendarDays className="inline w-3 h-3 -mt-0.5" /> {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(ev.eventDate))}</>}
+                        </p>
+                      </div>
+                    </div>
+                    <Switch checked={ev.isOpen} onCheckedChange={(checked) => updateEvent.mutate({ id: ev.id, isOpen: checked })} />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex flex-wrap gap-1">
+                      {ev.categories.length === 0 ? (
+                        <span className="text-xs text-muted-foreground">Nenhuma categoria vinculada ainda</span>
+                      ) : ev.categories.map((c: any) => (
+                        <Badge key={c.id} variant="secondary">{c.name}</Badge>
+                      ))}
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button size="sm" variant="outline" onClick={() => openCategoriesDialog(ev)}>Categorias</Button>
+                      <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm(`Excluir o evento "${ev.name}"?`)) deleteEvent.mutate({ id: ev.id }); }}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+            {events.length === 0 && (
+              <Card><CardContent className="py-8 text-center text-muted-foreground">Nenhum evento criado ainda.</CardContent></Card>
+            )}
+          </div>
+        </TabsContent>
 
         <TabsContent value="produtos" className="space-y-3 pt-3">
           <p className="text-sm text-muted-foreground">
@@ -226,6 +316,86 @@ export default function LojaPublica() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={eventDialogOpen} onOpenChange={setEventDialogOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Novo Evento</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Nome</Label>
+              <Input value={eventForm.name} onChange={e => setEventForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Baile de Massas 2026" />
+            </div>
+            <div>
+              <Label>Tipo</Label>
+              <Select value={eventForm.type} onValueChange={(v) => setEventForm(f => ({ ...f, type: v as any }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ingresso">Venda de ingresso (acesso ao evento)</SelectItem>
+                  <SelectItem value="produtos">Venda de produtos no/para o evento</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Data do evento (opcional)</Label>
+              <Input type="datetime-local" value={eventForm.eventDate} onChange={e => setEventForm(f => ({ ...f, eventDate: e.target.value }))} />
+            </div>
+            <div>
+              <Label>Mensagem de boas-vindas (opcional)</Label>
+              <Textarea value={eventForm.description} onChange={e => setEventForm(f => ({ ...f, description: e.target.value }))} placeholder="Mostrada pro cliente ao entrar nesse evento" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEventDialogOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={createEvent.isPending}
+              onClick={() => {
+                if (!eventForm.name.trim()) return toast.error("Dê um nome ao evento.");
+                createEvent.mutate({
+                  name: eventForm.name, type: eventForm.type,
+                  description: eventForm.description || undefined,
+                  eventDate: eventForm.eventDate || undefined,
+                });
+              }}
+            >
+              Criar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={categoriesDialogEventId !== null} onOpenChange={(open) => !open && setCategoriesDialogEventId(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Categorias do Evento</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Marque quais categorias aparecem dentro desse evento. A mesma categoria pode estar em vários eventos.</p>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {allCategories.map((c: any) => (
+              <div key={c.id} className="flex items-center gap-2 py-1">
+                <Checkbox
+                  checked={categoriesDraft.includes(c.id)}
+                  onCheckedChange={(checked) => {
+                    setCategoriesDraft(prev => checked ? [...prev, c.id] : prev.filter(id => id !== c.id));
+                  }}
+                />
+                <span className="text-sm">{c.name}</span>
+              </div>
+            ))}
+            {allCategories.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Nenhuma categoria cadastrada.</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCategoriesDialogEventId(null)}>Cancelar</Button>
+            <Button
+              disabled={setEventCategories.isPending}
+              onClick={() => {
+                if (categoriesDialogEventId == null) return;
+                setEventCategories.mutate({ eventId: categoriesDialogEventId, categoryIds: categoriesDraft });
+                setCategoriesDialogEventId(null);
+              }}
+            >
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

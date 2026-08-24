@@ -76,7 +76,7 @@ import type { TrpcContext } from "../_core/context";
 
 // Helper: garante que o usuário autenticado é vendedor (função principal ou
 // secundária) ou administrador — nunca confia num ID vindo do cliente.
-function requireLauncherRole(ctx: TrpcContext) {
+export function requireLauncherRole(ctx: TrpcContext) {
   const user = ctx.user;
   if (!user) throw new TRPCError({ code: "UNAUTHORIZED" });
   const isAdmin = user.role === "admin";

@@ -9,7 +9,7 @@ import { z } from "zod";
 import {
   customers, deliveryMethods, orders, orderItems, orderItemFlavors, products, productCategories,
   storeOrderPayments, storeProductVisibility, storeSettings, estoqueAtual,
-  storeDeliveryMethodVisibility,
+  storeDeliveryMethodVisibility, storeEvents, storeEventCategories,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { adminProcedure, router } from "../_core/trpc";
@@ -181,4 +181,82 @@ export const storeAdminRouter = router({
 
       return rows.map(r => ({ ...r, payment: paymentByOrder.get(r.id) ?? null }));
     }),
+
+  // ── EVENTOS DA LOJA ──────────────────────────────────────────────────────
+  events: router({
+    /** Lista todos os eventos (abertos ou não), com as categorias já vinculadas */
+    list: adminProcedure.query(async () => {
+      const db = await getDb();
+      if (!db) return [];
+      const events = await db.select().from(storeEvents).orderBy(storeEvents.sortOrder);
+      if (events.length === 0) return [];
+      const links = await db.select().from(storeEventCategories).where(inArray(storeEventCategories.eventId, events.map(e => e.id)));
+      const catIds = Array.from(new Set(links.map(l => l.categoryId)));
+      const cats = catIds.length > 0 ? await db.select().from(productCategories).where(inArray(productCategories.id, catIds)) : [];
+      const catById = new Map(cats.map(c => [c.id, c]));
+      return events.map(e => ({
+        ...e,
+        categories: links.filter(l => l.eventId === e.id).map(l => catById.get(l.categoryId)).filter(Boolean),
+      }));
+    }),
+
+    create: adminProcedure
+      .input(z.object({
+        name: z.string().min(2), type: z.enum(["ingresso", "produtos"]),
+        description: z.string().optional(), eventDate: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const result = await db.insert(storeEvents).values({
+          name: input.name, type: input.type, description: input.description,
+          eventDate: input.eventDate ? new Date(input.eventDate) : undefined,
+          createdBy: ctx.user.id,
+        });
+        const id = Number((result as any).insertId ?? (result as any)[0]?.insertId);
+        return { success: true, id };
+      }),
+
+    update: adminProcedure
+      .input(z.object({
+        id: z.number(), name: z.string().min(2).optional(), type: z.enum(["ingresso", "produtos"]).optional(),
+        description: z.string().nullable().optional(), eventDate: z.string().nullable().optional(),
+        isOpen: z.boolean().optional(), sortOrder: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const { id, eventDate, ...rest } = input;
+        await db.update(storeEvents).set({
+          ...rest,
+          ...(eventDate !== undefined ? { eventDate: eventDate ? new Date(eventDate) : null } : {}),
+        }).where(eq(storeEvents.id, id));
+        return { success: true };
+      }),
+
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const linked = await db.select({ id: orders.id }).from(orders).where(eq(orders.eventId, input.id)).limit(1);
+        if (linked.length > 0) throw new TRPCError({ code: "CONFLICT", message: "Este evento já tem pedidos — feche-o em vez de excluir, pra manter o histórico." });
+        await db.delete(storeEventCategories).where(eq(storeEventCategories.eventId, input.id));
+        await db.delete(storeEvents).where(eq(storeEvents.id, input.id));
+        return { success: true };
+      }),
+
+    /** Substitui a lista de categorias vinculadas a um evento (marca só as selecionadas) */
+    setCategories: adminProcedure
+      .input(z.object({ eventId: z.number(), categoryIds: z.array(z.number()) }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await db.delete(storeEventCategories).where(eq(storeEventCategories.eventId, input.eventId));
+        if (input.categoryIds.length > 0) {
+          await db.insert(storeEventCategories).values(input.categoryIds.map((categoryId, i) => ({ eventId: input.eventId, categoryId, sortOrder: i })));
+        }
+        return { success: true };
+      }),
+  }),
 });

@@ -16,6 +16,7 @@ import SellerNewOrder from "./pages/seller/SellerNewOrder";
 import MyOrders from "./pages/seller/MyOrders";
 import SellerOrderDetail from "./pages/seller/SellerOrderDetail";
 import Stock from "./pages/seller/Stock";
+import SellerEventSale from "./pages/seller/SellerEventSale";
 
 // ── DELIVERER PAGES ──
 import DelivererLogin from "./pages/deliverer/DelivererLogin";
@@ -63,8 +64,8 @@ import StorePage from "./pages/store/Store";
 import StoreReceipt from "./pages/store/StoreReceipt";
 import LojaPublica from "./pages/admin/LojaPublica";
 
-function StoreReceiptRoute({ params }: { params: { id: string } }) {
-  return <StoreReceipt orderId={Number(params.id)} />;
+function StoreReceiptRoute({ params }: { params: { code: string } }) {
+  return <StoreReceipt ticketCode={params.code} />;
 }
 
 // ── SELLER AREA ──
@@ -272,6 +273,9 @@ function Router() {
       <Route path="/vendedor/estoque">
         <SellerGuard><SellerLayout><Stock /></SellerLayout></SellerGuard>
       </Route>
+      <Route path="/vendedor/evento">
+        <SellerGuard><SellerLayout><SellerEventSale /></SellerLayout></SellerGuard>
+      </Route>
       <Route path="/vendedor/perfil">
         <SellerGuard><SellerLayout><Profile /></SellerLayout></SellerGuard>
       </Route>
@@ -307,7 +311,7 @@ function Router() {
       </Route>
 
       {/* ── LOJA PÚBLICA (sem login) ── */}
-      <Route path="/loja/pedido/:id" component={StoreReceiptRoute} />
+      <Route path="/loja/r/:code" component={StoreReceiptRoute} />
       <Route path="/loja">
         <StorePage />
       </Route>
