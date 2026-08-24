@@ -3,6 +3,7 @@ import {
   mysqlEnum,
   mysqlTable,
   text,
+  longtext,
   timestamp,
   varchar,
   decimal,
@@ -37,7 +38,7 @@ export const productCategories = mysqlTable("product_categories", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 100 }).notNull().unique(),
   description: text("description"),
-  imageUrl: text("imageUrl"),
+  imageUrl: longtext("imageUrl"),
   sortOrder: int("sortOrder").default(0).notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -82,7 +83,7 @@ export const products = mysqlTable("products", {
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   cost: decimal("cost", { precision: 10, scale: 2 }).default("0.00").notNull(),
   description: text("description"),
-  imageUrl: text("imageUrl"),
+  imageUrl: longtext("imageUrl"),
   maxFlavors: int("maxFlavors").default(0), // 0 = sem sabores, >0 = quantidade máxima de sabores
   // Rótulo da variação (o que o campo "sabores" representa pra esse produto).
   // Aditivo — todo produto já existente assume 'sabor' (comportamento atual preservado).
@@ -597,7 +598,7 @@ export const storeEvents = mysqlTable("store_events", {
   // 'produtos' = vende produtos no/para o evento, sem ingresso (ex: bebidas no dia).
   type: mysqlEnum("type", ["ingresso", "produtos"]).default("produtos").notNull(),
   description: text("description"), // mensagem de boas-vindas específica do evento
-  imageUrl: text("imageUrl"), // banner mostrado no card do evento
+  imageUrl: longtext("imageUrl"), // banner mostrado no card do evento
   isOpen: boolean("isOpen").default(false).notNull(),
   eventDate: timestamp("eventDate"), // data do evento em si (baile, festa...)
   sortOrder: int("sortOrder").default(0).notNull(),

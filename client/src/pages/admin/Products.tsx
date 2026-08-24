@@ -12,6 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { compressImageFile } from "@/lib/imageCompress";
 import { Plus, Pencil, Trash2, Search, Package, Cherry, ImagePlus, Image as ImageIcon } from "lucide-react";
 
 type Product = {
@@ -60,13 +61,12 @@ export default function Products() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleImageFile(id: number, file: File) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
-      setImagePreview(base64);
-      uploadImageMutation.mutate({ id, imageBase64: base64 });
-    };
-    reader.readAsDataURL(file);
+    compressImageFile(file)
+      .then((base64) => {
+        setImagePreview(base64);
+        uploadImageMutation.mutate({ id, imageBase64: base64 });
+      })
+      .catch(() => toast.error("Não foi possível processar essa imagem."));
   }
 
   // Flavors

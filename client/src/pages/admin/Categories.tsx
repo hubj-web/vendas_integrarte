@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Tag, GripVertical, CheckCircle, XCircle, ImagePlus, Image as ImageIcon } from "lucide-react";
+import { compressImageFile } from "@/lib/imageCompress";
 
 type Category = {
   id: number;
@@ -65,13 +66,12 @@ export default function Categories() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleImageFile(id: number, file: File) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
-      setImagePreview(base64);
-      uploadImageMutation.mutate({ id, imageBase64: base64 });
-    };
-    reader.readAsDataURL(file);
+    compressImageFile(file)
+      .then((base64) => {
+        setImagePreview(base64);
+        uploadImageMutation.mutate({ id, imageBase64: base64 });
+      })
+      .catch(() => toast.error("Não foi possível processar essa imagem."));
   }
 
   function openCreate() {

@@ -9,7 +9,6 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
-import { storagePut } from "../storage";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
@@ -56,12 +55,10 @@ const categoriesRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const buffer = Buffer.from(input.imageBase64.replace(/^data:image\/\w+;base64,/, ""), "base64");
-      const contentTypeMatch = input.imageBase64.match(/^data:(image\/\w+);base64,/);
-      const contentType = contentTypeMatch?.[1] ?? "image/jpeg";
-      const { url } = await storagePut(`category-images/${input.id}-${Date.now()}.jpg`, buffer, contentType);
-      await db.update(productCategories).set({ imageUrl: url }).where(eq(productCategories.id, input.id));
-      return { success: true, url };
+      // Salva a imagem direto no banco (o input já vem como data URL
+      // completa do navegador, ex: "data:image/jpeg;base64,...").
+      await db.update(productCategories).set({ imageUrl: input.imageBase64 }).where(eq(productCategories.id, input.id));
+      return { success: true, url: input.imageBase64 };
     }),
 });
 
@@ -217,12 +214,8 @@ const productsRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const buffer = Buffer.from(input.imageBase64.replace(/^data:image\/\w+;base64,/, ""), "base64");
-      const contentTypeMatch = input.imageBase64.match(/^data:(image\/\w+);base64,/);
-      const contentType = contentTypeMatch?.[1] ?? "image/jpeg";
-      const { url } = await storagePut(`product-images/${input.id}-${Date.now()}.jpg`, buffer, contentType);
-      await db.update(products).set({ imageUrl: url }).where(eq(products.id, input.id));
-      return { success: true, url };
+      await db.update(products).set({ imageUrl: input.imageBase64 }).where(eq(products.id, input.id));
+      return { success: true, url: input.imageBase64 };
     }),
 
   history: adminProcedure
