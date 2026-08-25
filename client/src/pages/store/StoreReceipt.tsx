@@ -71,11 +71,18 @@ export default function StoreReceipt({ ticketCode }: { ticketCode: string }) {
             <Badge variant="secondary">{STATUS_LABEL[order.status] ?? order.status}</Badge>
           </div>
           <Separator />
-          <div className="space-y-1">
-            {order.items.map((item, i) => (
-              <div key={i} className="flex justify-between text-sm">
-                <span>{item.quantity}x {item.productName}</span>
-                <span>{fmt(item.subtotal)}</span>
+          <div className="space-y-2">
+            {order.items.map((item: any, i: number) => (
+              <div key={i} className="text-sm">
+                <div className="flex justify-between">
+                  <span>{item.quantity}x {item.productName}</span>
+                  <span>{fmt(item.subtotal)}</span>
+                </div>
+                {item.selections?.length > 0 && (
+                  <p className="text-xs text-muted-foreground pl-3">
+                    {item.selections.map((s: any) => s.optionName).join(", ")}
+                  </p>
+                )}
               </div>
             ))}
           </div>

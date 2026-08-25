@@ -32,6 +32,7 @@ export default function LojaPublica() {
   const { data: deliveryMethodsList = [] } = trpc.storeAdmin.listDeliveryMethods.useQuery();
   const { data: events = [] } = trpc.storeAdmin.events.list.useQuery();
   const { data: allCategories = [] } = trpc.catalog.categories.list.useQuery();
+  const { data: regularCategories = [] } = trpc.storeAdmin.listRegularCategories.useQuery();
 
   const updateSettings = trpc.storeAdmin.updateSettings.useMutation({
     onSuccess: () => { utils.storeAdmin.getSettings.invalidate(); toast.success("Configuração salva!"); },
@@ -41,6 +42,9 @@ export default function LojaPublica() {
   });
   const setDeliveryVisibility = trpc.storeAdmin.setDeliveryMethodVisibility.useMutation({
     onSuccess: () => { utils.storeAdmin.listDeliveryMethods.invalidate(); },
+  });
+  const setRegularCategoryVisibility = trpc.storeAdmin.setRegularCategoryVisibility.useMutation({
+    onSuccess: () => { utils.storeAdmin.listRegularCategories.invalidate(); },
   });
   const confirmPayment = trpc.storeAdmin.confirmPayment.useMutation({
     onSuccess: () => { utils.storeAdmin.orders.invalidate(); toast.success("Pagamento confirmado! Estoque atualizado."); },
@@ -136,6 +140,7 @@ export default function LojaPublica() {
       <Tabs defaultValue="eventos">
         <TabsList>
           <TabsTrigger value="eventos">Eventos</TabsTrigger>
+          <TabsTrigger value="regular">Venda Regular</TabsTrigger>
           <TabsTrigger value="produtos">Produtos na Loja</TabsTrigger>
           <TabsTrigger value="entregas">Formas de Entrega</TabsTrigger>
           <TabsTrigger value="pedidos">Pedidos ({orders.length})</TabsTrigger>
@@ -198,6 +203,9 @@ export default function LojaPublica() {
                       </Button>
                     </div>
                   </div>
+                  <p className="text-xs text-muted-foreground -mt-1">
+                    Qualquer tamanho de imagem serve — é redimensionada automaticamente pra até 800×800px.
+                  </p>
                 </CardContent>
               </Card>
             ))}
@@ -209,6 +217,30 @@ export default function LojaPublica() {
             ref={eventFileInputRef} type="file" accept="image/*" className="hidden"
             onChange={e => { const file = e.target.files?.[0]; if (file && uploadingEventId != null) handleEventImageFile(uploadingEventId, file); e.target.value = ""; }}
           />
+        </TabsContent>
+
+        <TabsContent value="regular" className="space-y-3 pt-3">
+          <p className="text-sm text-muted-foreground">
+            Por padrão, <strong>toda categoria com produto visível aparece na Venda Regular</strong>.
+            Desligue aqui as categorias que são só de evento (ex: "Ingressos"), pra elas não se
+            misturarem com a loja de sempre.
+          </p>
+          <Card>
+            <CardContent className="pt-4 space-y-1">
+              {regularCategories.map((c: any) => (
+                <div key={c.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                  <span className="font-medium">{c.name}</span>
+                  <Switch
+                    checked={c.visibleInRegular}
+                    onCheckedChange={(checked) => setRegularCategoryVisibility.mutate({ categoryId: c.id, visible: checked })}
+                  />
+                </div>
+              ))}
+              {regularCategories.length === 0 && (
+                <p className="text-center text-muted-foreground py-8">Nenhuma categoria cadastrada.</p>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="produtos" className="space-y-3 pt-3">

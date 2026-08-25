@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2, QrCode, CreditCard, Copy, Check } from "lucide-react";
 import { BRAND, CREDIT_CARD_ENABLED } from "./brand";
+import { cartItemVariationLabel } from "./Store";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -23,6 +24,8 @@ interface CartItem {
   quantity: number;
   flavorIds: number[];
   flavorNames: string[];
+  optionIds: number[];
+  variationSelections: { groupName: string; optionName: string }[];
 }
 
 interface Props {
@@ -87,7 +90,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
         customerName: name, customerPhone: phone,
         deliveryMethodId: deliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
         eventId,
-        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds })),
+        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds })),
         paymentMethod: "pix",
       });
       setOrderId(result.orderId);
@@ -163,7 +166,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
           <CardContent className="pt-4 space-y-2 text-sm">
             {cart.map(item => (
               <div key={item.key} className="flex justify-between">
-                <span>{item.quantity}x {item.name}{item.flavorNames.length > 0 ? ` (${item.flavorNames.join(", ")})` : ""}</span>
+                <span>{item.quantity}x {item.name}{cartItemVariationLabel(item)}</span>
                 <span>{fmt(item.unitPrice * item.quantity)}</span>
               </div>
             ))}
@@ -260,7 +263,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                         customerName: name, customerPhone: phone,
                         deliveryMethodId: deliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
                         eventId,
-                        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds })),
+                        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds })),
                         paymentMethod: "credit_card",
                         cardToken: cardData.token, installments: cardData.installments,
                         paymentMethodId: cardData.paymentMethodId, issuerId: cardData.issuerId,

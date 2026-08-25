@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { compressImageFile } from "@/lib/imageCompress";
-import { Plus, Pencil, Trash2, Search, Package, Cherry, ImagePlus, Image as ImageIcon } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Package, Cherry, ImagePlus, Image as ImageIcon, Layers, X } from "lucide-react";
 
 type Product = {
   id: number; name: string; unit: string; price: string; cost: string;
@@ -22,6 +22,7 @@ type Product = {
   categoryId: number | null; categoryName: string | null;
   maxFlavors: number | null;
   variationType: "sabor" | "tamanho" | "cor" | null;
+  displaySize: "pequeno" | "medio" | "grande" | null;
   imageUrl: string | null;
   supplierId: number | null;
 };
@@ -90,16 +91,49 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
 
-  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", supplierId: "" });
+  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "" });
 
   // Flavor management dialog
   const [showFlavors, setShowFlavors] = useState(false);
   const [newFlavor, setNewFlavor] = useState({ name: "", additionalPrice: "0.00" });
 
+  // Variation groups management dialog (ex: tipo de macarrão + molho + condimentos)
+  const [showGroups, setShowGroups] = useState(false);
+  const [groupsProductId, setGroupsProductId] = useState<number | null>(null);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupRequired, setNewGroupRequired] = useState(true);
+  const [newGroupAllowMultiple, setNewGroupAllowMultiple] = useState(false);
+  const [newOptionDrafts, setNewOptionDrafts] = useState<Record<number, { name: string; price: string }>>({});
+
+  const { data: variationGroups = [], refetch: refetchGroups } = trpc.catalog.productVariationGroups.list.useQuery(
+    { productId: groupsProductId ?? -1 }, { enabled: !!groupsProductId }
+  );
+  const createGroupMutation = trpc.catalog.productVariationGroups.createGroup.useMutation({
+    onSuccess: () => { refetchGroups(); setNewGroupName(""); setNewGroupRequired(true); setNewGroupAllowMultiple(false); toast.success("Grupo criado!"); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteGroupMutation = trpc.catalog.productVariationGroups.deleteGroup.useMutation({
+    onSuccess: () => { refetchGroups(); toast.success("Grupo excluído."); },
+    onError: (e) => toast.error(e.message),
+  });
+  const createOptionMutation = trpc.catalog.productVariationGroups.createOption.useMutation({
+    onSuccess: () => refetchGroups(),
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteOptionMutation = trpc.catalog.productVariationGroups.deleteOption.useMutation({
+    onSuccess: () => refetchGroups(),
+    onError: (e) => toast.error(e.message),
+  });
+
+  function openVariationGroups(p: Product) {
+    setGroupsProductId(p.id);
+    setShowGroups(true);
+  }
+
   function openCreate() {
     setEditing(null);
     setImagePreview(null);
-    setForm({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", supplierId: "" });
+    setForm({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "" });
     setOpen(true);
   }
 
@@ -116,6 +150,7 @@ export default function Products() {
       active: p.active,
       maxFlavors: String(p.maxFlavors ?? 0),
       variationType: p.variationType ?? "sabor",
+      displaySize: p.displaySize ?? "medio",
       supplierId: p.supplierId ? String(p.supplierId) : "",
     });
     setOpen(true);
@@ -133,6 +168,7 @@ export default function Products() {
     const categoryId = parseInt(form.categoryId);
     const maxFlavors = parseInt(form.maxFlavors) || 0;
     const variationType = form.variationType as "sabor" | "tamanho" | "cor";
+    const displaySize = form.displaySize as "pequeno" | "medio" | "grande";
 
     const supplierId = form.supplierId ? parseInt(form.supplierId) : null;
     if (editing) {
@@ -148,6 +184,7 @@ export default function Products() {
         active: form.active,
         maxFlavors,
         variationType,
+        displaySize,
       });
     } else {
       createMutation.mutate({
@@ -161,6 +198,7 @@ export default function Products() {
         active: form.active,
         maxFlavors,
         variationType,
+        displaySize,
       });
     }
   }
@@ -268,6 +306,9 @@ export default function Products() {
                           <Cherry className="w-3.5 h-3.5" />
                         </Button>
                       )}
+                      <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-blue-400" onClick={() => openVariationGroups(p)} title="Grupos de variação (ex: tipo de macarrão + molho)">
+                        <Layers className="w-3.5 h-3.5" />
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-primary" onClick={() => openEdit(p)}><Pencil className="w-3.5 h-3.5" /></Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-destructive" onClick={() => setDeleteId(p.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                     </div>
@@ -308,6 +349,9 @@ export default function Products() {
                   onChange={e => { const file = e.target.files?.[0]; if (file && editing) handleImageFile(editing.id, file); }}
                 />
               </div>
+              <p className="text-xs text-muted-foreground">
+                Qualquer tamanho serve — a foto é redimensionada automaticamente pra até 800×800px antes de salvar.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Nome *</Label>
@@ -367,6 +411,18 @@ export default function Products() {
             <p className="text-xs text-muted-foreground -mt-2">
               Defina quantas opções (sabor, tamanho ou cor) o cliente pode escolher. 0 = produto sem variação.
             </p>
+            <div className="space-y-2">
+              <Label>Tamanho de destaque na Loja Pública</Label>
+              <Select value={form.displaySize} onValueChange={v => setForm(f => ({ ...f, displaySize: v }))}>
+                <SelectTrigger className="bg-input w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pequeno">Pequeno</SelectItem>
+                  <SelectItem value="medio">Médio</SelectItem>
+                  <SelectItem value="grande">Grande</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">"Grande" aparece com foto maior na lista de produtos.</p>
+            </div>
             <div className="space-y-2">
               <Label>Fornecedor</Label>
               <Select value={form.supplierId} onValueChange={v => setForm(f => ({ ...f, supplierId: v }))}>
@@ -450,6 +506,97 @@ export default function Products() {
               </div>
               <Button type="submit" size="sm" className="h-9 bg-primary text-primary-foreground" disabled={createFlavorMutation.isPending}>
                 <Plus className="w-4 h-4" />
+              </Button>
+            </form>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Variation groups (multi-choice: tipo de macarrão + molho + condimentos) */}
+      <Dialog open={showGroups} onOpenChange={(v) => { setShowGroups(v); if (!v) setGroupsProductId(null); }}>
+        <DialogContent className="bg-card border-border max-w-xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Grupos de Variação — {products.find(p => p.id === groupsProductId)?.name}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground -mt-2">
+            Use isso quando o cliente precisa fazer várias escolhas ao mesmo tempo no mesmo produto
+            (ex: marmitex → Tipo de Macarrão + Tipo de Molho + Condimentos). Independente do sistema de Sabores.
+          </p>
+
+          <div className="space-y-4">
+            {variationGroups.map((group: any) => (
+              <div key={group.id} className="border border-border rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-sm">{group.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {group.required ? "Obrigatório" : "Opcional"} · {group.allowMultiple ? "Pode marcar várias opções" : "Só uma opção"}
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-destructive" onClick={() => deleteGroupMutation.mutate({ id: group.id })}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+
+                <div className="space-y-1">
+                  {group.options.map((opt: any) => (
+                    <div key={opt.id} className="flex items-center justify-between pl-2 py-1 border-l-2 border-border">
+                      <span className="text-sm">{opt.name}{Number(opt.additionalPrice) > 0 && <span className="text-xs text-muted-foreground ml-2">+{fmt(opt.additionalPrice)}</span>}</span>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 hover:text-destructive" onClick={() => deleteOptionMutation.mutate({ id: opt.id })}>
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
+                <form
+                  className="flex gap-2 items-end pt-1"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const draft = newOptionDrafts[group.id] ?? { name: "", price: "0.00" };
+                    if (!draft.name.trim()) return;
+                    createOptionMutation.mutate({ groupId: group.id, name: draft.name, additionalPrice: draft.price || "0.00" });
+                    setNewOptionDrafts(prev => ({ ...prev, [group.id]: { name: "", price: "0.00" } }));
+                  }}
+                >
+                  <Input
+                    className="h-8 flex-1" placeholder="Nome da opção (ex: Talharim)"
+                    value={newOptionDrafts[group.id]?.name ?? ""}
+                    onChange={e => setNewOptionDrafts(prev => ({ ...prev, [group.id]: { name: e.target.value, price: prev[group.id]?.price ?? "0.00" } }))}
+                  />
+                  <Input
+                    type="number" step="0.01" min="0" className="h-8 w-24" placeholder="+R$"
+                    value={newOptionDrafts[group.id]?.price ?? "0.00"}
+                    onChange={e => setNewOptionDrafts(prev => ({ ...prev, [group.id]: { name: prev[group.id]?.name ?? "", price: e.target.value } }))}
+                  />
+                  <Button type="submit" size="sm" className="h-8"><Plus className="w-3.5 h-3.5" /></Button>
+                </form>
+              </div>
+            ))}
+            {variationGroups.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">Nenhum grupo criado ainda.</p>
+            )}
+
+            <form
+              className="border border-dashed border-border rounded-lg p-3 space-y-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!newGroupName.trim() || !groupsProductId) return;
+                createGroupMutation.mutate({ productId: groupsProductId, name: newGroupName, required: newGroupRequired, allowMultiple: newGroupAllowMultiple });
+              }}
+            >
+              <Label className="text-xs">Novo grupo (ex: "Tipo de Macarrão", "Condimentos")</Label>
+              <Input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Nome do grupo" className="h-9" />
+              <div className="flex items-center gap-4 text-sm">
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={newGroupRequired} onChange={e => setNewGroupRequired(e.target.checked)} /> Obrigatório
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={newGroupAllowMultiple} onChange={e => setNewGroupAllowMultiple(e.target.checked)} /> Pode marcar várias opções
+                </label>
+              </div>
+              <Button type="submit" size="sm" className="w-full" disabled={createGroupMutation.isPending}>
+                <Plus className="w-4 h-4 mr-1" /> Criar grupo
               </Button>
             </form>
           </div>

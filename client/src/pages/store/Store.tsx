@@ -17,7 +17,15 @@ export interface CartItem {
   quantity: number;
   flavorIds: number[];
   flavorNames: string[];
+  optionIds: number[];
+  variationSelections: { groupName: string; optionName: string }[];
   maxAvailable: number;
+}
+
+/** Texto entre parênteses mostrando sabor + variações escolhidas (ex: "Morango, Talharim, Molho Branco") */
+export function cartItemVariationLabel(item: Pick<CartItem, "flavorNames" | "variationSelections">): string {
+  const parts = [...item.flavorNames, ...item.variationSelections.map(s => s.optionName)];
+  return parts.length > 0 ? ` (${parts.join(", ")})` : "";
 }
 
 type Context = { type: "regular" } | { type: "event"; eventId: number; eventName: string; eventKind: "ingresso" | "produtos" };
@@ -196,11 +204,17 @@ export default function Store() {
 
   return (
     <div className="min-h-screen pb-10" style={{ background: BRAND.white }}>
-      <header className="py-8 px-4" style={{ background: BRAND.blue }}>
+      <header className="py-8 px-4 relative" style={{ background: BRAND.blue }}>
+        {activeOptions.length > 1 && (
+          <button
+            onClick={backToStart}
+            className="absolute left-4 top-4 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold"
+            style={{ background: BRAND.white, color: BRAND.blue }}
+          >
+            ← Voltar
+          </button>
+        )}
         <div className="max-w-3xl mx-auto text-center space-y-3">
-          {activeOptions.length > 1 && (
-            <button onClick={backToStart} className="text-white/80 text-xs underline mb-1">← Voltar</button>
-          )}
           <img src="/integrarte-logo.png" alt="Integrarte" className="mx-auto h-24 w-auto object-contain bg-white rounded-2xl p-2" />
           <h1 className="text-2xl font-bold tracking-tight text-white">
             {context?.type === "event" ? context.eventName.toUpperCase() : "LOJA INTEGRARTE"}
@@ -223,9 +237,15 @@ export default function Store() {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-2">
             {categoriesWithProducts.map((cat: any) => (
-              <button key={cat.id} onClick={() => { setSelectedCategoryId(cat.id); setView("category"); }} className="text-left group">
+              <button
+                key={cat.id} onClick={() => { setSelectedCategoryId(cat.id); setView("category"); }}
+                className={`text-left group ${cat.displaySize === "grande" ? "col-span-2" : ""}`}
+              >
                 <Card className="overflow-hidden transition-all group-hover:shadow-md" style={{ borderColor: BRAND.yellow, borderWidth: 2 }}>
-                  <div className="aspect-square flex items-center justify-center overflow-hidden" style={{ background: BRAND.yellowLight }}>
+                  <div
+                    className={`flex items-center justify-center overflow-hidden ${cat.displaySize === "pequeno" ? "aspect-[2/1]" : "aspect-square"}`}
+                    style={{ background: BRAND.yellowLight }}
+                  >
                     {cat.imageUrl ? (
                       <img src={cat.imageUrl} alt={cat.name} className="w-full h-full object-cover" />
                     ) : (
@@ -233,7 +253,7 @@ export default function Store() {
                     )}
                   </div>
                   <CardContent className="p-3">
-                    <p className="font-medium text-sm text-center" style={{ color: BRAND.blue }}>{cat.name}</p>
+                    <p className={`font-medium text-center ${cat.displaySize === "grande" ? "text-base" : "text-sm"}`} style={{ color: BRAND.blue }}>{cat.name}</p>
                   </CardContent>
                 </Card>
               </button>
@@ -249,7 +269,7 @@ export default function Store() {
               {cart.map(item => (
                 <div key={item.key} className="flex items-center justify-between text-sm gap-2">
                   <span className="truncate">
-                    {item.quantity}x {item.name}{item.flavorNames.length > 0 ? ` (${item.flavorNames.join(", ")})` : ""}
+                    {item.quantity}x {item.name}{cartItemVariationLabel(item)}
                   </span>
                   <span className="shrink-0" style={{ color: BRAND.blue }}>{fmt(item.unitPrice * item.quantity)}</span>
                 </div>

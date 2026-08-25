@@ -10,6 +10,7 @@ import {
   customers, deliveryMethods, orders, orderItems, orderItemFlavors, products, productCategories,
   storeOrderPayments, storeProductVisibility, storeSettings, estoqueAtual,
   storeDeliveryMethodVisibility, storeEvents, storeEventCategories,
+  storeRegularCategoryVisibility,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { adminProcedure, router } from "../_core/trpc";
@@ -149,6 +150,32 @@ export const storeAdminRouter = router({
         await db.update(storeDeliveryMethodVisibility).set({ visible: input.visible }).where(eq(storeDeliveryMethodVisibility.id, existing.id));
       } else {
         await db.insert(storeDeliveryMethodVisibility).values({ deliveryMethodId: input.deliveryMethodId, visible: input.visible });
+      }
+      return { success: true };
+    }),
+
+  /** Lista todas as categorias, com o estado atual de visibilidade na Venda Regular */
+  listRegularCategories: adminProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    const cats = await db.select().from(productCategories).where(eq(productCategories.active, true));
+    const visRows = await db.select().from(storeRegularCategoryVisibility);
+    const visMap = new Map(visRows.map(v => [v.categoryId, v.visible]));
+    return cats.map(c => ({ ...c, visibleInRegular: visMap.get(c.id) ?? true }));
+  }),
+
+  /** Liga/desliga uma categoria especificamente na Venda Regular (não afeta eventos nem o cadastro geral) */
+  setRegularCategoryVisibility: adminProcedure
+    .input(z.object({ categoryId: z.number(), visible: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [existing] = await db.select({ id: storeRegularCategoryVisibility.id }).from(storeRegularCategoryVisibility)
+        .where(eq(storeRegularCategoryVisibility.categoryId, input.categoryId)).limit(1);
+      if (existing) {
+        await db.update(storeRegularCategoryVisibility).set({ visible: input.visible }).where(eq(storeRegularCategoryVisibility.id, existing.id));
+      } else {
+        await db.insert(storeRegularCategoryVisibility).values({ categoryId: input.categoryId, visible: input.visible });
       }
       return { success: true };
     }),

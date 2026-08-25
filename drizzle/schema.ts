@@ -39,6 +39,9 @@ export const productCategories = mysqlTable("product_categories", {
   name: varchar("name", { length: 100 }).notNull().unique(),
   description: text("description"),
   imageUrl: longtext("imageUrl"),
+  // Tamanho de destaque na Loja Pública — permite deixar uma categoria maior
+  // que outra na grade (ex: destacar uma categoria de evento).
+  displaySize: mysqlEnum("displaySize", ["pequeno", "medio", "grande"]).default("medio").notNull(),
   sortOrder: int("sortOrder").default(0).notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -84,6 +87,9 @@ export const products = mysqlTable("products", {
   cost: decimal("cost", { precision: 10, scale: 2 }).default("0.00").notNull(),
   description: text("description"),
   imageUrl: longtext("imageUrl"),
+  // Tamanho de destaque na Loja Pública — permite deixar um produto maior
+  // que outro na lista (ex: destacar um item específico).
+  displaySize: mysqlEnum("displaySize", ["pequeno", "medio", "grande"]).default("medio").notNull(),
   maxFlavors: int("maxFlavors").default(0), // 0 = sem sabores, >0 = quantidade máxima de sabores
   // Rótulo da variação (o que o campo "sabores" representa pra esse produto).
   // Aditivo — todo produto já existente assume 'sabor' (comportamento atual preservado).
@@ -617,6 +623,53 @@ export const storeEventCategories = mysqlTable("store_event_categories", {
 });
 
 export type StoreEvent = typeof storeEvents.$inferSelect;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ─── GRUPOS DE VARIAÇÃO — várias escolhas no mesmo produto ────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// Sistema NOVO e independente do "sabor" (productFlavors/maxFlavors) já
+// existente — aquele continua funcionando exatamente igual pros produtos que
+// já usam. Este é pra quando um produto precisa de VÁRIAS escolhas ao mesmo
+// tempo (ex: marmitex de macarrão → tipo de macarrão + tipo de molho +
+// condimentos). Um produto só usa um sistema ou outro, nunca os dois.
+export const productVariationGroups = mysqlTable("product_variation_groups", {
+  id: int("id").autoincrement().primaryKey(),
+  productId: int("productId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(), // ex: "Tipo de Macarrão"
+  required: boolean("required").default(true).notNull(), // cliente é obrigado a escolher?
+  allowMultiple: boolean("allowMultiple").default(false).notNull(), // pode marcar mais de uma opção?
+  sortOrder: int("sortOrder").default(0).notNull(),
+});
+
+export const productVariationOptions = mysqlTable("product_variation_options", {
+  id: int("id").autoincrement().primaryKey(),
+  groupId: int("groupId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(), // ex: "Talharim"
+  additionalPrice: decimal("additionalPrice", { precision: 10, scale: 2 }).default("0.00").notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+});
+
+// Escolhas feitas pelo cliente num item de pedido (histórico, denormalizado —
+// guarda o nome/preço adicional no momento da compra, igual orderItemFlavors).
+export const orderItemVariationSelections = mysqlTable("order_item_variation_selections", {
+  id: int("id").autoincrement().primaryKey(),
+  orderItemId: int("orderItemId").notNull(),
+  groupName: varchar("groupName", { length: 100 }).notNull(),
+  optionName: varchar("optionName", { length: 100 }).notNull(),
+  additionalPrice: decimal("additionalPrice", { precision: 10, scale: 2 }).default("0.00").notNull(),
+});
+
+// Controla quais categorias aparecem na Venda Regular (a loja sempre aberta).
+// Mesmo padrão "opt-out" das formas de entrega: ausência de linha = visível
+// (preserva o comportamento de hoje, onde tudo que está visível+em estoque
+// aparece na Venda Regular). Só ganha uma linha aqui quando alguém desliga
+// explicitamente — por exemplo, pra tirar a categoria "Ingressos" de lá.
+export const storeRegularCategoryVisibility = mysqlTable("store_regular_category_visibility", {
+  id: int("id").autoincrement().primaryKey(),
+  categoryId: int("categoryId").notNull().unique(),
+  visible: boolean("visible").default(true).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
 
 // Controla quais formas de entrega aparecem na Loja Pública, sem afetar o
 // cadastro geral (usado pelo vendedor/período de vendas). Ausência de linha =

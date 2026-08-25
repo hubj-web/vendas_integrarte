@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Tag, GripVertical, CheckCircle, XCircle, ImagePlus, Image as ImageIcon } from "lucide-react";
@@ -17,6 +18,7 @@ type Category = {
   description: string | null;
   imageUrl: string | null;
   sortOrder: number;
+  displaySize: "pequeno" | "medio" | "grande";
   active: boolean;
   createdAt: Date;
 };
@@ -25,6 +27,7 @@ type FormData = {
   name: string;
   description: string;
   sortOrder: number;
+  displaySize: "pequeno" | "medio" | "grande";
 };
 
 export default function Categories() {
@@ -35,7 +38,7 @@ export default function Categories() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [form, setForm] = useState<FormData>({ name: "", description: "", sortOrder: 0 });
+  const [form, setForm] = useState<FormData>({ name: "", description: "", sortOrder: 0, displaySize: "medio" });
 
   const createMutation = trpc.catalog.categories.create.useMutation({
     onSuccess: () => { utils.catalog.categories.list.invalidate(); toast.success("Categoria criada!"); setDialogOpen(false); },
@@ -77,14 +80,14 @@ export default function Categories() {
   function openCreate() {
     setEditingCategory(null);
     setImagePreview(null);
-    setForm({ name: "", description: "", sortOrder: (categories.length) * 10 });
+    setForm({ name: "", description: "", sortOrder: (categories.length) * 10, displaySize: "medio" });
     setDialogOpen(true);
   }
 
   function openEdit(cat: Category) {
     setEditingCategory(cat);
     setImagePreview(cat.imageUrl ?? null);
-    setForm({ name: cat.name, description: cat.description ?? "", sortOrder: cat.sortOrder });
+    setForm({ name: cat.name, description: cat.description ?? "", sortOrder: cat.sortOrder, displaySize: cat.displaySize ?? "medio" });
     setDialogOpen(true);
   }
 
@@ -96,9 +99,9 @@ export default function Categories() {
   function handleSubmit() {
     if (!form.name.trim()) { toast.error("Nome é obrigatório"); return; }
     if (editingCategory) {
-      updateMutation.mutate({ id: editingCategory.id, name: form.name, description: form.description || undefined, sortOrder: form.sortOrder });
+      updateMutation.mutate({ id: editingCategory.id, name: form.name, description: form.description || undefined, sortOrder: form.sortOrder, displaySize: form.displaySize });
     } else {
-      createMutation.mutate({ name: form.name, description: form.description || undefined, sortOrder: form.sortOrder });
+      createMutation.mutate({ name: form.name, description: form.description || undefined, sortOrder: form.sortOrder, displaySize: form.displaySize });
     }
   }
 
@@ -202,6 +205,9 @@ export default function Categories() {
                   onChange={e => { const file = e.target.files?.[0]; if (file && editingCategory) handleImageFile(editingCategory.id, file); }}
                 />
               </div>
+              <p className="text-xs text-gray-400 mt-1">
+                Qualquer tamanho serve — a foto é redimensionada automaticamente pra até 800×800px antes de salvar.
+              </p>
             </div>
             <div>
               <Label htmlFor="cat-name">Nome *</Label>
@@ -235,6 +241,18 @@ export default function Categories() {
                 className="mt-1 w-32"
               />
               <p className="text-xs text-gray-400 mt-1">Menor número aparece primeiro</p>
+            </div>
+            <div>
+              <Label>Tamanho de destaque na Loja Pública</Label>
+              <Select value={form.displaySize} onValueChange={(v) => setForm(f => ({ ...f, displaySize: v as any }))}>
+                <SelectTrigger className="mt-1 w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pequeno">Pequeno</SelectItem>
+                  <SelectItem value="medio">Médio</SelectItem>
+                  <SelectItem value="grande">Grande</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-400 mt-1">"Grande" ocupa mais espaço na grade, chamando mais atenção.</p>
             </div>
           </div>
           <DialogFooter>

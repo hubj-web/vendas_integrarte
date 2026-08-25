@@ -18,6 +18,8 @@ import {
   productCategories, productFlavors, products, storeOrderPayments,
   storeProductVisibility, storeSettings, users, estoqueAtual, estoqueAtualFlavors,
   storeDeliveryMethodVisibility, storeEvents, storeEventCategories,
+  storeRegularCategoryVisibility, productVariationGroups, productVariationOptions,
+  orderItemVariationSelections,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
@@ -45,7 +47,11 @@ async function getSystemUserId(db: NonNullable<Awaited<ReturnType<typeof getDb>>
  * Venda Regular e os Eventos. `categoryIdFilter` restringe a um conjunto de
  * categorias específico (usado pelos eventos); undefined = todas.
  */
-async function buildCatalog(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, categoryIdFilter?: number[]) {
+async function buildCatalog(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  categoryIdFilter?: number[],
+  excludeCategoryIds?: number[],
+) {
   const estoqueLinhas = await db.select({
     id: estoqueAtual.id, productId: estoqueAtual.productId, quantidade: estoqueAtual.quantidade,
   }).from(estoqueAtual).where(gte(estoqueAtual.quantidade, 1));
@@ -75,9 +81,14 @@ async function buildCatalog(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, 
     id: products.id, name: products.name, categoryId: products.categoryId,
     unit: products.unit, price: products.price, description: products.description,
     maxFlavors: products.maxFlavors, variationType: products.variationType, imageUrl: products.imageUrl,
+    displaySize: products.displaySize,
   }).from(products).where(and(...prodConditions));
 
-  const categoriaIds = Array.from(new Set(prods.map(p => p.categoryId).filter((v): v is number => v != null)));
+  const prodsFiltered = excludeCategoryIds && excludeCategoryIds.length > 0
+    ? prods.filter(p => !p.categoryId || !excludeCategoryIds.includes(p.categoryId))
+    : prods;
+
+  const categoriaIds = Array.from(new Set(prodsFiltered.map(p => p.categoryId).filter((v): v is number => v != null)));
   const categorias = categoriaIds.length > 0
     ? await db.select().from(productCategories).where(inArray(productCategories.id, categoriaIds))
     : [];
@@ -94,15 +105,30 @@ async function buildCatalog(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, 
     }
   }
 
-  const productsOut = prods.map(p => {
+  // Grupos de variação múltipla (tipo de macarrão + molho + condimentos, etc.)
+  const groups = await db.select().from(productVariationGroups).where(inArray(productVariationGroups.productId, prodsFiltered.map(p => p.id)));
+  const groupIds = groups.map(g => g.id);
+  const options = groupIds.length > 0
+    ? await db.select().from(productVariationOptions).where(inArray(productVariationOptions.groupId, groupIds))
+    : [];
+  const optionsByGroup: Record<number, typeof options> = {};
+  for (const o of options) (optionsByGroup[o.groupId] ??= []).push(o);
+  const groupsByProduct: Record<number, typeof groups> = {};
+  for (const g of groups) (groupsByProduct[g.productId] ??= []).push(g);
+
+  const productsOut = prodsFiltered.map(p => {
     const vis = visibilidadeMap.get(p.id);
     return {
       id: p.id, name: p.name, categoryId: p.categoryId, unit: p.unit,
       price: vis?.storePrice ?? p.price,
       description: p.description, maxFlavors: p.maxFlavors ?? 0,
-      variationType: p.variationType, imageUrl: p.imageUrl,
+      variationType: p.variationType, imageUrl: p.imageUrl, displaySize: p.displaySize,
       availableQuantity: qtyByProduct[p.id] ?? 0,
       flavors: Array.from((flavorsByProduct[p.id] ?? new Map()).entries()).map(([id, name]) => ({ id, name })),
+      variationGroups: (groupsByProduct[p.id] ?? []).map(g => ({
+        id: g.id, name: g.name, required: g.required, allowMultiple: g.allowMultiple,
+        options: (optionsByGroup[g.id] ?? []).map(o => ({ id: o.id, name: o.name, additionalPrice: o.additionalPrice })),
+      })),
     };
   }).filter(p => p.availableQuantity > 0);
 
@@ -148,7 +174,9 @@ export const publicStoreRouter = router({
       return { open: false, closedMessage: settings?.closedMessage ?? null, categories: [], products: [] };
     }
 
-    const { categories, products: productsOut } = await buildCatalog(db);
+    const hiddenRows = await db.select({ categoryId: storeRegularCategoryVisibility.categoryId })
+      .from(storeRegularCategoryVisibility).where(eq(storeRegularCategoryVisibility.visible, false));
+    const { categories, products: productsOut } = await buildCatalog(db, undefined, hiddenRows.map(h => h.categoryId));
     return { open: true, closedMessage: null, categories, products: productsOut };
   }),
 
@@ -208,6 +236,7 @@ export const publicStoreRouter = router({
         productId: z.number(),
         quantity: z.number().min(1),
         flavorIds: z.array(z.number()).optional(),
+        optionIds: z.array(z.number()).optional(), // grupos de variação múltipla escolhidos
       })).min(1, "O carrinho está vazio."),
       paymentMethod: z.enum(["pix", "credit_card"]),
       cardToken: z.string().optional(),
@@ -251,7 +280,10 @@ export const publicStoreRouter = router({
       const produtosMap = new Map(produtosRows.map(p => [p.id, p]));
 
       let totalAmount = 0;
-      const itemsResolved: { productId: number; quantity: number; flavorIds: number[]; unitPrice: number; subtotal: number; nomeItem: string }[] = [];
+      const itemsResolved: {
+        productId: number; quantity: number; flavorIds: number[]; unitPrice: number; subtotal: number; nomeItem: string;
+        selections: { groupName: string; optionName: string; additionalPrice: number }[];
+      }[] = [];
 
       for (const item of input.items) {
         const vis = visibilidadeMap.get(item.productId);
@@ -272,10 +304,35 @@ export const publicStoreRouter = router({
               : `Só restam ${disponivel} de "${prod.name}" — ajuste a quantidade no carrinho.`,
           });
         }
-        const unitPrice = Number(vis.storePrice ?? prod.price);
+
+        // Grupos de variação múltipla (tipo de macarrão, molho, condimentos...) —
+        // confere que todo grupo obrigatório foi respondido e calcula o adicional.
+        const groups = await db.select().from(productVariationGroups).where(eq(productVariationGroups.productId, item.productId));
+        let additionalPrice = 0;
+        const selections: { groupName: string; optionName: string; additionalPrice: number }[] = [];
+        if (groups.length > 0) {
+          const optionIds = item.optionIds ?? [];
+          const allOptions = await db.select().from(productVariationOptions).where(inArray(productVariationOptions.groupId, groups.map(g => g.id)));
+          for (const group of groups) {
+            const groupOptions = allOptions.filter(o => o.groupId === group.id);
+            const chosen = groupOptions.filter(o => optionIds.includes(o.id));
+            if (group.required && chosen.length === 0) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: `Escolha "${group.name}" em "${prod.name}".` });
+            }
+            if (!group.allowMultiple && chosen.length > 1) {
+              throw new TRPCError({ code: "BAD_REQUEST", message: `Só pode escolher uma opção em "${group.name}".` });
+            }
+            for (const opt of chosen) {
+              additionalPrice += Number(opt.additionalPrice);
+              selections.push({ groupName: group.name, optionName: opt.name, additionalPrice: Number(opt.additionalPrice) });
+            }
+          }
+        }
+
+        const unitPrice = Number(vis.storePrice ?? prod.price) + additionalPrice;
         const subtotal = unitPrice * item.quantity;
         totalAmount += subtotal;
-        itemsResolved.push({ productId: item.productId, quantity: item.quantity, flavorIds: item.flavorIds ?? [], unitPrice, subtotal, nomeItem: prod.name });
+        itemsResolved.push({ productId: item.productId, quantity: item.quantity, flavorIds: item.flavorIds ?? [], unitPrice, subtotal, nomeItem: prod.name, selections });
       }
 
       // Acha ou cria o cliente pelo telefone (sem senha, sem login)
@@ -321,6 +378,11 @@ export const publicStoreRouter = router({
           if (flavorRows.length > 0) {
             await db.insert(orderItemFlavors).values(flavorRows.map(f => ({ orderItemId, productFlavorId: f.id, flavorName: f.name })));
           }
+        }
+        if (item.selections.length > 0) {
+          await db.insert(orderItemVariationSelections).values(item.selections.map(s => ({
+            orderItemId, groupName: s.groupName, optionName: s.optionName, additionalPrice: s.additionalPrice.toFixed(2),
+          })));
         }
       }
 
@@ -423,8 +485,17 @@ async function resolveOrderDetails(db: NonNullable<Awaited<ReturnType<typeof get
   const [payment] = await db.select().from(storeOrderPayments).where(eq(storeOrderPayments.orderId, order.id)).limit(1);
 
   const items = await db.select({
-    productName: products.name, quantity: orderItems.quantity, subtotal: orderItems.subtotal,
+    id: orderItems.id, productName: products.name, quantity: orderItems.quantity, subtotal: orderItems.subtotal,
   }).from(orderItems).leftJoin(products, eq(orderItems.productId, products.id)).where(eq(orderItems.orderId, order.id));
+
+  const itemIds = items.map(i => i.id);
+  const selections = itemIds.length > 0
+    ? await db.select().from(orderItemVariationSelections).where(inArray(orderItemVariationSelections.orderItemId, itemIds))
+    : [];
+  const selectionsByItem: Record<number, { groupName: string; optionName: string }[]> = {};
+  for (const s of selections) (selectionsByItem[s.orderItemId] ??= []).push({ groupName: s.groupName, optionName: s.optionName });
+
+  const itemsWithSelections = items.map(i => ({ ...i, selections: selectionsByItem[i.id] ?? [] }));
 
   let event: typeof storeEvents.$inferSelect | null = null;
   if (order.eventId) {
@@ -435,5 +506,5 @@ async function resolveOrderDetails(db: NonNullable<Awaited<ReturnType<typeof get
   const receiptUrl = order.ticketCode ? `${ENV.appUrl}/loja/r/${order.ticketCode}` : null;
   const receiptQrBase64 = receiptUrl ? await generateQrCodeBase64(receiptUrl) : null;
 
-  return { ...order, payment: payment ?? null, items, event, receiptUrl, receiptQrBase64 };
+  return { ...order, payment: payment ?? null, items: itemsWithSelections, event, receiptUrl, receiptQrBase64 };
 }

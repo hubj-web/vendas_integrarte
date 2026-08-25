@@ -1,11 +1,12 @@
 import { TRPCError } from "@trpc/server";
-import { eq, and, desc, asc } from "drizzle-orm";
+import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   productCategories, productTypes, products, productChangeHistory, productFlavors,
   minipizzaTypes, minipizzaFlavors, minipizzaTypeFlavorMatrix,
   jellyFlavors, deliveryMethods,
   orderItems, orderMinipizzas, orderJellies,
+  productVariationGroups, productVariationOptions,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -23,15 +24,15 @@ const categoriesRouter = router({
     return db.select().from(productCategories).orderBy(asc(productCategories.sortOrder), asc(productCategories.name));
   }),
   create: adminProcedure
-    .input(z.object({ name: z.string().min(2), description: z.string().optional(), sortOrder: z.number().optional(), imageUrl: z.string().optional() }))
+    .input(z.object({ name: z.string().min(2), description: z.string().optional(), sortOrder: z.number().optional(), imageUrl: z.string().optional(), displaySize: z.enum(["pequeno", "medio", "grande"]).optional() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.insert(productCategories).values({ name: input.name, description: input.description || "", sortOrder: input.sortOrder ?? 0, imageUrl: input.imageUrl });
+      await db.insert(productCategories).values({ name: input.name, description: input.description || "", sortOrder: input.sortOrder ?? 0, imageUrl: input.imageUrl, displaySize: input.displaySize });
       return { success: true };
     }),
   update: adminProcedure
-    .input(z.object({ id: z.number(), name: z.string().min(2).optional(), description: z.string().optional(), sortOrder: z.number().optional(), active: z.boolean().optional(), imageUrl: z.string().nullable().optional() }))
+    .input(z.object({ id: z.number(), name: z.string().min(2).optional(), description: z.string().optional(), sortOrder: z.number().optional(), active: z.boolean().optional(), imageUrl: z.string().nullable().optional(), displaySize: z.enum(["pequeno", "medio", "grande"]).optional() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -122,6 +123,7 @@ const productsRouter = router({
         maxFlavors: products.maxFlavors,
         variationType: products.variationType,
         imageUrl: products.imageUrl,
+        displaySize: products.displaySize,
       })
         .from(products)
         .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
@@ -143,6 +145,7 @@ const productsRouter = router({
       description: z.string().optional(), active: z.boolean().default(true),
       maxFlavors: z.number().min(0).default(0),
       variationType: z.enum(["sabor", "tamanho", "cor"]).default("sabor"),
+      displaySize: z.enum(["pequeno", "medio", "grande"]).default("medio"),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -160,6 +163,7 @@ const productsRouter = router({
         active: input.active,
         maxFlavors: input.maxFlavors,
         variationType: input.variationType,
+        displaySize: input.displaySize,
       });
       return { success: true };
     }),
@@ -173,6 +177,7 @@ const productsRouter = router({
       description: z.string().optional(), active: z.boolean().optional(),
       maxFlavors: z.number().min(0).optional(),
       variationType: z.enum(["sabor", "tamanho", "cor"]).optional(),
+      displaySize: z.enum(["pequeno", "medio", "grande"]).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -370,11 +375,75 @@ const deliveryMethodsRouter = router({
     }),
 });
 
+const productVariationGroupsRouter = router({
+  /** Grupos + opções de um produto (usado no formulário de cadastro) */
+  list: protectedProcedure
+    .input(z.object({ productId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const groups = await db.select().from(productVariationGroups)
+        .where(eq(productVariationGroups.productId, input.productId)).orderBy(asc(productVariationGroups.sortOrder));
+      if (groups.length === 0) return [];
+      const options = await db.select().from(productVariationOptions)
+        .where(inArray(productVariationOptions.groupId, groups.map(g => g.id))).orderBy(asc(productVariationOptions.sortOrder));
+      return groups.map(g => ({ ...g, options: options.filter(o => o.groupId === g.id) }));
+    }),
+
+  createGroup: adminProcedure
+    .input(z.object({ productId: z.number(), name: z.string().min(1), required: z.boolean().default(true), allowMultiple: z.boolean().default(false) }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const result = await db.insert(productVariationGroups).values(input);
+      return { success: true, id: Number((result as any).insertId ?? (result as any)[0]?.insertId) };
+    }),
+
+  updateGroup: adminProcedure
+    .input(z.object({ id: z.number(), name: z.string().min(1).optional(), required: z.boolean().optional(), allowMultiple: z.boolean().optional() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const { id, ...data } = input;
+      await db.update(productVariationGroups).set(data).where(eq(productVariationGroups.id, id));
+      return { success: true };
+    }),
+
+  deleteGroup: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.delete(productVariationOptions).where(eq(productVariationOptions.groupId, input.id));
+      await db.delete(productVariationGroups).where(eq(productVariationGroups.id, input.id));
+      return { success: true };
+    }),
+
+  createOption: adminProcedure
+    .input(z.object({ groupId: z.number(), name: z.string().min(1), additionalPrice: z.string().default("0.00") }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.insert(productVariationOptions).values(input);
+      return { success: true };
+    }),
+
+  deleteOption: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.delete(productVariationOptions).where(eq(productVariationOptions.id, input.id));
+      return { success: true };
+    }),
+});
+
 export const catalogRouter = router({
   categories: categoriesRouter,
   productTypes: productTypesRouter,
   products: productsRouter,
   productFlavors: productFlavorsRouter,
+  productVariationGroups: productVariationGroupsRouter,
   minipizzaTypes: minipizzaTypesRouter,
   minipizzaFlavors: minipizzaFlavorsRouter,
   jellyFlavors: jellyFlavorsRouter,

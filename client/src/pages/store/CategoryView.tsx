@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ShoppingCart, ImageIcon, Plus, Minus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { CartItem } from "./Store";
+import { cartItemVariationLabel } from "./Store";
 import { BRAND } from "./brand";
 
 const fmt = (v: number | string) =>
@@ -12,10 +13,17 @@ const fmt = (v: number | string) =>
 
 const VARIATION_LABEL: Record<string, string> = { sabor: "Sabor", tamanho: "Tamanho", cor: "Cor" };
 
+interface VariationGroup {
+  id: number; name: string; required: boolean; allowMultiple: boolean;
+  options: { id: number; name: string; additionalPrice: string }[];
+}
+
 interface StoreProduct {
   id: number; name: string; categoryId: number | null; unit: string; price: string;
   description: string | null; maxFlavors: number; variationType: string; imageUrl: string | null;
+  displaySize?: "pequeno" | "medio" | "grande" | null;
   availableQuantity: number; flavors: { id: number; name: string }[];
+  variationGroups?: VariationGroup[];
 }
 
 interface Props {
@@ -87,10 +95,71 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
     onAddToCart({
       key, productId: product.id, name: product.name, unitPrice: Number(product.price),
       quantity: draftQty, flavorIds: flavor ? [flavor.id] : [], flavorNames: flavor ? [flavor.name] : [],
+      optionIds: [], variationSelections: [],
       maxAvailable: product.availableQuantity,
     });
     setDrafts(prev => ({ ...prev, [key]: 0 }));
     toast.success(`${product.name}${flavor ? ` (${flavor.name})` : ""} adicionado!`);
+  }
+
+  // Seleções de grupo de variação (produto com múltiplas escolhas, ex: marmitex)
+  const [groupSelections, setGroupSelections] = useState<Record<string, number[]>>({}); // "productId:groupId" -> optionIds
+  const [groupQtyDrafts, setGroupQtyDrafts] = useState<Record<number, number>>({}); // productId -> quantidade
+
+  function toggleGroupOption(productId: number, group: VariationGroup, optionId: number) {
+    const gKey = `${productId}:${group.id}`;
+    setGroupSelections(prev => {
+      const current = prev[gKey] ?? [];
+      if (group.allowMultiple) {
+        const next = current.includes(optionId) ? current.filter(id => id !== optionId) : [...current, optionId];
+        return { ...prev, [gKey]: next };
+      }
+      return { ...prev, [gKey]: current.includes(optionId) ? [] : [optionId] };
+    });
+  }
+
+  function handleInsertWithGroups(product: StoreProduct) {
+    const groups = product.variationGroups ?? [];
+    const qty = groupQtyDrafts[product.id] ?? 0;
+    if (qty <= 0) {
+      toast.error("Escolha uma quantidade antes de inserir.");
+      return;
+    }
+    for (const group of groups) {
+      const selected = groupSelections[`${product.id}:${group.id}`] ?? [];
+      if (group.required && selected.length === 0) {
+        toast.error(`Escolha "${group.name}" antes de inserir.`);
+        return;
+      }
+    }
+    const allSelectedIds = groups.flatMap(g => groupSelections[`${product.id}:${g.id}`] ?? []);
+    const selections = groups.flatMap(g => {
+      const selected = groupSelections[`${product.id}:${g.id}`] ?? [];
+      return g.options.filter(o => selected.includes(o.id)).map(o => ({ groupName: g.name, optionName: o.name }));
+    });
+    const additionalPrice = groups.reduce((acc, g) => {
+      const selected = groupSelections[`${product.id}:${g.id}`] ?? [];
+      return acc + g.options.filter(o => selected.includes(o.id)).reduce((a, o) => a + Number(o.additionalPrice), 0);
+    }, 0);
+
+    const key = cartKey(product.id) + "::" + [...allSelectedIds].sort((a, b) => a - b).join(",");
+    const jaNoCarrinho = alreadyInCart(key);
+    if (jaNoCarrinho + qty > product.availableQuantity) {
+      toast.error(`Só há ${product.availableQuantity} em estoque.`);
+      return;
+    }
+    onAddToCart({
+      key, productId: product.id, name: product.name, unitPrice: Number(product.price) + additionalPrice,
+      quantity: qty, flavorIds: [], flavorNames: [], optionIds: allSelectedIds, variationSelections: selections,
+      maxAvailable: product.availableQuantity,
+    });
+    setGroupQtyDrafts(prev => ({ ...prev, [product.id]: 0 }));
+    setGroupSelections(prev => {
+      const next = { ...prev };
+      for (const g of groups) delete next[`${product.id}:${g.id}`];
+      return next;
+    });
+    toast.success(`${product.name} adicionado!`);
   }
 
   const cartCount = cart.reduce((acc, i) => acc + i.quantity, 0);
@@ -98,10 +167,14 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
   return (
     <div className="min-h-screen pb-32" style={{ background: BRAND.white }}>
       <header className="py-4 px-4 flex items-center gap-3 sticky top-0 z-10" style={{ background: BRAND.blue }}>
-        <Button size="icon" variant="ghost" className="text-white hover:bg-white/10" onClick={onContinueShopping}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <h1 className="font-semibold text-white">{categoryName}</h1>
+        <button
+          onClick={onContinueShopping}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold shrink-0"
+          style={{ background: BRAND.white, color: BRAND.blue }}
+        >
+          <ArrowLeft className="h-4 w-4" /> Voltar
+        </button>
+        <h1 className="font-semibold text-white truncate">{categoryName}</h1>
       </header>
 
       {/* Carrinho: lista de itens + total, sempre visível e atualizando em tempo real */}
@@ -116,7 +189,7 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
               {cart.map(item => (
                 <div key={item.key} className="flex items-center justify-between gap-2">
                   <span className="truncate">
-                    {item.quantity}x {item.name}{item.flavorNames.length > 0 ? ` (${item.flavorNames.join(", ")})` : ""}
+                    {item.quantity}x {item.name}{cartItemVariationLabel(item)}
                   </span>
                   <div className="flex items-center gap-2 shrink-0">
                     <span style={{ color: BRAND.blue }}>{fmt(item.unitPrice * item.quantity)}</span>
@@ -139,15 +212,18 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
         {products.length === 0 ? (
           <p className="text-center text-muted-foreground py-16">Nenhum produto disponível nessa categoria.</p>
         ) : (
-          products.map(product => (
+          products.map(product => {
+            const thumbSize = product.displaySize === "grande" ? "w-24 h-24" : product.displaySize === "pequeno" ? "w-12 h-12" : "w-16 h-16";
+            const iconSize = product.displaySize === "grande" ? "h-8 w-8" : product.displaySize === "pequeno" ? "h-4 w-4" : "h-6 w-6";
+            return (
             <Card key={product.id} style={{ borderColor: BRAND.yellow }}>
               <CardContent className="pt-4 space-y-3">
                 <div className="flex items-start gap-3">
                   {product.imageUrl ? (
-                    <img src={product.imageUrl} alt={product.name} className="w-16 h-16 rounded-lg object-cover border shrink-0" />
+                    <img src={product.imageUrl} alt={product.name} className={`${thumbSize} rounded-lg object-cover border shrink-0`} />
                   ) : (
-                    <div className="w-16 h-16 rounded-lg flex items-center justify-center border shrink-0" style={{ background: BRAND.yellowLight }}>
-                      <ImageIcon className="h-6 w-6" style={{ color: BRAND.blue, opacity: 0.3 }} />
+                    <div className={`${thumbSize} rounded-lg flex items-center justify-center border shrink-0`} style={{ background: BRAND.yellowLight }}>
+                      <ImageIcon className={iconSize} style={{ color: BRAND.blue, opacity: 0.3 }} />
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
@@ -159,7 +235,45 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
                   </div>
                 </div>
 
-                {product.flavors.length > 0 ? (
+                {(product.variationGroups?.length ?? 0) > 0 ? (
+                  <div className="space-y-3">
+                    {product.variationGroups!.map(group => (
+                      <div key={group.id} className="space-y-1.5">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          {group.name}{group.required ? "" : " (opcional)"}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {group.options.map(opt => {
+                            const selected = (groupSelections[`${product.id}:${group.id}`] ?? []).includes(opt.id);
+                            return (
+                              <button
+                                key={opt.id} type="button"
+                                onClick={() => toggleGroupOption(product.id, group, opt.id)}
+                                className="px-3 py-1.5 rounded-full text-sm border transition-colors"
+                                style={selected
+                                  ? { background: BRAND.blue, borderColor: BRAND.blue, color: "white" }
+                                  : { background: "white", borderColor: BRAND.yellow, color: BRAND.blue }}
+                              >
+                                {opt.name}{Number(opt.additionalPrice) > 0 && ` (+${fmt(opt.additionalPrice)})`}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <span className="font-semibold" style={{ color: BRAND.blue }}>{fmt(product.price)}</span>
+                      <QuantityStepper
+                        value={groupQtyDrafts[product.id] ?? 0}
+                        onChange={v => setGroupQtyDrafts(prev => ({ ...prev, [product.id]: Math.max(0, Math.min(product.availableQuantity, v)) }))}
+                        max={product.availableQuantity}
+                      />
+                      <Button className="gap-1.5 text-white" style={{ background: BRAND.green }} onClick={() => handleInsertWithGroups(product)}>
+                        <Plus className="h-4 w-4" /> Inserir
+                      </Button>
+                    </div>
+                  </div>
+                ) : product.flavors.length > 0 ? (
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                       {VARIATION_LABEL[product.variationType] ?? "Opção"}
@@ -197,7 +311,8 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
                 )}
               </CardContent>
             </Card>
-          ))
+            );
+          })
         )}
       </main>
 
