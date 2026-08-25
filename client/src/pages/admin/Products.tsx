@@ -322,7 +322,7 @@ export default function Products() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="bg-card border-border max-w-md">
+        <DialogContent className="bg-card border-border max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? "Editar Produto" : "Novo Produto"}</DialogTitle>
           </DialogHeader>
@@ -453,7 +453,7 @@ export default function Products() {
 
       {/* Flavors Management Dialog */}
       <Dialog open={showFlavors} onOpenChange={(v) => { setShowFlavors(v); if (!v) setFlavorProductId(null); }}>
-        <DialogContent className="bg-card border-border max-w-lg">
+        <DialogContent className="bg-card border-border max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {VARIATION_LABELS[products.find(p => p.id === flavorProductId)?.variationType ?? "sabor"]}s - {products.find(p => p.id === flavorProductId)?.name}

@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 
 const fmt = (v: string | number) =>
@@ -27,6 +28,8 @@ export default function Estoque() {
   const [manualFlavorId, setManualFlavorId] = useState<string>("");
   const [manualQtd, setManualQtd] = useState("");
   const [manualCusto, setManualCusto] = useState("");
+  const [manualDisponibilizar, setManualDisponibilizar] = useState(true);
+  const [manualPrecoLoja, setManualPrecoLoja] = useState("");
 
   const { data: flavorsData } = trpc.catalog.productFlavors.listAll.useQuery(undefined, { enabled: manualOpen });
   const selectedProduct = catalog?.find(p => p.id === Number(manualProductId));
@@ -35,9 +38,11 @@ export default function Estoque() {
   const adicionarManual = trpc.estoque.adicionarManual.useMutation({
     onSuccess: () => {
       utils.estoque.list.invalidate();
+      utils.storeAdmin.listStockProducts.invalidate();
       toast.success("Estoque adicionado!");
       setManualOpen(false);
       setManualProductId(""); setManualFlavorId(""); setManualQtd(""); setManualCusto("");
+      setManualDisponibilizar(true); setManualPrecoLoja("");
     },
     onError: (err) => toast.error(err.message || "Não foi possível adicionar."),
   });
@@ -52,6 +57,8 @@ export default function Estoque() {
       quantidade: Number(manualQtd),
       custoUnitario: manualCusto || "0.00",
       flavorIds: manualFlavorId ? [Number(manualFlavorId)] : undefined,
+      disponibilizarNaLoja: manualDisponibilizar,
+      precoNaLoja: manualPrecoLoja || undefined,
     });
   }
 
@@ -203,6 +210,21 @@ export default function Estoque() {
                 <Label>Custo unitário (opcional)</Label>
                 <Input type="number" step="0.01" min={0} value={manualCusto} onChange={e => setManualCusto(e.target.value)} placeholder="0.00" />
               </div>
+            </div>
+            <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
+              <div className="flex items-center justify-between">
+                <Label className="cursor-pointer" htmlFor="disponibilizar-loja">Disponibilizar na Loja Pública agora</Label>
+                <Switch id="disponibilizar-loja" checked={manualDisponibilizar} onCheckedChange={setManualDisponibilizar} />
+              </div>
+              {manualDisponibilizar && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">Preço na loja (deixe vazio pra usar o preço padrão do produto)</Label>
+                  <Input type="number" step="0.01" min={0} value={manualPrecoLoja} onChange={e => setManualPrecoLoja(e.target.value)} placeholder={selectedProduct ? fmt(selectedProduct.price) : "0.00"} />
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Evita ter que ir em "Loja Pública → Produtos na Loja" separadamente depois.
+              </p>
             </div>
           </div>
           <DialogFooter>

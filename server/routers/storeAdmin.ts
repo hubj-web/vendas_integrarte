@@ -4,13 +4,13 @@
  * quais produtos do Estoque aparecem nela, e listar os pedidos vindos de lá.
  */
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   customers, deliveryMethods, orders, orderItems, orderItemFlavors, products, productCategories,
   storeOrderPayments, storeProductVisibility, storeSettings, estoqueAtual,
   storeDeliveryMethodVisibility, storeEvents, storeEventCategories,
-  storeRegularCategoryVisibility,
+  storeRegularCategoryVisibility, orderItemVariationSelections,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { adminProcedure, router } from "../_core/trpc";
@@ -161,7 +161,14 @@ export const storeAdminRouter = router({
     const cats = await db.select().from(productCategories).where(eq(productCategories.active, true));
     const visRows = await db.select().from(storeRegularCategoryVisibility);
     const visMap = new Map(visRows.map(v => [v.categoryId, v.visible]));
-    return cats.map(c => ({ ...c, visibleInRegular: visMap.get(c.id) ?? true }));
+    const eventLinks = await db.select({ categoryId: storeEventCategories.categoryId }).from(storeEventCategories);
+    const linkedToEvent = new Set(eventLinks.map(l => l.categoryId));
+    return cats.map(c => ({
+      ...c,
+      linkedToEvent: linkedToEvent.has(c.id),
+      // Default: categoria de evento fica OCULTA na Venda Regular até liberar; categoria "normal" fica visível.
+      visibleInRegular: visMap.get(c.id) ?? !linkedToEvent.has(c.id),
+    }));
   }),
 
   /** Liga/desliga uma categoria especificamente na Venda Regular (não afeta eventos nem o cadastro geral) */
@@ -181,24 +188,31 @@ export const storeAdminRouter = router({
     }),
 
   /** Lista os pedidos vindos da Loja Pública, com status de pagamento e entrega */
+  /** Lista os pedidos vindos da Loja Pública e das vendas de evento do vendedor */
   orders: adminProcedure
-    .input(z.object({ paymentStatus: z.enum(["pending", "paid", "partial", "cancelled"]).optional() }).optional())
+    .input(z.object({
+      paymentStatus: z.enum(["pending", "paid", "partial", "cancelled"]).optional(),
+      eventId: z.union([z.number(), z.literal("regular")]).optional(), // "regular" = sem evento (Venda Regular)
+    }).optional())
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) return [];
 
-      const conditions = [eq(orders.channel, "loja_publica")];
+      const conditions = [inArray(orders.channel, ["loja_publica", "vendedor_evento"])];
       if (input?.paymentStatus) conditions.push(eq(orders.paymentStatus, input.paymentStatus));
+      if (input?.eventId === "regular") conditions.push(isNull(orders.eventId));
+      else if (typeof input?.eventId === "number") conditions.push(eq(orders.eventId, input.eventId));
 
       const rows = await db.select({
         id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
-        totalAmount: orders.totalAmount, paymentMethod: orders.paymentMethod,
+        totalAmount: orders.totalAmount, paymentMethod: orders.paymentMethod, channel: orders.channel,
         createdAt: orders.createdAt, deliveryMethodId: orders.deliveryMethodId,
-        deliveryMethodName: deliveryMethods.name,
+        deliveryMethodName: deliveryMethods.name, eventId: orders.eventId, eventName: storeEvents.name,
         customerName: customers.name, customerPhone: customers.phone,
       }).from(orders)
         .leftJoin(customers, eq(orders.customerId, customers.id))
         .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
+        .leftJoin(storeEvents, eq(orders.eventId, storeEvents.id))
         .where(and(...conditions))
         .orderBy(desc(orders.createdAt));
 
@@ -207,6 +221,47 @@ export const storeAdminRouter = router({
       const paymentByOrder = new Map(payments.map(p => [p.orderId, p]));
 
       return rows.map(r => ({ ...r, payment: paymentByOrder.get(r.id) ?? null }));
+    }),
+
+  /** Detalhe completo de um pedido — itens, endereço, variações escolhidas */
+  orderDetail: adminProcedure
+    .input(z.object({ orderId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [order] = await db.select({
+        id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
+        totalAmount: orders.totalAmount, paymentMethod: orders.paymentMethod, channel: orders.channel,
+        createdAt: orders.createdAt, deliveryAddress: orders.deliveryAddress, notes: orders.notes,
+        deliveryMethodName: deliveryMethods.name, eventName: storeEvents.name, ticketCode: orders.ticketCode,
+        customerName: customers.name, customerPhone: customers.phone,
+      }).from(orders)
+        .leftJoin(customers, eq(orders.customerId, customers.id))
+        .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
+        .leftJoin(storeEvents, eq(orders.eventId, storeEvents.id))
+        .where(eq(orders.id, input.orderId))
+        .limit(1);
+      if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const items = await db.select({
+        id: orderItems.id, productName: products.name, quantity: orderItems.quantity,
+        unitPrice: orderItems.unitPrice, subtotal: orderItems.subtotal,
+      }).from(orderItems).leftJoin(products, eq(orderItems.productId, products.id)).where(eq(orderItems.orderId, input.orderId));
+
+      const itemIds = items.map(i => i.id);
+      const flavorRows = itemIds.length > 0 ? await db.select().from(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId, itemIds)) : [];
+      const selectionRows = itemIds.length > 0 ? await db.select().from(orderItemVariationSelections).where(inArray(orderItemVariationSelections.orderItemId, itemIds)) : [];
+
+      const itemsWithExtras = items.map(item => ({
+        ...item,
+        flavors: flavorRows.filter(f => f.orderItemId === item.id).map(f => f.flavorName),
+        selections: selectionRows.filter(s => s.orderItemId === item.id).map(s => s.optionName),
+      }));
+
+      const [payment] = await db.select().from(storeOrderPayments).where(eq(storeOrderPayments.orderId, input.orderId)).limit(1);
+
+      return { ...order, items: itemsWithExtras, payment: payment ?? null };
     }),
 
   // ── EVENTOS DA LOJA ──────────────────────────────────────────────────────

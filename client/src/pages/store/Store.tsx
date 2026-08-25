@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Store as StoreIcon, ShoppingCart, ImageIcon } from "lucide-react";
@@ -46,8 +46,13 @@ export default function Store() {
     return opts;
   }, [landing]);
 
+  // Só decide a navegação inicial UMA VEZ — sem isso, o refetch periódico do
+  // `landing` (a cada 30s) ficava chutando o cliente de volta pro início no
+  // meio da compra.
+  const hasInitializedRef = useRef(false);
   useEffect(() => {
-    if (landingLoading || !landing) return;
+    if (landingLoading || !landing || hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
     if (activeOptions.length === 0) { setView("closed"); return; }
     if (activeOptions.length === 1) {
       const opt = activeOptions[0];

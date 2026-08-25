@@ -13,6 +13,7 @@ import {
   estoqueAtual, estoqueAtualFlavors,
   pedidosEstoque, pedidosEstoqueItens, pedidosEstoqueItemFlavors,
   products, productFlavors, productCategories, suppliers,
+  storeProductVisibility,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { adminProcedure, router } from "../_core/trpc";
@@ -29,6 +30,10 @@ export const estoqueRouter = router({
       quantidade: z.number().min(1),
       custoUnitario: z.string().default("0.00"),
       flavorIds: z.array(z.number()).optional(),
+      // Atalho: já deixa o produto disponível na Loja Pública nesse mesmo
+      // passo, sem precisar ir em "Produtos na Loja" separadamente depois.
+      disponibilizarNaLoja: z.boolean().optional(),
+      precoNaLoja: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -45,6 +50,16 @@ export const estoqueRouter = router({
           await db.insert(estoqueAtualFlavors).values(
             flavorRows.map(f => ({ estoqueAtualId: estoqueId, productFlavorId: f.id, flavorName: f.name }))
           );
+        }
+      }
+
+      if (input.disponibilizarNaLoja) {
+        const [existing] = await db.select({ id: storeProductVisibility.id }).from(storeProductVisibility)
+          .where(eq(storeProductVisibility.productId, input.productId)).limit(1);
+        if (existing) {
+          await db.update(storeProductVisibility).set({ visible: true, storePrice: input.precoNaLoja || null }).where(eq(storeProductVisibility.id, existing.id));
+        } else {
+          await db.insert(storeProductVisibility).values({ productId: input.productId, visible: true, storePrice: input.precoNaLoja || null });
         }
       }
 

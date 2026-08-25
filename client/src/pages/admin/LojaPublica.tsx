@@ -28,7 +28,12 @@ export default function LojaPublica() {
   const utils = trpc.useUtils();
   const { data: settings } = trpc.storeAdmin.getSettings.useQuery();
   const { data: products = [] } = trpc.storeAdmin.listStockProducts.useQuery();
-  const { data: orders = [] } = trpc.storeAdmin.orders.useQuery({});
+  const [orderFilterEventId, setOrderFilterEventId] = useState<string>("all");
+  const { data: orders = [] } = trpc.storeAdmin.orders.useQuery({
+    eventId: orderFilterEventId === "all" ? undefined : orderFilterEventId === "regular" ? "regular" : Number(orderFilterEventId),
+  });
+  const [detailOrderId, setDetailOrderId] = useState<number | null>(null);
+  const { data: orderDetail } = trpc.storeAdmin.orderDetail.useQuery({ orderId: detailOrderId ?? -1 }, { enabled: detailOrderId !== null });
   const { data: deliveryMethodsList = [] } = trpc.storeAdmin.listDeliveryMethods.useQuery();
   const { data: events = [] } = trpc.storeAdmin.events.list.useQuery();
   const { data: allCategories = [] } = trpc.catalog.categories.list.useQuery();
@@ -221,15 +226,18 @@ export default function LojaPublica() {
 
         <TabsContent value="regular" className="space-y-3 pt-3">
           <p className="text-sm text-muted-foreground">
-            Por padrão, <strong>toda categoria com produto visível aparece na Venda Regular</strong>.
-            Desligue aqui as categorias que são só de evento (ex: "Ingressos"), pra elas não se
-            misturarem com a loja de sempre.
+            Categorias comuns aparecem na Venda Regular automaticamente. Uma categoria que também
+            está vinculada a algum evento (ex: "Ingressos" do Baile) fica <strong>escondida da Venda
+            Regular por padrão</strong> — só liga aqui se quiser que apareça nas duas ao mesmo tempo.
           </p>
           <Card>
             <CardContent className="pt-4 space-y-1">
               {regularCategories.map((c: any) => (
                 <div key={c.id} className="flex items-center justify-between py-2 border-b last:border-0">
-                  <span className="font-medium">{c.name}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{c.name}</span>
+                    {c.linkedToEvent && <Badge variant="outline" className="text-xs">também usada em evento</Badge>}
+                  </div>
                   <Switch
                     checked={c.visibleInRegular}
                     onCheckedChange={(checked) => setRegularCategoryVisibility.mutate({ categoryId: c.id, visible: checked })}
@@ -325,6 +333,19 @@ export default function LojaPublica() {
         </TabsContent>
 
         <TabsContent value="pedidos" className="space-y-3 pt-3">
+          <div className="flex items-center gap-2">
+            <Label className="text-sm shrink-0">Filtrar por:</Label>
+            <Select value={orderFilterEventId} onValueChange={setOrderFilterEventId}>
+              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os pedidos</SelectItem>
+                <SelectItem value="regular">Só Venda Regular</SelectItem>
+                {events.map((ev: any) => (
+                  <SelectItem key={ev.id} value={String(ev.id)}>{ev.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <Card>
             <CardContent className="pt-4">
               <Table>
@@ -332,6 +353,7 @@ export default function LojaPublica() {
                   <TableRow>
                     <TableHead>#</TableHead>
                     <TableHead>Cliente</TableHead>
+                    <TableHead>Origem</TableHead>
                     <TableHead>Entrega</TableHead>
                     <TableHead>Pagamento</TableHead>
                     <TableHead>Status Pgto</TableHead>
@@ -341,15 +363,16 @@ export default function LojaPublica() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {orders.map(o => (
-                    <TableRow key={o.id}>
+                  {orders.map((o: any) => (
+                    <TableRow key={o.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setDetailOrderId(o.id)}>
                       <TableCell>{o.id}</TableCell>
                       <TableCell>
                         <p className="font-medium">{o.customerName}</p>
                         <p className="text-xs text-muted-foreground">{o.customerPhone}</p>
                       </TableCell>
+                      <TableCell className="text-xs">{o.eventName ?? "Venda Regular"}</TableCell>
                       <TableCell>{o.deliveryMethodName}</TableCell>
-                      <TableCell>{o.paymentMethod === "pix" ? "PIX" : o.paymentMethod === "credit_card" ? "Cartão" : o.paymentMethod}</TableCell>
+                      <TableCell>{o.paymentMethod === "pix" ? "PIX" : o.paymentMethod === "credit_card" ? "Cartão" : o.paymentMethod === "cash" ? "Dinheiro" : o.paymentMethod}</TableCell>
                       <TableCell>
                         <Badge variant={o.paymentStatus === "paid" ? "default" : "secondary"}>
                           {PAYMENT_STATUS_LABEL[o.paymentStatus] ?? o.paymentStatus}
@@ -357,7 +380,7 @@ export default function LojaPublica() {
                       </TableCell>
                       <TableCell>{o.status}</TableCell>
                       <TableCell className="text-right">{fmt(o.totalAmount)}</TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         {o.paymentStatus !== "paid" && o.paymentMethod === "pix" && (
                           <Button size="sm" variant="outline" disabled={confirmPayment.isPending} onClick={() => confirmPayment.mutate({ orderId: o.id })}>
                             Confirmar Pagamento
@@ -367,7 +390,7 @@ export default function LojaPublica() {
                     </TableRow>
                   ))}
                   {orders.length === 0 && (
-                    <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Nenhum pedido da loja pública ainda.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Nenhum pedido nesse filtro.</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>
@@ -376,8 +399,57 @@ export default function LojaPublica() {
         </TabsContent>
       </Tabs>
 
+      {/* Detalhe do pedido */}
+      <Dialog open={detailOrderId !== null} onOpenChange={(open) => !open && setDetailOrderId(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Pedido #{detailOrderId}</DialogTitle></DialogHeader>
+          {orderDetail ? (
+            <div className="space-y-4 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div><span className="text-muted-foreground">Cliente</span><p className="font-medium">{orderDetail.customerName}</p></div>
+                <div><span className="text-muted-foreground">Telefone</span><p className="font-medium">{orderDetail.customerPhone}</p></div>
+                <div><span className="text-muted-foreground">Origem</span><p className="font-medium">{orderDetail.eventName ?? "Venda Regular"}</p></div>
+                <div><span className="text-muted-foreground">Entrega</span><p className="font-medium">{orderDetail.deliveryMethodName}</p></div>
+                <div><span className="text-muted-foreground">Pagamento</span><p className="font-medium">{orderDetail.paymentMethod}</p></div>
+                <div><span className="text-muted-foreground">Status</span><p className="font-medium">{orderDetail.status} / {PAYMENT_STATUS_LABEL[orderDetail.paymentStatus] ?? orderDetail.paymentStatus}</p></div>
+              </div>
+              {orderDetail.deliveryAddress && (
+                <div><span className="text-muted-foreground">Endereço</span><p className="font-medium">{orderDetail.deliveryAddress}</p></div>
+              )}
+              <div className="border-t pt-3 space-y-2">
+                <p className="font-medium">Itens</p>
+                {orderDetail.items.map((item: any) => (
+                  <div key={item.id} className="flex justify-between">
+                    <div>
+                      <p>{item.quantity}x {item.productName}</p>
+                      {(item.flavors?.length > 0 || item.selections?.length > 0) && (
+                        <p className="text-xs text-muted-foreground">{[...item.flavors, ...item.selections].join(", ")}</p>
+                      )}
+                    </div>
+                    <span>{fmt(item.subtotal)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between font-semibold border-t pt-2">
+                  <span>Total</span><span>{fmt(orderDetail.totalAmount)}</span>
+                </div>
+              </div>
+              {orderDetail.notes && (
+                <div><span className="text-muted-foreground">Observações</span><p>{orderDetail.notes}</p></div>
+              )}
+              {orderDetail.ticketCode && (
+                <a href={`/loja/r/${orderDetail.ticketCode}`} target="_blank" rel="noreferrer" className="text-primary underline text-xs">
+                  Ver recibo/ingresso do cliente →
+                </a>
+              )}
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm py-4">Carregando…</p>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={eventDialogOpen} onOpenChange={setEventDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Novo Evento</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div>
@@ -423,7 +495,7 @@ export default function LojaPublica() {
       </Dialog>
 
       <Dialog open={categoriesDialogEventId !== null} onOpenChange={(open) => !open && setCategoriesDialogEventId(null)}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Categorias do Evento</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground">Marque quais categorias aparecem dentro desse evento. A mesma categoria pode estar em vários eventos.</p>
           <div className="space-y-2 max-h-80 overflow-y-auto">
