@@ -39,6 +39,12 @@ const units = ["bandeja", "caixa", "pote", "unidade", "pacote", "kg", "g", "litr
 
 export default function Products() {
   const utils = trpc.useUtils();
+  const { data: storeProducts = [] } = trpc.storeAdmin.listStockProducts.useQuery();
+  const storeByProductId = new Map(storeProducts.map((sp: any) => [sp.id, sp]));
+  const setStoreVisibility = trpc.storeAdmin.setProductVisibility.useMutation({
+    onSuccess: () => { utils.storeAdmin.listStockProducts.invalidate(); toast.success("Loja atualizada!"); },
+    onError: (e) => toast.error(e.message),
+  });
   const { data: categories = [] } = trpc.catalog.categories.list.useQuery();
   const { data: suppliers = [] } = trpc.suppliers.list.useQuery();
   const { data: products = [], isLoading } = trpc.catalog.products.list.useQuery();
@@ -255,6 +261,7 @@ export default function Products() {
               <TableHead className="text-muted-foreground">Preço</TableHead>
               <TableHead className="text-muted-foreground">Custo</TableHead>
               <TableHead className="text-muted-foreground">Sabores</TableHead>
+              <TableHead className="text-muted-foreground">Na Loja</TableHead>
               <TableHead className="text-muted-foreground">Status</TableHead>
               <TableHead className="text-muted-foreground text-right">Ações</TableHead>
             </TableRow>
@@ -263,12 +270,12 @@ export default function Products() {
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i} className="border-border">
-                  {Array.from({ length: 7 }).map((_, j) => <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>)}
+                  {Array.from({ length: 8 }).map((_, j) => <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>)}
                 </TableRow>
               ))
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                   <Package className="w-8 h-8 mx-auto mb-2 opacity-30" />
                   Nenhum produto encontrado
                 </TableCell>
@@ -293,6 +300,21 @@ export default function Products() {
                     ) : (
                       <span className="text-muted-foreground text-xs">—</span>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    {(() => {
+                      const sp = storeByProductId.get(p.id) as any;
+                      if (!sp) return <span className="text-xs text-muted-foreground">Sem estoque</span>;
+                      return (
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={sp.visible}
+                            onCheckedChange={(checked) => setStoreVisibility.mutate({ productId: p.id, visible: checked, storePrice: sp.storePrice })}
+                          />
+                          <span className="text-xs text-muted-foreground">{sp.stockQuantity} {p.unit}</span>
+                        </div>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell>
                     <Badge className={p.active ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-muted text-muted-foreground"}>
