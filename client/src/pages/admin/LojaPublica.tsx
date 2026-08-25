@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import { compressImageFile } from "@/lib/imageCompress";
 import { Store, ExternalLink, Save, Plus, Pencil, Trash2, CalendarDays, Ticket, ShoppingBag } from "lucide-react";
 
 const fmt = (v: number | string) =>
@@ -61,6 +62,18 @@ export default function LojaPublica() {
     onSuccess: () => { utils.storeAdmin.events.list.invalidate(); toast.success("Categorias atualizadas!"); },
     onError: (err) => toast.error(err.message),
   });
+  const uploadEventImage = trpc.storeAdmin.events.uploadImage.useMutation({
+    onSuccess: () => { utils.storeAdmin.events.list.invalidate(); toast.success("Imagem do evento atualizada!"); },
+    onError: (err) => toast.error(err.message),
+  });
+  const eventFileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingEventId, setUploadingEventId] = useState<number | null>(null);
+
+  function handleEventImageFile(id: number, file: File) {
+    compressImageFile(file)
+      .then((base64) => uploadEventImage.mutate({ id, imageBase64: base64 }))
+      .catch(() => toast.error("Não foi possível processar essa imagem."));
+  }
 
   const [closedMessage, setClosedMessage] = useState(settings?.closedMessage ?? "");
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
@@ -146,9 +159,13 @@ export default function LojaPublica() {
                 <CardContent className="pt-4 space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                        {ev.type === "ingresso" ? <Ticket className="w-4 h-4 text-primary" /> : <ShoppingBag className="w-4 h-4 text-primary" />}
-                      </div>
+                      {ev.imageUrl ? (
+                        <img src={ev.imageUrl} alt={ev.name} className="w-9 h-9 rounded-xl object-cover shrink-0 border" />
+                      ) : (
+                        <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                          {ev.type === "ingresso" ? <Ticket className="w-4 h-4 text-primary" /> : <ShoppingBag className="w-4 h-4 text-primary" />}
+                        </div>
+                      )}
                       <div>
                         <p className="font-semibold">{ev.name}</p>
                         <p className="text-xs text-muted-foreground">
@@ -169,6 +186,12 @@ export default function LojaPublica() {
                       ))}
                     </div>
                     <div className="flex gap-2 shrink-0">
+                      <Button
+                        size="sm" variant="outline" disabled={uploadEventImage.isPending && uploadingEventId === ev.id}
+                        onClick={() => { setUploadingEventId(ev.id); eventFileInputRef.current?.click(); }}
+                      >
+                        {ev.imageUrl ? "Trocar imagem" : "Adicionar imagem"}
+                      </Button>
                       <Button size="sm" variant="outline" onClick={() => openCategoriesDialog(ev)}>Categorias</Button>
                       <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm(`Excluir o evento "${ev.name}"?`)) deleteEvent.mutate({ id: ev.id }); }}>
                         <Trash2 className="w-4 h-4" />
@@ -182,6 +205,10 @@ export default function LojaPublica() {
               <Card><CardContent className="py-8 text-center text-muted-foreground">Nenhum evento criado ainda.</CardContent></Card>
             )}
           </div>
+          <input
+            ref={eventFileInputRef} type="file" accept="image/*" className="hidden"
+            onChange={e => { const file = e.target.files?.[0]; if (file && uploadingEventId != null) handleEventImageFile(uploadingEventId, file); e.target.value = ""; }}
+          />
         </TabsContent>
 
         <TabsContent value="produtos" className="space-y-3 pt-3">

@@ -258,5 +258,15 @@ export const storeAdminRouter = router({
         }
         return { success: true };
       }),
+
+    /** Sobe o banner do evento (mostrado na tela de escolha da Loja Pública) — salvo direto no banco. */
+    uploadImage: adminProcedure
+      .input(z.object({ id: z.number(), imageBase64: z.string() }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await db.update(storeEvents).set({ imageUrl: input.imageBase64 }).where(eq(storeEvents.id, input.id));
+        return { success: true, url: input.imageBase64 };
+      }),
   }),
 });
