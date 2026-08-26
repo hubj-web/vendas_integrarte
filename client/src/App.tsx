@@ -46,6 +46,7 @@ import PedidoEstoquePrint from "./pages/admin/PedidoEstoquePrint";
 import Users from "./pages/admin/Users";
 import Exports from "./pages/Exports";
 import Backup from "./pages/admin/Backup";
+import Activities from "./pages/admin/Activities";
 import Packaging from "./pages/admin/Packaging";
 import OptimizedRouteGenerator from "./pages/OptimizedRouteGenerator";
 import NotFound from "./pages/NotFound";
@@ -209,6 +210,9 @@ function Router() {
       </Route>
       <Route path="/admin/config/backup">
         <AdminGuard><AppLayout><Backup /></AppLayout></AdminGuard>
+      </Route>
+      <Route path="/admin/config/atividades">
+        <AdminGuard><AppLayout><Activities /></AppLayout></AdminGuard>
       </Route>
 
       {/* ── ADMIN PAGES ── */}

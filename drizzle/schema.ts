@@ -499,6 +499,11 @@ export const estoqueAtual = mysqlTable("estoque_atual", {
   productId: int("productId").notNull(),
   quantidade: int("quantidade").notNull().default(0),
   custoMedioUnitario: decimal("custoMedioUnitario", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  // Lote/validade são opcionais — quem não preencher continua funcionando
+  // exatamente como antes (desconta pelo lote mais antigo, por id).
+  lote: varchar("lote", { length: 50 }),
+  validade: timestamp("validade"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -551,6 +556,12 @@ export const storeSettings = mysqlTable("store_settings", {
   id: int("id").autoincrement().primaryKey(),
   isOpen: boolean("isOpen").default(false).notNull(),
   closedMessage: text("closedMessage"),
+  // Opcionais — quando preenchidas, a loja abre/fecha sozinha nessa janela.
+  // O interruptor `isOpen` continua valendo como override manual: desligado,
+  // fecha mesmo dentro da janela (exceção); ligado, só abre de fato dentro
+  // da janela (se houver uma definida). Sem datas = comportamento de sempre.
+  saleStartsAt: timestamp("saleStartsAt"),
+  saleEndsAt: timestamp("saleEndsAt"),
   updatedBy: int("updatedBy"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -607,6 +618,10 @@ export const storeEvents = mysqlTable("store_events", {
   imageUrl: longtext("imageUrl"), // banner mostrado no card do evento
   isOpen: boolean("isOpen").default(false).notNull(),
   eventDate: timestamp("eventDate"), // data do evento em si (baile, festa...)
+  // Janela de venda (diferente da data do evento) — mesma lógica de override
+  // do storeSettings: sem datas, comportamento de sempre (só o interruptor).
+  saleStartsAt: timestamp("saleStartsAt"),
+  saleEndsAt: timestamp("saleEndsAt"),
   sortOrder: int("sortOrder").default(0).notNull(),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -623,6 +638,20 @@ export const storeEventCategories = mysqlTable("store_event_categories", {
 });
 
 export type StoreEvent = typeof storeEvents.$inferSelect;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ─── AUDITORIA — quem mudou o quê ──────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+export const activityLog = mysqlTable("activity_log", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId"),
+  userName: varchar("userName", { length: 100 }),
+  action: varchar("action", { length: 100 }).notNull(), // ex: "store.setProductVisibility"
+  entityType: varchar("entityType", { length: 50 }), // ex: "product", "event"
+  entityId: int("entityId"),
+  description: text("description").notNull(), // texto pronto pra mostrar na tela
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ─── GRUPOS DE VARIAÇÃO — várias escolhas no mesmo produto ────────────────────

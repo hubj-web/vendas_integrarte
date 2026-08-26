@@ -29,6 +29,23 @@ import { buildPixPayload, generatePixQrCodeBase64, pixConfigured } from "../pix"
 import { generateQrCodeBase64 } from "../qr";
 import { ENV } from "../_core/env";
 
+/**
+ * "Aberto de verdade": combina o interruptor manual com a janela de venda
+ * automática (Campanha), se houver uma definida.
+ *  - Sem datas definidas: exatamente o valor do interruptor (comportamento de sempre).
+ *  - Com datas definidas: só fica aberto se o interruptor estiver ligado E o
+ *    momento atual estiver dentro da janela — desligar o interruptor sempre
+ *    fecha (serve pra fechar antes da hora, por exceção).
+ */
+export function isEffectivelyOpen(row: { isOpen: boolean; saleStartsAt?: Date | null; saleEndsAt?: Date | null }): boolean {
+  if (!row.isOpen) return false;
+  if (!row.saleStartsAt && !row.saleEndsAt) return true;
+  const now = Date.now();
+  if (row.saleStartsAt && now < row.saleStartsAt.getTime()) return false;
+  if (row.saleEndsAt && now > row.saleEndsAt.getTime()) return false;
+  return true;
+}
+
 const SYSTEM_USER_EMAIL = "loja-publica@sistema.integrarte.local";
 
 async function getSystemUserId(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
@@ -152,10 +169,11 @@ export const publicStoreRouter = router({
     if (!db) return { regularOpen: false, regularClosedMessage: null, events: [] };
 
     const [settings] = await db.select().from(storeSettings).orderBy(desc(storeSettings.id)).limit(1);
-    const events = await db.select().from(storeEvents).where(eq(storeEvents.isOpen, true)).orderBy(storeEvents.sortOrder);
+    const allEvents = await db.select().from(storeEvents).orderBy(storeEvents.sortOrder);
+    const events = allEvents.filter(isEffectivelyOpen);
 
     return {
-      regularOpen: !!settings?.isOpen,
+      regularOpen: !!settings && isEffectivelyOpen(settings),
       regularClosedMessage: settings?.closedMessage ?? null,
       events: events.map(e => ({
         id: e.id, name: e.name, type: e.type, description: e.description,
@@ -170,7 +188,7 @@ export const publicStoreRouter = router({
     if (!db) return { open: false, closedMessage: null, categories: [], products: [] };
 
     const [settings] = await db.select().from(storeSettings).orderBy(desc(storeSettings.id)).limit(1);
-    if (!settings?.isOpen) {
+    if (!settings || !isEffectivelyOpen(settings)) {
       return { open: false, closedMessage: settings?.closedMessage ?? null, categories: [], products: [] };
     }
 
@@ -201,7 +219,7 @@ export const publicStoreRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
       const [event] = await db.select().from(storeEvents).where(eq(storeEvents.id, input.eventId)).limit(1);
-      if (!event || !event.isOpen) {
+      if (!event || !isEffectivelyOpen(event)) {
         return { open: false, event: null, categories: [], products: [] };
       }
 
@@ -270,14 +288,14 @@ export const publicStoreRouter = router({
       let allowedCategoryIds: number[] | null = null;
       if (input.eventId) {
         const [event] = await db.select().from(storeEvents).where(eq(storeEvents.id, input.eventId)).limit(1);
-        if (!event || !event.isOpen) {
+        if (!event || !isEffectivelyOpen(event)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Este evento não está mais disponível." });
         }
         const links = await db.select({ categoryId: storeEventCategories.categoryId }).from(storeEventCategories).where(eq(storeEventCategories.eventId, input.eventId));
         allowedCategoryIds = links.map(l => l.categoryId);
       } else {
         const [settings] = await db.select().from(storeSettings).orderBy(desc(storeSettings.id)).limit(1);
-        if (!settings?.isOpen) {
+        if (!settings || !isEffectivelyOpen(settings)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "A loja está fechada no momento." });
         }
       }

@@ -21,6 +21,7 @@ import {
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { buscarLotesEstoque, descontarLotesEstoque, requireLauncherRole } from "./seller";
+import { isEffectivelyOpen } from "./publicStore";
 
 export const sellerEventsRouter = router({
   /** Eventos abertos disponíveis pro vendedor lançar venda */
@@ -28,7 +29,8 @@ export const sellerEventsRouter = router({
     requireLauncherRole(ctx);
     const db = await getDb();
     if (!db) return [];
-    return db.select().from(storeEvents).where(eq(storeEvents.isOpen, true)).orderBy(storeEvents.sortOrder);
+    const events = await db.select().from(storeEvents).orderBy(storeEvents.sortOrder);
+    return events.filter(isEffectivelyOpen);
   }),
 
   /** Catálogo (categorias + produtos com estoque) de um evento específico, pro vendedor escolher */
@@ -92,6 +94,7 @@ export const sellerEventsRouter = router({
 
       const [event] = await db.select().from(storeEvents).where(eq(storeEvents.id, input.eventId)).limit(1);
       if (!event) throw new TRPCError({ code: "NOT_FOUND", message: "Evento não encontrado." });
+      if (!isEffectivelyOpen(event)) throw new TRPCError({ code: "BAD_REQUEST", message: "Este evento não está aberto pra venda no momento." });
 
       const produtosRows = await db.select().from(products).where(inArray(products.id, input.items.map(i => i.productId)));
       const produtosMap = new Map(produtosRows.map(p => [p.id, p]));

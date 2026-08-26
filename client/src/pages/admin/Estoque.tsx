@@ -30,6 +30,8 @@ export default function Estoque() {
   const [manualCusto, setManualCusto] = useState("");
   const [manualDisponibilizar, setManualDisponibilizar] = useState(true);
   const [manualPrecoLoja, setManualPrecoLoja] = useState("");
+  const [manualLote, setManualLote] = useState("");
+  const [manualValidade, setManualValidade] = useState("");
 
   const { data: flavorsData } = trpc.catalog.productFlavors.listAll.useQuery(undefined, { enabled: manualOpen });
   const selectedProduct = catalog?.find(p => p.id === Number(manualProductId));
@@ -43,6 +45,7 @@ export default function Estoque() {
       setManualOpen(false);
       setManualProductId(""); setManualFlavorId(""); setManualQtd(""); setManualCusto("");
       setManualDisponibilizar(true); setManualPrecoLoja("");
+      setManualLote(""); setManualValidade("");
     },
     onError: (err) => toast.error(err.message || "Não foi possível adicionar."),
   });
@@ -59,6 +62,8 @@ export default function Estoque() {
       flavorIds: manualFlavorId ? [Number(manualFlavorId)] : undefined,
       disponibilizarNaLoja: manualDisponibilizar,
       precoNaLoja: manualPrecoLoja || undefined,
+      lote: manualLote || undefined,
+      validade: manualValidade || undefined,
     });
   }
 
@@ -145,7 +150,11 @@ export default function Estoque() {
 
                 {aberta && (
                   <div className="border-t divide-y">
-                    {grupo.itens.map((e, i) => (
+                    {grupo.itens.map((e: any, i) => {
+                      const diasParaVencer = e.proximaValidade
+                        ? Math.ceil((new Date(e.proximaValidade).getTime() - Date.now()) / 86400000)
+                        : null;
+                      return (
                       <div key={i} className="p-4 flex items-center justify-between gap-3 bg-muted/10">
                         <div>
                           <p className="font-medium text-foreground text-sm">{e.productName}</p>
@@ -153,13 +162,19 @@ export default function Estoque() {
                             <p className="text-xs text-muted-foreground">{e.flavorNames.join(", ")}</p>
                           )}
                           <p className="text-xs text-muted-foreground mt-0.5">Custo médio: {fmt(e.custoMedioUnitario)}/{e.unit}</p>
+                          {diasParaVencer !== null && (
+                            <Badge variant={diasParaVencer <= 5 ? "destructive" : "outline"} className="text-xs mt-1">
+                              {diasParaVencer < 0 ? "Vencido" : diasParaVencer === 0 ? "Vence hoje" : `Vence em ${diasParaVencer} dia${diasParaVencer === 1 ? "" : "s"}`}
+                            </Badge>
+                          )}
                         </div>
                         <div className="text-right shrink-0">
                           <p className="text-lg font-bold text-primary">{e.quantidade}</p>
                           <Badge variant="outline" className="text-xs">{e.unit}</Badge>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </Card>
@@ -211,6 +226,19 @@ export default function Estoque() {
                 <Input type="number" step="0.01" min={0} value={manualCusto} onChange={e => setManualCusto(e.target.value)} placeholder="0.00" />
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Lote (opcional)</Label>
+                <Input value={manualLote} onChange={e => setManualLote(e.target.value)} placeholder="Ex: L2508" />
+              </div>
+              <div>
+                <Label>Validade (opcional)</Label>
+                <Input type="date" value={manualValidade} onChange={e => setManualValidade(e.target.value)} />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-2">
+              Preenchendo a validade, esse lote é consumido primeiro (antes dos sem validade), pra evitar desperdício.
+            </p>
             <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
               <div className="flex items-center justify-between">
                 <Label className="cursor-pointer" htmlFor="disponibilizar-loja">Disponibilizar na Loja Pública agora</Label>

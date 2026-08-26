@@ -5,6 +5,7 @@ import {
   customers, orders, orderItems, orderItemFlavors, orderMinipizzas, orderMinipizzaFlavors,
   orderJellies, orderStatusHistory, products, productFlavors, minipizzaTypes, minipizzaFlavors,
   jellyFlavors, deliveryMethods, users, deliveryRecords, paymentRecords, routeOrders, deliveryRoutes,
+  storeEvents,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -167,6 +168,14 @@ export const ordersRouter = router({
       dateFrom: z.string().optional(),
       dateTo: z.string().optional(),
       search: z.string().optional(),
+      // Visões prontas — cada uma aplica um combo de filtros pronto, sem o
+      // usuário precisar montar manualmente.
+      view: z.enum([
+        "all", "periodo", "loja_eventos", "aguardando_pagamento",
+        "para_produzir", "para_empacotar", "retiradas_hoje", "em_atraso",
+      ]).optional(),
+      channel: z.enum(["periodo", "loja_publica", "vendedor_evento"]).optional(),
+      eventId: z.union([z.number(), z.literal("regular")]).optional(),
     }).optional())
     .query(async ({ input, ctx }) => {
       const db = await getDb();
@@ -195,13 +204,21 @@ export const ordersRouter = router({
         deliveryAddress: orders.deliveryAddress,
         routeId: routeOrders.routeId,
         routePosition: routeOrders.position,
+        channel: orders.channel,
+        eventId: orders.eventId,
+        eventName: storeEvents.name,
       })
         .from(orders)
         .leftJoin(customers, eq(orders.customerId, customers.id))
         .leftJoin(users, eq(orders.launcherId, users.id))
         .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
         .leftJoin(routeOrders, eq(orders.id, routeOrders.orderId))
+        .leftJoin(storeEvents, eq(orders.eventId, storeEvents.id))
         .orderBy(desc(orders.createdAt));
+
+      const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+      const amanha = new Date(hoje); amanha.setDate(amanha.getDate() + 1);
+      const tresDiasAtras = new Date(hoje); tresDiasAtras.setDate(tresDiasAtras.getDate() - 3);
 
       // Filter
       let filtered = allOrders.filter(o => {
@@ -215,6 +232,41 @@ export const ordersRouter = router({
         if (input?.launcherId && o.launcherId !== input.launcherId) return false;
         if (input?.deliveryMethodId && o.deliveryMethodId !== input.deliveryMethodId) return false;
         if (input?.routeId && o.routeId !== input.routeId) return false;
+        if (input?.channel && o.channel !== input.channel) return false;
+        if (input?.eventId === "regular" && o.eventId != null) return false;
+        if (typeof input?.eventId === "number" && o.eventId !== input.eventId) return false;
+
+        // Visões prontas
+        switch (input?.view) {
+          case "periodo":
+            if (o.channel !== "periodo") return false;
+            break;
+          case "loja_eventos":
+            if (o.channel !== "loja_publica" && o.channel !== "vendedor_evento") return false;
+            break;
+          case "aguardando_pagamento":
+            if (o.paymentStatus === "paid" || o.status === "cancelled") return false;
+            break;
+          case "para_produzir":
+            if (o.status !== "production") return false;
+            break;
+          case "para_empacotar":
+            if (o.status !== "production" && o.status !== "packaged") return false;
+            break;
+          case "retiradas_hoje": {
+            if (!o.deliveryMethodId) return false;
+            const dt = o.deliveryDate ? new Date(o.deliveryDate) : null;
+            if (!dt || dt < hoje || dt >= amanha) return false;
+            break;
+          }
+          case "em_atraso": {
+            if (["delivered", "paid", "cancelled"].includes(o.status)) return false;
+            const created = new Date(o.createdAt);
+            if (created >= tresDiasAtras) return false;
+            break;
+          }
+        }
+
         if (input?.search) {
           const s = input.search.toLowerCase();
           if (!o.customerName?.toLowerCase().includes(s) && !o.customerPhone?.includes(s)) return false;

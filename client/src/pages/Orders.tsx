@@ -43,6 +43,17 @@ const paymentOptions = [
   { value: "partial", label: "Parcial" },
 ];
 
+const viewOptions = [
+  { value: "all", label: "Todos" },
+  { value: "periodo", label: "Período de Vendas" },
+  { value: "loja_eventos", label: "Loja e Eventos" },
+  { value: "aguardando_pagamento", label: "Aguardando Pagamento" },
+  { value: "para_produzir", label: "Pra Produzir" },
+  { value: "para_empacotar", label: "Pra Empacotar" },
+  { value: "retiradas_hoje", label: "Retiradas de Hoje" },
+  { value: "em_atraso", label: "Em Atraso" },
+] as const;
+
 const monthNames = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
@@ -53,6 +64,7 @@ export default function Orders() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [paymentStatus, setPaymentStatus] = useState("all");
+  const [view, setView] = useState<(typeof viewOptions)[number]["value"]>("all");
   const [month, setMonth] = useState("all");
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -112,6 +124,7 @@ export default function Orders() {
     search: search || undefined,
     status: status !== "all" ? status : undefined,
     paymentStatus: paymentStatus !== "all" ? paymentStatus : undefined,
+    view: view !== "all" ? view : undefined,
     dateFrom,
     dateTo,
   });
@@ -135,6 +148,23 @@ export default function Orders() {
           ) : undefined
         }
       />
+
+      {/* Visões prontas — filtros comuns num clique só */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        {viewOptions.map(v => (
+          <button
+            key={v.value}
+            onClick={() => { setView(v.value); setPage(1); }}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+              view === v.value
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-card text-muted-foreground border-border hover:border-primary/40"
+            }`}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
 
       {/* Filters & Bulk Actions */}
       <div className="flex flex-col gap-4 mb-4">
@@ -213,6 +243,7 @@ export default function Orders() {
                 <Checkbox checked={orders.length > 0 && selectedIds.length === orders.length} onCheckedChange={toggleSelectAll} />
               </TableHead>
               <TableHead className="text-muted-foreground">#</TableHead>
+              <TableHead className="text-muted-foreground">Origem</TableHead>
               <TableHead className="text-muted-foreground">Cliente</TableHead>
               <TableHead className="text-muted-foreground">Vendedor</TableHead>
               <TableHead className="text-muted-foreground">Entrega</TableHead>
@@ -229,7 +260,7 @@ export default function Orders() {
               Array.from({ length: 8 }).map((_, i) => (
                 <TableRow key={i} className="border-border">
                   <TableCell><Skeleton className="h-4 w-4" /></TableCell>
-                  {Array.from({ length: 10 }).map((_, j) => <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>)}
+                  {Array.from({ length: 11 }).map((_, j) => <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>)}
                 </TableRow>
               ))
             ) : orders.length === 0 ? (
@@ -246,6 +277,11 @@ export default function Orders() {
                     <Checkbox checked={selectedIds.includes(o.id)} onCheckedChange={() => toggleSelect(o.id)} />
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm font-mono">#{o.id}</TableCell>
+                  <TableCell>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                      {o.channel === "periodo" ? "Período" : o.eventName ? o.eventName : o.channel === "loja_publica" ? "Loja" : "Evento"}
+                    </span>
+                  </TableCell>
                   <TableCell>
                     <div>
                       <p className="font-medium text-sm">{o.customerName ?? "—"}</p>

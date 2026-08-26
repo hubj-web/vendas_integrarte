@@ -33,7 +33,7 @@ export async function periodoVendaAtivo(db: DB): Promise<boolean> {
 /** Busca as linhas de estoque de um produto+sabor, mais antigas primeiro (FIFO). */
 export async function buscarLotesEstoque(db: DB, productId: number, flavorIds: number[]) {
   const itemRows = await db.select({
-    id: estoqueAtual.id, quantity: estoqueAtual.quantidade,
+    id: estoqueAtual.id, quantity: estoqueAtual.quantidade, validade: estoqueAtual.validade,
   }).from(estoqueAtual).where(and(eq(estoqueAtual.productId, productId), gte(estoqueAtual.quantidade, 1)));
   if (itemRows.length === 0) return [];
 
@@ -52,7 +52,15 @@ export async function buscarLotesEstoque(db: DB, productId: number, flavorIds: n
 
   return itemRows
     .filter(it => (flavorsByItem[it.id] ?? []).slice().sort().join("|") === requestedKey)
-    .sort((a, b) => a.id - b.id);
+    .sort((a, b) => {
+      // Lote com validade vence primeiro que lote sem validade — e entre dois
+      // com validade, o que vence mais cedo sai primeiro. Sem validade
+      // preenchida em nenhum dos dois, continua exatamente como antes (por id).
+      if (a.validade && b.validade) return a.validade.getTime() - b.validade.getTime();
+      if (a.validade && !b.validade) return -1;
+      if (!a.validade && b.validade) return 1;
+      return a.id - b.id;
+    });
 }
 
 /** Desconta uma quantidade das linhas de estoque já buscadas (mais antigas primeiro). */

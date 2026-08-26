@@ -34,6 +34,9 @@ export const estoqueRouter = router({
       // passo, sem precisar ir em "Produtos na Loja" separadamente depois.
       disponibilizarNaLoja: z.boolean().optional(),
       precoNaLoja: z.string().optional(),
+      // Opcionais — quem não preencher continua exatamente como antes.
+      lote: z.string().optional(),
+      validade: z.string().optional(), // data no formato YYYY-MM-DD
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -41,6 +44,7 @@ export const estoqueRouter = router({
 
       const estoqueResult = await db.insert(estoqueAtual).values({
         productId: input.productId, quantidade: input.quantidade, custoMedioUnitario: input.custoUnitario,
+        lote: input.lote || undefined, validade: input.validade ? new Date(input.validade) : undefined,
       });
       const estoqueId = Number((estoqueResult as any).insertId || (estoqueResult as any)[0]?.insertId);
 
@@ -76,6 +80,7 @@ export const estoqueRouter = router({
       productName: products.name, unit: products.unit,
       categoryId: products.categoryId, categoryName: productCategories.name,
       quantidade: estoqueAtual.quantidade, custoMedioUnitario: estoqueAtual.custoMedioUnitario,
+      validade: estoqueAtual.validade,
     }).from(estoqueAtual)
       .leftJoin(products, eq(estoqueAtual.productId, products.id))
       .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
@@ -96,6 +101,7 @@ export const estoqueRouter = router({
       productId: number; productName: string | null; unit: string | null;
       categoryId: number | null; categoryName: string | null;
       flavorNames: string[]; quantidade: number; valorTotalCusto: number;
+      proximaValidade: Date | null;
     }> = {};
     for (const l of linhas) {
       const flavors = (flavorsByLinha[l.id] ?? []).slice().sort();
@@ -104,11 +110,14 @@ export const estoqueRouter = router({
         grupos[key] = {
           productId: l.productId, productName: l.productName, unit: l.unit,
           categoryId: l.categoryId, categoryName: l.categoryName,
-          flavorNames: flavors, quantidade: 0, valorTotalCusto: 0,
+          flavorNames: flavors, quantidade: 0, valorTotalCusto: 0, proximaValidade: null,
         };
       }
       grupos[key].quantidade += l.quantidade;
       grupos[key].valorTotalCusto += l.quantidade * parseFloat(l.custoMedioUnitario);
+      if (l.validade && (!grupos[key].proximaValidade || l.validade < grupos[key].proximaValidade!)) {
+        grupos[key].proximaValidade = l.validade;
+      }
     }
 
     return Object.values(grupos)

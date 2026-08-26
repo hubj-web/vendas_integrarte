@@ -85,6 +85,18 @@ export default function LojaPublica() {
   }
 
   const [closedMessage, setClosedMessage] = useState(settings?.closedMessage ?? "");
+  const [regularSaleStart, setRegularSaleStart] = useState("");
+  const [regularSaleEnd, setRegularSaleEnd] = useState("");
+
+  const [saleWindowEventId, setSaleWindowEventId] = useState<number | null>(null);
+  const [saleWindowStart, setSaleWindowStart] = useState("");
+  const [saleWindowEnd, setSaleWindowEnd] = useState("");
+
+  function openSaleWindowDialog(ev: any) {
+    setSaleWindowEventId(ev.id);
+    setSaleWindowStart(ev.saleStartsAt ? new Date(ev.saleStartsAt).toISOString().slice(0, 16) : "");
+    setSaleWindowEnd(ev.saleEndsAt ? new Date(ev.saleEndsAt).toISOString().slice(0, 16) : "");
+  }
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
 
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
@@ -125,6 +137,29 @@ export default function LojaPublica() {
             checked={!!settings?.isOpen}
             onCheckedChange={(checked) => updateSettings.mutate({ isOpen: checked, closedMessage })}
           />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-4 space-y-2">
+          <Label>Janela de venda automática (opcional)</Label>
+          <p className="text-xs text-muted-foreground">
+            Preenchendo, a loja abre e fecha sozinha nesse período. O interruptor acima continua funcionando —
+            desligado, fecha mesmo dentro da janela (pra uma exceção pontual).
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <Input type="datetime-local" value={regularSaleStart || (settings?.saleStartsAt ? new Date(settings.saleStartsAt).toISOString().slice(0, 16) : "")} onChange={e => setRegularSaleStart(e.target.value)} />
+            <Input type="datetime-local" value={regularSaleEnd || (settings?.saleEndsAt ? new Date(settings.saleEndsAt).toISOString().slice(0, 16) : "")} onChange={e => setRegularSaleEnd(e.target.value)} />
+          </div>
+          <Button
+            variant="outline" size="sm"
+            onClick={() => updateSettings.mutate({
+              isOpen: !!settings?.isOpen, closedMessage,
+              saleStartsAt: regularSaleStart || null, saleEndsAt: regularSaleEnd || null,
+            })}
+          >
+            <Save className="w-3.5 h-3.5 mr-1.5" /> Salvar janela
+          </Button>
         </CardContent>
       </Card>
 
@@ -203,6 +238,7 @@ export default function LojaPublica() {
                         {ev.imageUrl ? "Trocar imagem" : "Adicionar imagem"}
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => openCategoriesDialog(ev)}>Categorias</Button>
+                      <Button size="sm" variant="outline" onClick={() => openSaleWindowDialog(ev)}>Janela de venda</Button>
                       <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm(`Excluir o evento "${ev.name}"?`)) deleteEvent.mutate({ id: ev.id }); }}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -520,6 +556,39 @@ export default function LojaPublica() {
                 if (categoriesDialogEventId == null) return;
                 setEventCategories.mutate({ eventId: categoriesDialogEventId, categoryIds: categoriesDraft });
                 setCategoriesDialogEventId(null);
+              }}
+            >
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={saleWindowEventId !== null} onOpenChange={(open) => !open && setSaleWindowEventId(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Janela de Venda Automática</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Preenchendo, esse evento abre e fecha sozinho nesse período. O interruptor do card continua funcionando —
+            desligado, fecha mesmo dentro da janela (pra uma exceção pontual).
+          </p>
+          <div className="space-y-3">
+            <div>
+              <Label>Início da venda</Label>
+              <Input type="datetime-local" value={saleWindowStart} onChange={e => setSaleWindowStart(e.target.value)} />
+            </div>
+            <div>
+              <Label>Fim da venda</Label>
+              <Input type="datetime-local" value={saleWindowEnd} onChange={e => setSaleWindowEnd(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaleWindowEventId(null)}>Cancelar</Button>
+            <Button
+              disabled={updateEvent.isPending}
+              onClick={() => {
+                if (saleWindowEventId == null) return;
+                updateEvent.mutate({ id: saleWindowEventId, saleStartsAt: saleWindowStart || null, saleEndsAt: saleWindowEnd || null });
+                setSaleWindowEventId(null);
               }}
             >
               Salvar

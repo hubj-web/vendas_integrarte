@@ -10,10 +10,11 @@ import {
   customers, deliveryMethods, orders, orderItems, orderItemFlavors, products, productCategories,
   storeOrderPayments, storeProductVisibility, storeSettings, estoqueAtual,
   storeDeliveryMethodVisibility, storeEvents, storeEventCategories,
-  storeRegularCategoryVisibility, orderItemVariationSelections,
+  storeRegularCategoryVisibility, orderItemVariationSelections, activityLog,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { adminProcedure, router } from "../_core/trpc";
+import { logActivity } from "../activityLog";
 import { buscarLotesEstoque, descontarLotesEstoque } from "./seller";
 
 export const storeAdminRouter = router({
@@ -27,18 +28,29 @@ export const storeAdminRouter = router({
 
   /** Abre ou fecha a loja pública */
   updateSettings: adminProcedure
-    .input(z.object({ isOpen: z.boolean(), closedMessage: z.string().optional() }))
+    .input(z.object({
+      isOpen: z.boolean(), closedMessage: z.string().optional(),
+      saleStartsAt: z.string().nullable().optional(), saleEndsAt: z.string().nullable().optional(),
+    }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const [existing] = await db.select({ id: storeSettings.id }).from(storeSettings).orderBy(desc(storeSettings.id)).limit(1);
+      const values = {
+        isOpen: input.isOpen, closedMessage: input.closedMessage, updatedBy: ctx.user.id,
+        ...(input.saleStartsAt !== undefined ? { saleStartsAt: input.saleStartsAt ? new Date(input.saleStartsAt) : null } : {}),
+        ...(input.saleEndsAt !== undefined ? { saleEndsAt: input.saleEndsAt ? new Date(input.saleEndsAt) : null } : {}),
+      };
       if (existing) {
-        await db.update(storeSettings)
-          .set({ isOpen: input.isOpen, closedMessage: input.closedMessage, updatedBy: ctx.user.id })
-          .where(eq(storeSettings.id, existing.id));
+        await db.update(storeSettings).set(values).where(eq(storeSettings.id, existing.id));
       } else {
-        await db.insert(storeSettings).values({ isOpen: input.isOpen, closedMessage: input.closedMessage, updatedBy: ctx.user.id });
+        await db.insert(storeSettings).values(values);
       }
+      await logActivity({
+        userId: ctx.user.id, userName: ctx.user.name, action: "store.updateSettings",
+        entityType: "store_settings",
+        description: `${ctx.user.name} ${input.isOpen ? "abriu" : "fechou"} a Venda Regular da loja`,
+      });
       return { success: true };
     }),
 
@@ -80,7 +92,7 @@ export const storeAdminRouter = router({
   /** Marca um produto como visível/oculto na loja, e opcionalmente define um preço específico */
   setProductVisibility: adminProcedure
     .input(z.object({ productId: z.number(), visible: z.boolean(), storePrice: z.string().nullable().optional() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const [existing] = await db.select({ id: storeProductVisibility.id }).from(storeProductVisibility)
@@ -94,6 +106,12 @@ export const storeAdminRouter = router({
           productId: input.productId, visible: input.visible, storePrice: input.storePrice ?? null,
         });
       }
+      const [prod] = await db.select({ name: products.name }).from(products).where(eq(products.id, input.productId)).limit(1);
+      await logActivity({
+        userId: ctx.user.id, userName: ctx.user.name, action: "store.setProductVisibility",
+        entityType: "product", entityId: input.productId,
+        description: `${ctx.user.name} ${input.visible ? "ativou" : "desativou"} "${prod?.name ?? input.productId}" na loja${input.storePrice ? ` (preço: R$ ${input.storePrice})` : ""}`,
+      });
       return { success: true };
     }),
 
@@ -104,7 +122,7 @@ export const storeAdminRouter = router({
    */
   confirmPayment: adminProcedure
     .input(z.object({ orderId: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
@@ -124,6 +142,12 @@ export const storeAdminRouter = router({
         const lotes = await buscarLotesEstoque(db, item.productId, flavorRows.map(f => f.productFlavorId));
         await descontarLotesEstoque(db, lotes, item.quantity);
       }
+
+      await logActivity({
+        userId: ctx.user.id, userName: ctx.user.name, action: "store.confirmPayment",
+        entityType: "order", entityId: input.orderId,
+        description: `${ctx.user.name} confirmou o pagamento do pedido #${input.orderId}`,
+      });
 
       return { success: true };
     }),
@@ -304,15 +328,26 @@ export const storeAdminRouter = router({
         id: z.number(), name: z.string().min(2).optional(), type: z.enum(["ingresso", "produtos"]).optional(),
         description: z.string().nullable().optional(), eventDate: z.string().nullable().optional(),
         isOpen: z.boolean().optional(), sortOrder: z.number().optional(),
+        saleStartsAt: z.string().nullable().optional(), saleEndsAt: z.string().nullable().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-        const { id, eventDate, ...rest } = input;
+        const { id, eventDate, saleStartsAt, saleEndsAt, ...rest } = input;
         await db.update(storeEvents).set({
           ...rest,
           ...(eventDate !== undefined ? { eventDate: eventDate ? new Date(eventDate) : null } : {}),
+          ...(saleStartsAt !== undefined ? { saleStartsAt: saleStartsAt ? new Date(saleStartsAt) : null } : {}),
+          ...(saleEndsAt !== undefined ? { saleEndsAt: saleEndsAt ? new Date(saleEndsAt) : null } : {}),
         }).where(eq(storeEvents.id, id));
+        if (input.isOpen !== undefined) {
+          const [ev] = await db.select({ name: storeEvents.name }).from(storeEvents).where(eq(storeEvents.id, id)).limit(1);
+          await logActivity({
+            userId: ctx.user.id, userName: ctx.user.name, action: "store.events.update",
+            entityType: "event", entityId: id,
+            description: `${ctx.user.name} ${input.isOpen ? "abriu" : "fechou"} o evento "${ev?.name ?? id}"`,
+          });
+        }
         return { success: true };
       }),
 
@@ -351,4 +386,43 @@ export const storeAdminRouter = router({
         return { success: true, url: input.imageBase64 };
       }),
   }),
+
+  /** Log de auditoria — quem mudou o quê na loja pública, mais recente primeiro */
+  activityLog: adminProcedure
+    .input(z.object({ limit: z.number().min(1).max(200).default(100) }).optional())
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      return db.select().from(activityLog).orderBy(desc(activityLog.id)).limit(input?.limit ?? 100);
+    }),
+
+  /**
+   * Resumo de "onde este produto está à venda" — usado no cadastro de
+   * Produtos pra deixar claro, sem sair da tela, se ele aparece na Venda
+   * Regular e/ou em quais Eventos (via categoria vinculada).
+   */
+  productSalesSummary: adminProcedure
+    .input(z.object({ productId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { inRegular: false, events: [], visibleInStore: false, storePrice: null };
+
+      const [prod] = await db.select({ categoryId: products.categoryId }).from(products).where(eq(products.id, input.productId)).limit(1);
+      if (!prod) return { inRegular: false, events: [], visibleInStore: false, storePrice: null };
+
+      const [vis] = await db.select().from(storeProductVisibility).where(eq(storeProductVisibility.productId, input.productId)).limit(1);
+      const visibleInStore = vis?.visible ?? false;
+
+      if (!prod.categoryId || !visibleInStore) return { inRegular: false, events: [], visibleInStore, storePrice: vis?.storePrice ?? null };
+
+      const eventLinks = await db.select({ eventId: storeEventCategories.eventId }).from(storeEventCategories).where(eq(storeEventCategories.categoryId, prod.categoryId));
+      const eventIds = eventLinks.map(l => l.eventId);
+      const events = eventIds.length > 0 ? await db.select({ id: storeEvents.id, name: storeEvents.name }).from(storeEvents).where(inArray(storeEvents.id, eventIds)) : [];
+
+      const [regularVis] = await db.select().from(storeRegularCategoryVisibility).where(eq(storeRegularCategoryVisibility.categoryId, prod.categoryId)).limit(1);
+      const linkedToEvent = eventIds.length > 0;
+      const inRegular = regularVis?.visible ?? !linkedToEvent;
+
+      return { inRegular, events, visibleInStore, storePrice: vis?.storePrice ?? null };
+    }),
 });

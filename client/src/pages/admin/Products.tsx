@@ -94,6 +94,9 @@ export default function Products() {
   const [open, setOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [editing, setEditing] = useState<Product | null>(null);
+  const { data: salesSummary } = trpc.storeAdmin.productSalesSummary.useQuery(
+    { productId: editing?.id ?? -1 }, { enabled: !!editing }
+  );
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
 
@@ -455,6 +458,33 @@ export default function Products() {
                 </SelectContent>
               </Select>
             </div>
+            {editing && (
+              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Onde este produto está à venda</p>
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Período de vendas (vendedor):</span> sempre disponível enquanto o período estiver aberto
+                </p>
+                {salesSummary?.visibleInStore ? (
+                  <>
+                    <p className="text-sm">
+                      <span className="text-muted-foreground">Venda Regular:</span>{" "}
+                      {salesSummary.inRegular ? <span className="text-emerald-500 font-medium">Sim</span> : <span className="text-muted-foreground">Não aparece lá</span>}
+                      {salesSummary.storePrice && <span className="text-muted-foreground"> (preço: R$ {salesSummary.storePrice})</span>}
+                    </p>
+                    <p className="text-sm">
+                      <span className="text-muted-foreground">Eventos:</span>{" "}
+                      {salesSummary.events.length > 0
+                        ? salesSummary.events.map((e: any) => e.name).join(", ")
+                        : <span className="text-muted-foreground">Nenhum (categoria não vinculada a evento)</span>}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Não está ativo na Loja Pública — ative em Estoque ou na coluna "Na Loja" desta tela pra aparecer lá.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Descrição</Label>
               <Input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="bg-input" />
