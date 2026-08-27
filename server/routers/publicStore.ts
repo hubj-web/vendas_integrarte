@@ -20,6 +20,7 @@ import {
   storeDeliveryMethodVisibility, storeEvents, storeEventCategories,
   storeRegularCategoryVisibility, productVariationGroups, productVariationOptions,
   orderItemVariationSelections,
+  paymentMethods, storeRegularPaymentMethodVisibility, storeEventPaymentMethodVisibility,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
@@ -262,6 +263,38 @@ export const publicStoreRouter = router({
   }),
 
   /**
+   * Formas de pagamento disponíveis (PIX e/ou Cartão) — na Venda Regular ou
+   * num Evento específico. Sempre parte das formas ativas globalmente; dentro
+   * disso, aplica a visibilidade específica do contexto (opt-out).
+   */
+  paymentMethods: publicProcedure
+    .input(z.object({ eventId: z.number().optional() }).optional())
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { pix: false, creditCard: false };
+      const methods = await db.select().from(paymentMethods)
+        .where(and(eq(paymentMethods.active, true), inArray(paymentMethods.code, ["pix_loja", "cartao_loja"])));
+
+      let hiddenIds = new Set<number>();
+      if (input?.eventId) {
+        const rows = await db.select({ paymentMethodId: storeEventPaymentMethodVisibility.paymentMethodId })
+          .from(storeEventPaymentMethodVisibility)
+          .where(and(eq(storeEventPaymentMethodVisibility.eventId, input.eventId), eq(storeEventPaymentMethodVisibility.visible, false)));
+        hiddenIds = new Set(rows.map(r => r.paymentMethodId));
+      } else {
+        const rows = await db.select({ paymentMethodId: storeRegularPaymentMethodVisibility.paymentMethodId })
+          .from(storeRegularPaymentMethodVisibility).where(eq(storeRegularPaymentMethodVisibility.visible, false));
+        hiddenIds = new Set(rows.map(r => r.paymentMethodId));
+      }
+
+      const available = methods.filter(m => !hiddenIds.has(m.id));
+      return {
+        pix: available.some(m => m.code === "pix_loja"),
+        creditCard: available.some(m => m.code === "cartao_loja"),
+      };
+    }),
+
+  /**
    * Cria o pedido da loja pública. Fluxo:
    * 1. Confirma que a loja está aberta e todos os itens ainda têm estoque suficiente.
    * 2. Acha ou cria o cliente por telefone (sem senha).
@@ -312,6 +345,31 @@ export const publicStoreRouter = router({
         const [settings] = await db.select().from(storeSettings).orderBy(desc(storeSettings.id)).limit(1);
         if (!settings || !isEffectivelyOpen(settings)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "A loja está fechada no momento." });
+        }
+      }
+
+      // Confere que a forma de pagamento escolhida está mesmo liberada nesse
+      // contexto (Venda Regular ou este Evento) — nunca confia só no que o
+      // cliente mandou.
+      {
+        const allMethods = await db.select().from(paymentMethods)
+          .where(and(eq(paymentMethods.active, true), inArray(paymentMethods.code, ["pix_loja", "cartao_loja"])));
+        const wantedCode = input.paymentMethod === "pix" ? "pix_loja" : "cartao_loja";
+        const method = allMethods.find(m => m.code === wantedCode);
+        let hidden = false;
+        if (method) {
+          if (input.eventId) {
+            const [row] = await db.select({ visible: storeEventPaymentMethodVisibility.visible }).from(storeEventPaymentMethodVisibility)
+              .where(and(eq(storeEventPaymentMethodVisibility.eventId, input.eventId), eq(storeEventPaymentMethodVisibility.paymentMethodId, method.id))).limit(1);
+            hidden = row ? !row.visible : false;
+          } else {
+            const [row] = await db.select({ visible: storeRegularPaymentMethodVisibility.visible }).from(storeRegularPaymentMethodVisibility)
+              .where(eq(storeRegularPaymentMethodVisibility.paymentMethodId, method.id)).limit(1);
+            hidden = row ? !row.visible : false;
+          }
+        }
+        if (!method || hidden) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Essa forma de pagamento não está disponível aqui." });
         }
       }
 

@@ -652,6 +652,39 @@ export const storeEventCategories = mysqlTable("store_event_categories", {
 export type StoreEvent = typeof storeEvents.$inferSelect;
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ─── FORMAS DE PAGAMENTO — controla o que aparece em cada lugar ───────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// Não cria formas de pagamento novas do zero (cada uma tem uma lógica técnica
+// própria por trás — PIX estático, Mercado Pago, etc.) — só controla QUAIS das
+// que já existem aparecem em cada contexto (Venda Regular, cada Evento).
+export const paymentMethods = mysqlTable("payment_methods", {
+  id: int("id").autoincrement().primaryKey(),
+  code: mysqlEnum("code", ["pix_loja", "cartao_loja", "dinheiro_vendedor", "pix_vendedor"]).notNull().unique(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  active: boolean("active").default(true).notNull(), // interruptor geral — desligado, some de todo lugar
+});
+
+// Liga/desliga uma forma de pagamento na Venda Regular especificamente
+// (opt-out, mesmo padrão de categorias/entrega — ausência de linha = visível).
+export const storeRegularPaymentMethodVisibility = mysqlTable("store_regular_payment_method_visibility", {
+  id: int("id").autoincrement().primaryKey(),
+  paymentMethodId: int("paymentMethodId").notNull().unique(),
+  visible: boolean("visible").default(true).notNull(),
+});
+
+// Liga/desliga uma forma de pagamento num Evento específico (opt-out, mesmo
+// padrão da Venda Regular — ausência de linha = visível. Assim, eventos já
+// existentes continuam com todas as formas ativas funcionando normalmente,
+// sem precisar de nenhuma configuração extra).
+export const storeEventPaymentMethodVisibility = mysqlTable("store_event_payment_method_visibility", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  paymentMethodId: int("paymentMethodId").notNull(),
+  visible: boolean("visible").default(true).notNull(),
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ─── AUDITORIA — quem mudou o quê ──────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 export const activityLog = mysqlTable("activity_log", {

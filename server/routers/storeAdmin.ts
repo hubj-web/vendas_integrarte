@@ -11,6 +11,7 @@ import {
   storeOrderPayments, storeProductVisibility, storeSettings, estoqueAtual,
   storeDeliveryMethodVisibility, storeEvents, storeEventCategories,
   storeRegularCategoryVisibility, orderItemVariationSelections, activityLog,
+  paymentMethods, storeRegularPaymentMethodVisibility, storeEventPaymentMethodVisibility,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { adminProcedure, router } from "../_core/trpc";
@@ -425,4 +426,77 @@ export const storeAdminRouter = router({
 
       return { inRegular, events, visibleInStore, storePrice: vis?.storePrice ?? null };
     }),
+
+  // ── FORMAS DE PAGAMENTO ─────────────────────────────────────────────────
+  paymentMethods: router({
+    /** Lista as 4 formas de pagamento, com estado global + visibilidade na Venda Regular */
+    list: adminProcedure.query(async () => {
+      const db = await getDb();
+      if (!db) return [];
+      const methods = await db.select().from(paymentMethods);
+      const regularVis = await db.select().from(storeRegularPaymentMethodVisibility);
+      const regularVisMap = new Map(regularVis.map(v => [v.paymentMethodId, v.visible]));
+      return methods.map(m => ({ ...m, visibleInRegular: regularVisMap.get(m.id) ?? true }));
+    }),
+
+    /** Liga/desliga uma forma de pagamento em todo o sistema (some de todo lugar) */
+    setActive: adminProcedure
+      .input(z.object({ id: z.number(), active: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await db.update(paymentMethods).set({ active: input.active }).where(eq(paymentMethods.id, input.id));
+        const [m] = await db.select({ name: paymentMethods.name }).from(paymentMethods).where(eq(paymentMethods.id, input.id)).limit(1);
+        await logActivity({
+          userId: ctx.user.id, userName: ctx.user.name, action: "store.paymentMethods.setActive",
+          entityType: "payment_method", entityId: input.id,
+          description: `${ctx.user.name} ${input.active ? "ativou" : "desativou"} a forma de pagamento "${m?.name ?? input.id}" em todo o sistema`,
+        });
+        return { success: true };
+      }),
+
+    /** Liga/desliga uma forma de pagamento especificamente na Venda Regular */
+    setRegularVisibility: adminProcedure
+      .input(z.object({ paymentMethodId: z.number(), visible: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [existing] = await db.select({ id: storeRegularPaymentMethodVisibility.id }).from(storeRegularPaymentMethodVisibility)
+          .where(eq(storeRegularPaymentMethodVisibility.paymentMethodId, input.paymentMethodId)).limit(1);
+        if (existing) {
+          await db.update(storeRegularPaymentMethodVisibility).set({ visible: input.visible }).where(eq(storeRegularPaymentMethodVisibility.id, existing.id));
+        } else {
+          await db.insert(storeRegularPaymentMethodVisibility).values({ paymentMethodId: input.paymentMethodId, visible: input.visible });
+        }
+        return { success: true };
+      }),
+
+    /** Lista as formas de pagamento de loja (PIX/Cartão) com o estado de visibilidade num evento específico */
+    listForEvent: adminProcedure
+      .input(z.object({ eventId: z.number() }))
+      .query(async ({ input }) => {
+        const db = await getDb();
+        if (!db) return [];
+        const methods = await db.select().from(paymentMethods).where(inArray(paymentMethods.code, ["pix_loja", "cartao_loja"]));
+        const vis = await db.select().from(storeEventPaymentMethodVisibility).where(eq(storeEventPaymentMethodVisibility.eventId, input.eventId));
+        const visMap = new Map(vis.map(v => [v.paymentMethodId, v.visible]));
+        return methods.map(m => ({ ...m, visibleInEvent: visMap.get(m.id) ?? true }));
+      }),
+
+    /** Liga/desliga uma forma de pagamento especificamente num evento */
+    setEventVisibility: adminProcedure
+      .input(z.object({ eventId: z.number(), paymentMethodId: z.number(), visible: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const [existing] = await db.select({ id: storeEventPaymentMethodVisibility.id }).from(storeEventPaymentMethodVisibility)
+          .where(and(eq(storeEventPaymentMethodVisibility.eventId, input.eventId), eq(storeEventPaymentMethodVisibility.paymentMethodId, input.paymentMethodId))).limit(1);
+        if (existing) {
+          await db.update(storeEventPaymentMethodVisibility).set({ visible: input.visible }).where(eq(storeEventPaymentMethodVisibility.id, existing.id));
+        } else {
+          await db.insert(storeEventPaymentMethodVisibility).values({ eventId: input.eventId, paymentMethodId: input.paymentMethodId, visible: input.visible });
+        }
+        return { success: true };
+      }),
+  }),
 });

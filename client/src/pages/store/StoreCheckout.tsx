@@ -59,6 +59,15 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
 
   const { data: deliveryMethods = [] } = trpc.publicStore.deliveryMethods.useQuery();
   const { data: mpConfig } = trpc.publicStore.mpPublicKey.useQuery();
+  const { data: allowedPayments } = trpc.publicStore.paymentMethods.useQuery({ eventId });
+  const pixEnabled = allowedPayments?.pix ?? true;
+  const cardEnabled = (allowedPayments?.creditCard ?? false) && CREDIT_CARD_ENABLED;
+
+  useEffect(() => {
+    if (!allowedPayments) return;
+    if (paymentMethod === "pix" && !pixEnabled && cardEnabled) setPaymentMethod("credit_card");
+    if (paymentMethod === "credit_card" && !cardEnabled && pixEnabled) setPaymentMethod("pix");
+  }, [allowedPayments, pixEnabled, cardEnabled]);
 
   const selectedMethod = deliveryMethods.find(m => m.id === deliveryMethodId);
   const requiresAddress = !!selectedMethod?.requiresAddress;
@@ -233,7 +242,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
           <Card>
             <CardHeader><CardTitle className="text-base">Forma de pagamento</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              {CREDIT_CARD_ENABLED && (
+              {pixEnabled && cardEnabled && (
                 <RadioGroup value={paymentMethod} onValueChange={v => setPaymentMethod(v as any)}>
                   <div className="flex items-center space-x-2 border rounded-lg p-3">
                     <RadioGroupItem value="pix" id="pm-pix" />
@@ -250,20 +259,32 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                 </RadioGroup>
               )}
 
-              {!CREDIT_CARD_ENABLED && (
+              {pixEnabled && !cardEnabled && (
                 <div className="flex items-center gap-2 border rounded-lg p-3 text-sm" style={{ borderColor: BRAND.blue, color: BRAND.blue }}>
                   <QrCode className="h-4 w-4" /> Pagamento via PIX
                 </div>
               )}
 
-              {paymentMethod === "pix" && (
+              {!pixEnabled && cardEnabled && (
+                <div className="flex items-center gap-2 border rounded-lg p-3 text-sm" style={{ borderColor: BRAND.blue, color: BRAND.blue }}>
+                  <CreditCard className="h-4 w-4" /> Pagamento via Cartão de Crédito
+                </div>
+              )}
+
+              {!pixEnabled && !cardEnabled && (
+                <div className="flex items-center gap-2 border rounded-lg p-3 text-sm text-destructive border-destructive">
+                  Nenhuma forma de pagamento disponível no momento. Tente novamente mais tarde.
+                </div>
+              )}
+
+              {paymentMethod === "pix" && pixEnabled && (
                 <Button className="w-full text-white" style={{ background: BRAND.green }} disabled={createOrder.isPending} onClick={submitPix}>
                   {createOrder.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                   Gerar QR Code PIX
                 </Button>
               )}
 
-              {CREDIT_CARD_ENABLED && paymentMethod === "credit_card" && (
+              {cardEnabled && paymentMethod === "credit_card" && (
                 <CardPaymentBrick
                   amount={grandTotal}
                   publicKey={mpConfig?.publicKey}

@@ -38,6 +38,7 @@ export default function LojaPublica() {
   const { data: events = [] } = trpc.storeAdmin.events.list.useQuery();
   const { data: allCategories = [] } = trpc.catalog.categories.list.useQuery();
   const { data: regularCategories = [] } = trpc.storeAdmin.listRegularCategories.useQuery();
+  const { data: paymentMethodsList = [] } = trpc.storeAdmin.paymentMethods.list.useQuery();
 
   const updateSettings = trpc.storeAdmin.updateSettings.useMutation({
     onSuccess: () => { utils.storeAdmin.getSettings.invalidate(); toast.success("Configuração salva!"); },
@@ -50,6 +51,12 @@ export default function LojaPublica() {
   });
   const setRegularCategoryVisibility = trpc.storeAdmin.setRegularCategoryVisibility.useMutation({
     onSuccess: () => { utils.storeAdmin.listRegularCategories.invalidate(); },
+  });
+  const setPaymentActive = trpc.storeAdmin.paymentMethods.setActive.useMutation({
+    onSuccess: () => { utils.storeAdmin.paymentMethods.list.invalidate(); toast.success("Atualizado!"); },
+  });
+  const setPaymentRegularVisibility = trpc.storeAdmin.paymentMethods.setRegularVisibility.useMutation({
+    onSuccess: () => { utils.storeAdmin.paymentMethods.list.invalidate(); },
   });
   const confirmPayment = trpc.storeAdmin.confirmPayment.useMutation({
     onSuccess: () => { utils.storeAdmin.orders.invalidate(); toast.success("Pagamento confirmado! Estoque atualizado."); },
@@ -97,6 +104,19 @@ export default function LojaPublica() {
     setSaleWindowStart(ev.saleStartsAt ? new Date(ev.saleStartsAt).toISOString().slice(0, 16) : "");
     setSaleWindowEnd(ev.saleEndsAt ? new Date(ev.saleEndsAt).toISOString().slice(0, 16) : "");
   }
+
+  const [paymentDialogEventId, setPaymentDialogEventId] = useState<number | null>(null);
+  const { data: eventPaymentMethods = [] } = trpc.storeAdmin.paymentMethods.listForEvent.useQuery(
+    { eventId: paymentDialogEventId ?? -1 }, { enabled: paymentDialogEventId !== null }
+  );
+  const setPaymentEventVisibility = trpc.storeAdmin.paymentMethods.setEventVisibility.useMutation({
+    onSuccess: () => { utils.storeAdmin.paymentMethods.listForEvent.invalidate(); },
+  });
+
+  function openPaymentDialog(ev: any) {
+    setPaymentDialogEventId(ev.id);
+  }
+
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
 
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
@@ -181,6 +201,7 @@ export default function LojaPublica() {
         <TabsList>
           <TabsTrigger value="eventos">Eventos</TabsTrigger>
           <TabsTrigger value="regular">Venda Regular</TabsTrigger>
+          <TabsTrigger value="pagamento">Formas de Pagamento</TabsTrigger>
           <TabsTrigger value="produtos">Produtos na Loja</TabsTrigger>
           <TabsTrigger value="entregas">Formas de Entrega</TabsTrigger>
           <TabsTrigger value="pedidos">Pedidos ({orders.length})</TabsTrigger>
@@ -239,6 +260,7 @@ export default function LojaPublica() {
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => openCategoriesDialog(ev)}>Categorias</Button>
                       <Button size="sm" variant="outline" onClick={() => openSaleWindowDialog(ev)}>Janela de venda</Button>
+                      <Button size="sm" variant="outline" onClick={() => openPaymentDialog(ev)}>Pagamento</Button>
                       <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm(`Excluir o evento "${ev.name}"?`)) deleteEvent.mutate({ id: ev.id }); }}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -282,6 +304,47 @@ export default function LojaPublica() {
               ))}
               {regularCategories.length === 0 && (
                 <p className="text-center text-muted-foreground py-8">Nenhuma categoria cadastrada.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="pagamento" className="space-y-3 pt-3">
+          <p className="text-sm text-muted-foreground">
+            Controla onde cada forma de pagamento aparece. O interruptor "Ativa" desliga em todo o sistema de uma vez;
+            "Na Venda Regular" controla só essa loja específica. Pra controlar por Evento, use o botão "Pagamento" no card do evento, na aba Eventos.
+          </p>
+          <Card>
+            <CardContent className="pt-4 space-y-1">
+              {paymentMethodsList.map((m: any) => (
+                <div key={m.id} className="flex items-center justify-between py-3 border-b last:border-0">
+                  <div>
+                    <p className="font-medium">{m.name}</p>
+                    {m.description && <p className="text-xs text-muted-foreground">{m.description}</p>}
+                  </div>
+                  <div className="flex items-center gap-4 shrink-0">
+                    {(m.code === "pix_loja" || m.code === "cartao_loja") && (
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs text-muted-foreground">Na Venda Regular</Label>
+                        <Switch
+                          checked={m.visibleInRegular}
+                          disabled={!m.active}
+                          onCheckedChange={(checked) => setPaymentRegularVisibility.mutate({ paymentMethodId: m.id, visible: checked })}
+                        />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground">Ativa</Label>
+                      <Switch
+                        checked={m.active}
+                        onCheckedChange={(checked) => setPaymentActive.mutate({ id: m.id, active: checked })}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {paymentMethodsList.length === 0 && (
+                <p className="text-center text-muted-foreground py-8">Nenhuma forma de pagamento cadastrada.</p>
               )}
             </CardContent>
           </Card>
@@ -593,6 +656,36 @@ export default function LojaPublica() {
             >
               Salvar
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={paymentDialogEventId !== null} onOpenChange={(open) => !open && setPaymentDialogEventId(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Formas de Pagamento do Evento</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Liga/desliga formas de pagamento só pra esse evento. Uma forma desativada em "Formas de Pagamento" (globalmente) não aparece aqui de jeito nenhum.
+          </p>
+          <div className="space-y-1">
+            {eventPaymentMethods.map((m: any) => (
+              <div key={m.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                <div>
+                  <p className="font-medium text-sm">{m.name}</p>
+                  {!m.active && <p className="text-xs text-destructive">Desativada globalmente</p>}
+                </div>
+                <Switch
+                  checked={m.visibleInEvent}
+                  disabled={!m.active}
+                  onCheckedChange={(checked) => paymentDialogEventId != null && setPaymentEventVisibility.mutate({ eventId: paymentDialogEventId, paymentMethodId: m.id, visible: checked })}
+                />
+              </div>
+            ))}
+            {eventPaymentMethods.length === 0 && (
+              <p className="text-center text-muted-foreground py-4 text-sm">Nenhuma forma de pagamento de loja cadastrada.</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setPaymentDialogEventId(null)}>Fechar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
