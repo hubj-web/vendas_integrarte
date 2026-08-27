@@ -85,6 +85,12 @@ export default function StoreReceipt({ ticketCode }: { ticketCode: string }) {
                 )}
               </div>
             ))}
+            {Number(order.deliveryCost) > 0 && (
+              <div className="flex justify-between text-sm">
+                <span>Entrega ({order.deliveryMethodName})</span>
+                <span>{fmt(order.deliveryCost ?? 0)}</span>
+              </div>
+            )}
           </div>
           <Separator />
           <div className="flex justify-between font-semibold">

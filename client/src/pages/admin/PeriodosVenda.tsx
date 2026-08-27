@@ -21,7 +21,7 @@ export default function PeriodosVenda() {
   const { data: periodos, isLoading } = trpc.periodosVenda.list.useQuery();
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
-  const [form, setForm] = useState({ descricao: "", dataAbertura: "", dataFechamento: "" });
+  const [form, setForm] = useState({ descricao: "", dataAbertura: "", dataFechamento: "", dataCorte: "" });
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
   const createMutation = trpc.periodosVenda.create.useMutation({
@@ -40,7 +40,7 @@ export default function PeriodosVenda() {
   function closeDialog() {
     setOpen(false);
     setEditId(null);
-    setForm({ descricao: "", dataAbertura: "", dataFechamento: "" });
+    setForm({ descricao: "", dataAbertura: "", dataFechamento: "", dataCorte: "" });
   }
 
   function toDatetimeLocal(v: string | Date) {
@@ -49,12 +49,13 @@ export default function PeriodosVenda() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
-  function openEdit(p: { id: number; descricao: string | null; dataAbertura: string | Date; dataFechamento: string | Date }) {
+  function openEdit(p: { id: number; descricao: string | null; dataAbertura: string | Date; dataFechamento: string | Date; dataCorte?: string | Date | null }) {
     setEditId(p.id);
     setForm({
       descricao: p.descricao ?? "",
       dataAbertura: toDatetimeLocal(p.dataAbertura),
       dataFechamento: toDatetimeLocal(p.dataFechamento),
+      dataCorte: p.dataCorte ? toDatetimeLocal(p.dataCorte) : "",
     });
     setOpen(true);
   }
@@ -67,9 +68,9 @@ export default function PeriodosVenda() {
       return;
     }
     if (editId) {
-      updateMutation.mutate({ id: editId, ...form });
+      updateMutation.mutate({ id: editId, descricao: form.descricao, dataAbertura: form.dataAbertura, dataFechamento: form.dataFechamento, dataCorte: form.dataCorte || null });
     } else {
-      createMutation.mutate(form);
+      createMutation.mutate({ descricao: form.descricao, dataAbertura: form.dataAbertura, dataFechamento: form.dataFechamento, dataCorte: form.dataCorte || undefined });
     }
   }
 
@@ -79,7 +80,7 @@ export default function PeriodosVenda() {
         title="Período de Vendas"
         description="Controle quando os vendedores podem lançar pedido normal — fora do período, só é possível vender o que já está no Integrarte Estoque"
         actions={
-          <Button onClick={() => { setEditId(null); setForm({ descricao: "", dataAbertura: "", dataFechamento: "" }); setOpen(true); }} className="gap-1.5">
+          <Button onClick={() => { setEditId(null); setForm({ descricao: "", dataAbertura: "", dataFechamento: "", dataCorte: "" }); setOpen(true); }} className="gap-1.5">
             <Plus className="w-4 h-4" /> Abrir Novo Período
           </Button>
         }
@@ -98,16 +99,19 @@ export default function PeriodosVenda() {
           {periodos?.map((p) => {
             const ativo = new Date(p.dataAbertura) <= hoje && new Date(p.dataFechamento) >= hoje;
             const futuro = new Date(p.dataAbertura) > hoje;
+            const emFaseCorte = ativo && p.dataCorte && new Date(p.dataCorte) <= hoje;
             return (
               <Card key={p.id}>
                 <CardContent className="p-4 flex items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="font-medium text-foreground">{p.descricao || `Período #${p.id}`}</p>
-                      {ativo && <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">Ativo agora</Badge>}
+                      {ativo && !emFaseCorte && <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">Pré-venda ativa</Badge>}
+                      {emFaseCorte && <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-xs">Só com estoque</Badge>}
                       {futuro && <Badge variant="outline" className="text-xs">Futuro</Badge>}
                     </div>
                     <p className="text-sm text-muted-foreground mt-0.5">{fmtData(p.dataAbertura)} até {fmtData(p.dataFechamento)}</p>
+                    {p.dataCorte && <p className="text-xs text-muted-foreground mt-0.5">Corte em {fmtData(p.dataCorte)}</p>}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p)}>
@@ -141,6 +145,14 @@ export default function PeriodosVenda() {
                 <Label>Fechamento (data e hora)</Label>
                 <Input type="datetime-local" value={form.dataFechamento} onChange={(e) => setForm(f => ({ ...f, dataFechamento: e.target.value }))} />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Data de corte (opcional)</Label>
+              <Input type="datetime-local" value={form.dataCorte} onChange={(e) => setForm(f => ({ ...f, dataCorte: e.target.value }))} />
+              <p className="text-xs text-muted-foreground">
+                A partir dessa data (ainda dentro do período), só é possível vender produtos "sob encomenda" que já tenham estoque real —
+                nos dias antes dela, vale a pré-venda sem checar estoque, normalmente. Deixe em branco pra manter o comportamento de sempre.
+              </p>
             </div>
           </div>
           <DialogFooter>

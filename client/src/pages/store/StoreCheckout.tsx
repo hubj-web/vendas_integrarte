@@ -62,6 +62,8 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
 
   const selectedMethod = deliveryMethods.find(m => m.id === deliveryMethodId);
   const requiresAddress = !!selectedMethod?.requiresAddress;
+  const deliveryCost = selectedMethod ? Number(selectedMethod.cost) : 0;
+  const grandTotal = total + deliveryCost;
 
   const createOrder = trpc.publicStore.createOrder.useMutation();
   const { data: orderStatus } = trpc.publicStore.orderStatus.useQuery(
@@ -170,10 +172,16 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                 <span>{fmt(item.unitPrice * item.quantity)}</span>
               </div>
             ))}
+            {deliveryCost > 0 && (
+              <div className="flex justify-between text-muted-foreground">
+                <span>Entrega ({selectedMethod?.name})</span>
+                <span>{fmt(deliveryCost)}</span>
+              </div>
+            )}
             <Separator className="my-2" />
             <div className="flex justify-between font-semibold">
               <span>Total</span>
-              <span>{fmt(total)}</span>
+              <span>{fmt(grandTotal)}</span>
             </div>
           </CardContent>
         </Card>
@@ -197,9 +205,12 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                   {deliveryMethods.map(m => (
                     <div key={m.id} className="flex items-center space-x-2 border rounded-lg p-3">
                       <RadioGroupItem value={String(m.id)} id={`dm-${m.id}`} />
-                      <Label htmlFor={`dm-${m.id}`} className="flex-1 cursor-pointer">
-                        <span className="font-medium">{m.name}</span>
-                        {m.description && <p className="text-xs text-muted-foreground">{m.description}</p>}
+                      <Label htmlFor={`dm-${m.id}`} className="flex-1 cursor-pointer flex items-center justify-between gap-2">
+                        <span>
+                          <span className="font-medium">{m.name}</span>
+                          {m.description && <p className="text-xs text-muted-foreground">{m.description}</p>}
+                        </span>
+                        {Number(m.cost) > 0 && <span className="text-sm font-medium shrink-0">+{fmt(Number(m.cost))}</span>}
                       </Label>
                     </div>
                   ))}
@@ -254,7 +265,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
 
               {CREDIT_CARD_ENABLED && paymentMethod === "credit_card" && (
                 <CardPaymentBrick
-                  amount={total}
+                  amount={grandTotal}
                   publicKey={mpConfig?.publicKey}
                   configured={!!mpConfig?.configured}
                   onSubmit={async (cardData) => {

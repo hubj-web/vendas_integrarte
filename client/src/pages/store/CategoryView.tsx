@@ -22,6 +22,7 @@ interface StoreProduct {
   id: number; name: string; categoryId: number | null; unit: string; price: string;
   description: string | null; maxFlavors: number; variationType: string; imageUrl: string | null;
   displaySize?: "pequeno" | "medio" | "grande" | null;
+  isPreOrder?: boolean;
   availableQuantity: number; flavors: { id: number; name: string }[];
   variationGroups?: VariationGroup[];
 }
@@ -229,7 +230,9 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <p className="font-medium leading-tight">{product.name}</p>
-                      <Badge variant="secondary" className="shrink-0">{product.availableQuantity} {product.unit}</Badge>
+                      <Badge variant="secondary" className="shrink-0">
+                        {product.isPreOrder ? "Sob encomenda" : `${product.availableQuantity} ${product.unit}`}
+                      </Badge>
                     </div>
                     {product.description && <p className="text-xs text-muted-foreground mt-0.5">{product.description}</p>}
                   </div>

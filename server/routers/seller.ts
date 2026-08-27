@@ -22,12 +22,26 @@ import { sendOrderNotification } from "../telegram";
 
 export type DB = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
-/** Verifica se hoje cai dentro de algum período de venda aberto. */
-export async function periodoVendaAtivo(db: DB): Promise<boolean> {
+export type PeriodoFase = "pre_venda" | "somente_estoque" | "fechado";
+
+/**
+ * Fase do período de vendas agora:
+ * - "pre_venda": pode vender sem checar estoque (comportamento de sempre).
+ * - "somente_estoque": já passou da data de corte — só o que tem estoque real.
+ * - "fechado": nenhum período aberto agora.
+ */
+export async function periodoVendaFase(db: DB): Promise<PeriodoFase> {
   const hoje = new Date();
-  const periodos = await db.select({ id: periodosVenda.id }).from(periodosVenda)
+  const periodos = await db.select().from(periodosVenda)
     .where(and(lte(periodosVenda.dataAbertura, hoje), gte(periodosVenda.dataFechamento, hoje)));
-  return periodos.length > 0;
+  if (periodos.length === 0) return "fechado";
+  const algumEmPreVenda = periodos.some(p => !p.dataCorte || hoje < p.dataCorte);
+  return algumEmPreVenda ? "pre_venda" : "somente_estoque";
+}
+
+/** Verifica se hoje cai dentro de algum período de venda aberto, na fase de pré-venda (sem checar estoque). */
+export async function periodoVendaAtivo(db: DB): Promise<boolean> {
+  return (await periodoVendaFase(db)) === "pre_venda";
 }
 
 /** Busca as linhas de estoque de um produto+sabor, mais antigas primeiro (FIFO). */
@@ -243,15 +257,20 @@ export const sellerRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // Se o período de vendas está fechado (e não é lançamento pelo CRM), só
-      // pode vender o que já está no Integrarte Estoque — confere TUDO antes
-      // de criar qualquer coisa, pra não deixar pedido pela metade.
+      // Se o período de vendas não está na fase de pré-venda (fechado, ou já
+      // passou da data de corte, se houver uma), só pode vender o que já
+      // está no Integrarte Estoque — confere TUDO antes de criar qualquer
+      // coisa, pra não deixar pedido pela metade.
       let periodoFechado = false;
+      let faseAtual: PeriodoFase = "pre_venda";
       let lotesPorItem: { item: (typeof input.items)[number]; lotes: Awaited<ReturnType<typeof buscarLotesEstoque>> }[] = [];
       if (!input.viaAdmin) {
-        const ativo = await periodoVendaAtivo(db);
-        periodoFechado = !ativo;
+        faseAtual = await periodoVendaFase(db);
+        periodoFechado = faseAtual !== "pre_venda";
         if (periodoFechado) {
+          const motivo = faseAtual === "somente_estoque"
+            ? "o período de vendas já passou da data limite de pré-venda"
+            : "o período de vendas está fechado";
           for (const item of input.items) {
             const lotes = await buscarLotesEstoque(db, item.productId, item.flavorIds ?? []);
             const disponivel = lotes.reduce((acc, l) => acc + l.quantity, 0);
@@ -261,8 +280,8 @@ export const sellerRouter = router({
               throw new TRPCError({
                 code: "BAD_REQUEST",
                 message: disponivel === 0
-                  ? `"${nomeItem}" não existe — o período de vendas está fechado, só é possível vender o que já está no Integrarte Estoque.`
-                  : `Só há ${disponivel} de "${nomeItem}" no Integrarte Estoque (pedido: ${item.quantity}) — o período de vendas está fechado.`,
+                  ? `"${nomeItem}" não existe — ${motivo}, só é possível vender o que já está no Integrarte Estoque.`
+                  : `Só há ${disponivel} de "${nomeItem}" no Integrarte Estoque (pedido: ${item.quantity}) — ${motivo}.`,
               });
             }
             lotesPorItem.push({ item, lotes });
@@ -854,6 +873,7 @@ export const periodosVendaRouter = router({
       descricao: z.string().optional(),
       dataAbertura: z.string(), // "2026-07-30T12:00" (datetime-local)
       dataFechamento: z.string(),
+      dataCorte: z.string().optional(), // opcional — a partir daqui, só vende com estoque real
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -864,11 +884,19 @@ export const periodosVendaRouter = router({
       if (fechamento < abertura) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "A data/hora de fechamento não pode ser antes da abertura." });
       }
+      let corte: Date | undefined;
+      if (input.dataCorte) {
+        corte = new Date(input.dataCorte);
+        if (corte < abertura || corte > fechamento) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A data de corte precisa estar entre a abertura e o fechamento." });
+        }
+      }
 
       await db.insert(periodosVenda).values({
         descricao: input.descricao,
         dataAbertura: abertura,
         dataFechamento: fechamento,
+        dataCorte: corte,
         createdBy: ctx.user.id,
       });
       return { success: true };
@@ -880,6 +908,7 @@ export const periodosVendaRouter = router({
       descricao: z.string().optional(),
       dataAbertura: z.string(),
       dataFechamento: z.string(),
+      dataCorte: z.string().nullable().optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -890,11 +919,19 @@ export const periodosVendaRouter = router({
       if (fechamento < abertura) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "A data/hora de fechamento não pode ser antes da abertura." });
       }
+      let corte: Date | null | undefined = undefined;
+      if (input.dataCorte !== undefined) {
+        corte = input.dataCorte ? new Date(input.dataCorte) : null;
+        if (corte && (corte < abertura || corte > fechamento)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A data de corte precisa estar entre a abertura e o fechamento." });
+        }
+      }
 
       await db.update(periodosVenda).set({
         descricao: input.descricao,
         dataAbertura: abertura,
         dataFechamento: fechamento,
+        ...(corte !== undefined ? { dataCorte: corte } : {}),
       }).where(eq(periodosVenda.id, input.id));
       return { success: true };
     }),

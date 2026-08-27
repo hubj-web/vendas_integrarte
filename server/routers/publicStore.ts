@@ -23,7 +23,7 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
-import { buscarLotesEstoque, descontarLotesEstoque } from "./seller";
+import { buscarLotesEstoque, descontarLotesEstoque, periodoVendaFase } from "./seller";
 import { createMercadoPagoPayment, mercadoPagoConfigured } from "../mercadopago";
 import { buildPixPayload, generatePixQrCodeBase64, pixConfigured } from "../pix";
 import { generateQrCodeBase64 } from "../qr";
@@ -69,41 +69,53 @@ async function buildCatalog(
   categoryIdFilter?: number[],
   excludeCategoryIds?: number[],
 ) {
+  const fase = await periodoVendaFase(db);
+  const emPreVenda = fase === "pre_venda";
+
   const estoqueLinhas = await db.select({
     id: estoqueAtual.id, productId: estoqueAtual.productId, quantidade: estoqueAtual.quantidade,
   }).from(estoqueAtual).where(gte(estoqueAtual.quantidade, 1));
 
-  if (estoqueLinhas.length === 0) return { categories: [], products: [] };
-
   const estoqueIds = estoqueLinhas.map(l => l.id);
-  const flavorRows = await db.select({
-    estoqueAtualId: estoqueAtualFlavors.estoqueAtualId, productFlavorId: estoqueAtualFlavors.productFlavorId, flavorName: estoqueAtualFlavors.flavorName,
-  }).from(estoqueAtualFlavors).where(inArray(estoqueAtualFlavors.estoqueAtualId, estoqueIds));
+  const flavorRows = estoqueIds.length > 0
+    ? await db.select({
+        estoqueAtualId: estoqueAtualFlavors.estoqueAtualId, productFlavorId: estoqueAtualFlavors.productFlavorId, flavorName: estoqueAtualFlavors.flavorName,
+      }).from(estoqueAtualFlavors).where(inArray(estoqueAtualFlavors.estoqueAtualId, estoqueIds))
+    : [];
   const flavorsByLinha: Record<number, { id: number; name: string }[]> = {};
   for (const f of flavorRows) (flavorsByLinha[f.estoqueAtualId] ??= []).push({ id: f.productFlavorId, name: f.flavorName });
 
   const productIdsComEstoque = Array.from(new Set(estoqueLinhas.map(l => l.productId)));
 
-  const visibilidade = await db.select().from(storeProductVisibility)
-    .where(and(inArray(storeProductVisibility.productId, productIdsComEstoque), eq(storeProductVisibility.visible, true)));
+  // Todo produto marcado visível na loja — não só quem tem estoque, porque
+  // um "sob encomenda" pode aparecer mesmo sem estoque nenhum, durante a
+  // fase de pré-venda.
+  const visibilidade = await db.select().from(storeProductVisibility).where(eq(storeProductVisibility.visible, true));
   const visibilidadeMap = new Map(visibilidade.map(v => [v.productId, v]));
-  const productIdsVisiveis = productIdsComEstoque.filter(id => visibilidadeMap.has(id));
+  const visibleProductIds = visibilidade.map(v => v.productId);
 
-  if (productIdsVisiveis.length === 0) return { categories: [], products: [] };
+  if (visibleProductIds.length === 0) return { categories: [], products: [] };
 
-  const prodConditions = [inArray(products.id, productIdsVisiveis), eq(products.active, true)];
+  const prodConditions = [inArray(products.id, visibleProductIds), eq(products.active, true)];
   if (categoryIdFilter) prodConditions.push(inArray(products.categoryId, categoryIdFilter));
 
   const prods = await db.select({
     id: products.id, name: products.name, categoryId: products.categoryId,
     unit: products.unit, price: products.price, description: products.description,
     maxFlavors: products.maxFlavors, variationType: products.variationType, imageUrl: products.imageUrl,
-    displaySize: products.displaySize,
+    displaySize: products.displaySize, allowPreOrder: products.allowPreOrder,
   }).from(products).where(and(...prodConditions));
 
-  const prodsFiltered = excludeCategoryIds && excludeCategoryIds.length > 0
+  // Produto entra no catálogo se: tem estoque de verdade, OU é "sob
+  // encomenda" e estamos na fase de pré-venda (aí não precisa de estoque).
+  const productIdsVisiveis = prods
+    .filter(p => productIdsComEstoque.includes(p.id) || (p.allowPreOrder && emPreVenda))
+    .map(p => p.id);
+
+  const prodsFiltered = (excludeCategoryIds && excludeCategoryIds.length > 0
     ? prods.filter(p => !p.categoryId || !excludeCategoryIds.includes(p.categoryId))
-    : prods;
+    : prods
+  ).filter(p => productIdsVisiveis.includes(p.id));
 
   const categoriaIds = Array.from(new Set(prodsFiltered.map(p => p.categoryId).filter((v): v is number => v != null)));
   const categorias = categoriaIds.length > 0
@@ -135,12 +147,15 @@ async function buildCatalog(
 
   const productsOut = prodsFiltered.map(p => {
     const vis = visibilidadeMap.get(p.id);
+    const isPreOrder = p.allowPreOrder && emPreVenda;
     return {
       id: p.id, name: p.name, categoryId: p.categoryId, unit: p.unit,
       price: vis?.storePrice ?? p.price,
       description: p.description, maxFlavors: p.maxFlavors ?? 0,
       variationType: p.variationType, imageUrl: p.imageUrl, displaySize: p.displaySize,
-      availableQuantity: qtyByProduct[p.id] ?? 0,
+      isPreOrder,
+      // Sob encomenda = sem limite de estoque nessa fase; senão, é a quantidade real.
+      availableQuantity: isPreOrder ? Number.MAX_SAFE_INTEGER : (qtyByProduct[p.id] ?? 0),
       flavors: Array.from((flavorsByProduct[p.id] ?? new Map()).entries()).map(([id, name]) => ({ id, name })),
       variationGroups: (groupsByProduct[p.id] ?? []).map(g => ({
         id: g.id, name: g.name, required: g.required, allowMultiple: g.allowMultiple,
@@ -310,10 +325,14 @@ export const publicStoreRouter = router({
         .where(inArray(products.id, input.items.map(i => i.productId)));
       const produtosMap = new Map(produtosRows.map(p => [p.id, p]));
 
+      const fase = await periodoVendaFase(db);
+      const emPreVenda = fase === "pre_venda";
+
       let totalAmount = 0;
       const itemsResolved: {
         productId: number; quantity: number; flavorIds: number[]; unitPrice: number; subtotal: number; nomeItem: string;
         selections: { groupName: string; optionName: string; additionalPrice: number }[];
+        isPreOrder: boolean;
       }[] = [];
 
       for (const item of input.items) {
@@ -325,15 +344,22 @@ export const publicStoreRouter = router({
         if (allowedCategoryIds && (!prod.categoryId || !allowedCategoryIds.includes(prod.categoryId))) {
           throw new TRPCError({ code: "BAD_REQUEST", message: `"${prod.name}" não pertence a este evento.` });
         }
-        const lotes = await buscarLotesEstoque(db, item.productId, item.flavorIds ?? []);
-        const disponivel = lotes.reduce((acc, l) => acc + l.quantity, 0);
-        if (disponivel < item.quantity) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: disponivel === 0
-              ? `"${prod.name}" acabou de esgotar. Atualize a página e tente novamente.`
-              : `Só restam ${disponivel} de "${prod.name}" — ajuste a quantidade no carrinho.`,
-          });
+
+        // Item "sob encomenda" durante a pré-venda não precisa de estoque —
+        // é registrado sem checar/descontar nada, igual já acontece com o
+        // vendedor. Fora dessa fase, cai na regra normal (precisa estoque real).
+        const isPreOrder = prod.allowPreOrder && emPreVenda;
+        if (!isPreOrder) {
+          const lotes = await buscarLotesEstoque(db, item.productId, item.flavorIds ?? []);
+          const disponivel = lotes.reduce((acc, l) => acc + l.quantity, 0);
+          if (disponivel < item.quantity) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: disponivel === 0
+                ? `"${prod.name}" acabou de esgotar. Atualize a página e tente novamente.`
+                : `Só restam ${disponivel} de "${prod.name}" — ajuste a quantidade no carrinho.`,
+            });
+          }
         }
 
         // Grupos de variação múltipla (tipo de macarrão, molho, condimentos...) —
@@ -363,8 +389,14 @@ export const publicStoreRouter = router({
         const unitPrice = Number(vis.storePrice ?? prod.price) + additionalPrice;
         const subtotal = unitPrice * item.quantity;
         totalAmount += subtotal;
-        itemsResolved.push({ productId: item.productId, quantity: item.quantity, flavorIds: item.flavorIds ?? [], unitPrice, subtotal, nomeItem: prod.name, selections });
+        itemsResolved.push({ productId: item.productId, quantity: item.quantity, flavorIds: item.flavorIds ?? [], unitPrice, subtotal, nomeItem: prod.name, selections, isPreOrder });
       }
+
+      // Soma o custo da forma de entrega escolhida (quando tiver) no total.
+      const [chosenDeliveryMethod] = await db.select({ cost: deliveryMethods.cost, name: deliveryMethods.name })
+        .from(deliveryMethods).where(eq(deliveryMethods.id, input.deliveryMethodId)).limit(1);
+      const deliveryCost = Number(chosenDeliveryMethod?.cost ?? 0);
+      totalAmount += deliveryCost;
 
       // Acha ou cria o cliente pelo telefone (sem senha, sem login)
       const [existingCustomer] = await db.select().from(customers).where(eq(customers.phone, input.customerPhone)).limit(1);
@@ -459,6 +491,7 @@ export const publicStoreRouter = router({
         if (mpResult.status === "approved") {
           await db.update(orders).set({ paymentStatus: "paid" }).where(eq(orders.id, orderId));
           for (const item of itemsResolved) {
+            if (item.isPreOrder) continue; // sob encomenda: não desconta estoque, não tem o que descontar
             const lotes = await buscarLotesEstoque(db, item.productId, item.flavorIds);
             await descontarLotesEstoque(db, lotes, item.quantity);
           }
@@ -506,9 +539,10 @@ async function resolveOrderDetails(db: NonNullable<Awaited<ReturnType<typeof get
     id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
     totalAmount: orders.totalAmount, createdAt: orders.createdAt,
     deliveryMethodId: orders.deliveryMethodId, eventId: orders.eventId, ticketCode: orders.ticketCode,
-    customerName: customers.name,
+    customerName: customers.name, deliveryMethodName: deliveryMethods.name, deliveryCost: deliveryMethods.cost,
   }).from(orders)
     .leftJoin(customers, eq(orders.customerId, customers.id))
+    .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
     .where(whereClause)
     .limit(1);
   if (!order) throw new TRPCError({ code: "NOT_FOUND" });

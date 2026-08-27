@@ -90,6 +90,10 @@ export const products = mysqlTable("products", {
   // Tamanho de destaque na Loja Pública — permite deixar um produto maior
   // que outro na lista (ex: destacar um item específico).
   displaySize: mysqlEnum("displaySize", ["pequeno", "medio", "grande"]).default("medio").notNull(),
+  // "Sob encomenda" — enquanto o Período de Vendas estiver na fase de
+  // pré-venda (antes da data de corte), este produto pode ser vendido na
+  // Loja Pública sem checar estoque, igual já acontece pro vendedor.
+  allowPreOrder: boolean("allowPreOrder").default(false).notNull(),
   maxFlavors: int("maxFlavors").default(0), // 0 = sem sabores, >0 = quantidade máxima de sabores
   // Rótulo da variação (o que o campo "sabores" representa pra esse produto).
   // Aditivo — todo produto já existente assume 'sabor' (comportamento atual preservado).
@@ -181,6 +185,10 @@ export const deliveryMethods = mysqlTable("delivery_methods", {
   name: varchar("name", { length: 150 }).notNull(),
   description: text("description"),
   requiresAddress: boolean("requiresAddress").default(false).notNull(),
+  // Custo de entrega (opcional) — quando > 0, soma no total do pedido da
+  // Loja Pública quando o cliente escolhe essa forma de entrega. Aditivo:
+  // default 0.00 preserva o comportamento de sempre (sem cobrança extra).
+  cost: decimal("cost", { precision: 10, scale: 2 }).default("0.00").notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -485,6 +493,10 @@ export const periodosVenda = mysqlTable("periodos_venda", {
   descricao: varchar("descricao", { length: 200 }),
   dataAbertura: timestamp("dataAbertura").notNull(),
   dataFechamento: timestamp("dataFechamento").notNull(),
+  // Opcional — a partir dessa data (ainda dentro do período), só é possível
+  // vender o que já está no Estoque Integrarte de verdade. Antes dela (ou se
+  // não for preenchida), vale a pré-venda sem checar estoque, como sempre.
+  dataCorte: timestamp("dataCorte"),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });

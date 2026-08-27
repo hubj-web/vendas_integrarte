@@ -25,6 +25,7 @@ type Product = {
   displaySize: "pequeno" | "medio" | "grande" | null;
   imageUrl: string | null;
   supplierId: number | null;
+  allowPreOrder: boolean | null;
 };
 
 const VARIATION_LABELS: Record<string, string> = { sabor: "Sabor", tamanho: "Tamanho", cor: "Cor" };
@@ -100,7 +101,7 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
 
-  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "" });
+  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "", allowPreOrder: false });
 
   // Flavor management dialog
   const [showFlavors, setShowFlavors] = useState(false);
@@ -142,7 +143,7 @@ export default function Products() {
   function openCreate() {
     setEditing(null);
     setImagePreview(null);
-    setForm({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "" });
+    setForm({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "", allowPreOrder: false });
     setOpen(true);
   }
 
@@ -161,6 +162,7 @@ export default function Products() {
       variationType: p.variationType ?? "sabor",
       displaySize: p.displaySize ?? "medio",
       supplierId: p.supplierId ? String(p.supplierId) : "",
+      allowPreOrder: p.allowPreOrder ?? false,
     });
     setOpen(true);
   }
@@ -194,6 +196,7 @@ export default function Products() {
         maxFlavors,
         variationType,
         displaySize,
+        allowPreOrder: form.allowPreOrder,
       });
     } else {
       createMutation.mutate({
@@ -208,6 +211,7 @@ export default function Products() {
         maxFlavors,
         variationType,
         displaySize,
+        allowPreOrder: form.allowPreOrder,
       });
     }
   }
@@ -447,6 +451,16 @@ export default function Products() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">"Grande" aparece com foto maior na lista de produtos.</p>
+            </div>
+            <div className="border rounded-lg p-3 space-y-1 bg-muted/30">
+              <div className="flex items-center justify-between">
+                <Label className="cursor-pointer" htmlFor="allow-pre-order">Vender sob encomenda (sem checar estoque)</Label>
+                <Switch id="allow-pre-order" checked={form.allowPreOrder} onCheckedChange={v => setForm(f => ({ ...f, allowPreOrder: v }))} />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Enquanto o Período de Vendas estiver na fase de pré-venda (antes da data de corte), este produto
+                pode ser comprado na Loja Pública sem precisar de estoque — igual já acontece com o vendedor.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Fornecedor</Label>

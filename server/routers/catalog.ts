@@ -124,6 +124,7 @@ const productsRouter = router({
         variationType: products.variationType,
         imageUrl: products.imageUrl,
         displaySize: products.displaySize,
+        allowPreOrder: products.allowPreOrder,
       })
         .from(products)
         .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
@@ -146,6 +147,7 @@ const productsRouter = router({
       maxFlavors: z.number().min(0).default(0),
       variationType: z.enum(["sabor", "tamanho", "cor"]).default("sabor"),
       displaySize: z.enum(["pequeno", "medio", "grande"]).default("medio"),
+      allowPreOrder: z.boolean().default(false),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -164,6 +166,7 @@ const productsRouter = router({
         maxFlavors: input.maxFlavors,
         variationType: input.variationType,
         displaySize: input.displaySize,
+        allowPreOrder: input.allowPreOrder,
       });
       return { success: true };
     }),
@@ -178,6 +181,7 @@ const productsRouter = router({
       maxFlavors: z.number().min(0).optional(),
       variationType: z.enum(["sabor", "tamanho", "cor"]).optional(),
       displaySize: z.enum(["pequeno", "medio", "grande"]).optional(),
+      allowPreOrder: z.boolean().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -349,7 +353,7 @@ const deliveryMethodsRouter = router({
     return db.select().from(deliveryMethods).orderBy(asc(deliveryMethods.name));
   }),
   create: adminProcedure
-    .input(z.object({ name: z.string().min(2), description: z.string().optional(), requiresAddress: z.boolean().default(false) }))
+    .input(z.object({ name: z.string().min(2), description: z.string().optional(), requiresAddress: z.boolean().default(false), cost: z.string().default("0.00") }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -357,7 +361,7 @@ const deliveryMethodsRouter = router({
       return { success: true };
     }),
   update: adminProcedure
-    .input(z.object({ id: z.number(), name: z.string().optional(), description: z.string().optional(), requiresAddress: z.boolean().optional(), active: z.boolean().optional() }))
+    .input(z.object({ id: z.number(), name: z.string().optional(), description: z.string().optional(), requiresAddress: z.boolean().optional(), active: z.boolean().optional(), cost: z.string().optional() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
