@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { ClipboardList, ShoppingCart, Truck, HeartHandshake } from "lucide-react";
+import { ClipboardList, ShoppingCart, Truck } from "lucide-react";
 
 const LOGO_URL = "/integrarte-logo.png";
 
@@ -24,13 +24,6 @@ const menuItems = [
     href: "/entregador",
     icon: Truck,
     color: "from-orange-500 to-orange-600",
-  },
-  {
-    label: "ERP INTEGRARTE",
-    description: "Voluntários, suprimentos e atividades",
-    href: "/gestao",
-    icon: HeartHandshake,
-    color: "from-purple-500 to-purple-600",
   },
 ];
 

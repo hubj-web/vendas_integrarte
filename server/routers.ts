@@ -12,7 +12,6 @@ import { exportsRouter } from "./routers/exports";
 import { routeOptimizationRouter } from "./routers/routeOptimization";
 import { suppliersRouter } from "./routers/suppliers";
 import { packagingRouter } from "./routers/packaging";
-import { gestaoRouter } from "./routers/gestao";
 import { estoqueRouter, pedidosEstoqueRouter } from "./routers/estoque";
 import { publicStoreRouter } from "./routers/publicStore";
 import { storeAdminRouter } from "./routers/storeAdmin";
@@ -32,7 +31,6 @@ export const appRouter = router({
   routeOptimization: routeOptimizationRouter,
   suppliers: suppliersRouter,
   packaging: packagingRouter,
-  gestao: gestaoRouter,
   estoque: estoqueRouter,
   pedidosEstoque: pedidosEstoqueRouter,
   publicStore: publicStoreRouter,
