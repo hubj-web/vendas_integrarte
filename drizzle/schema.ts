@@ -224,7 +224,7 @@ export const orders = mysqlTable("orders", {
   deliveryMethodId: int("deliveryMethodId").notNull(),
   deliveryDate: timestamp("deliveryDate"),
   deliveryAddress: text("deliveryAddress"),
-  paymentMethod: mysqlEnum("paymentMethod", ["cash", "pix", "credit_card"]).notNull(),
+  paymentMethod: mysqlEnum("paymentMethod", ["cash", "pix", "credit_card", "debit_card"]).notNull(),
   // Origem do pedido: 'periodo' = fluxo normal (vendedor, período de vendas),
   // 'loja_publica' = comprado pelo cliente direto na loja on-line (sem login).
   // Aditivo — todo pedido antigo/existente fica com o default 'periodo'.
@@ -659,7 +659,7 @@ export type StoreEvent = typeof storeEvents.$inferSelect;
 // que já existem aparecem em cada contexto (Venda Regular, cada Evento).
 export const paymentMethods = mysqlTable("payment_methods", {
   id: int("id").autoincrement().primaryKey(),
-  code: mysqlEnum("code", ["pix_loja", "cartao_loja", "dinheiro_vendedor", "pix_vendedor"]).notNull().unique(),
+  code: mysqlEnum("code", ["pix_loja", "cartao_loja", "dinheiro_vendedor", "pix_vendedor", "cartao_vendedor", "debito_vendedor"]).notNull().unique(),
   name: varchar("name", { length: 100 }).notNull(),
   description: text("description"),
   active: boolean("active").default(true).notNull(), // interruptor geral — desligado, some de todo lugar

@@ -83,7 +83,7 @@ export const sellerEventsRouter = router({
       items: z.array(z.object({
         productId: z.number(), quantity: z.number().min(1), flavorIds: z.array(z.number()).optional(),
       })).min(1),
-      paymentMethod: z.enum(["cash", "pix"]),
+      paymentMethod: z.enum(["cash", "pix", "credit_card", "debit_card"]),
       paymentStatus: z.enum(["pending", "paid"]).default("paid"),
       notes: z.string().optional(),
     }))

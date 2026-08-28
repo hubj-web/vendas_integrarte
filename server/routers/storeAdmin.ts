@@ -69,12 +69,17 @@ export const storeAdminRouter = router({
     const qtyByProduct: Record<number, number> = {};
     for (const l of estoqueLinhas) qtyByProduct[l.productId] = (qtyByProduct[l.productId] ?? 0) + l.quantidade;
 
-    const productIds = Object.keys(qtyByProduct).map(Number);
+    // Produto "sob encomenda" pode ter ZERO estoque de propósito (é o objetivo
+    // da pré-venda) — precisa aparecer aqui mesmo assim, senão não tem como
+    // ativar ele na loja nunca.
+    const preOrderRows = await db.select({ id: products.id }).from(products).where(eq(products.allowPreOrder, true));
+
+    const productIds = Array.from(new Set([...Object.keys(qtyByProduct).map(Number), ...preOrderRows.map(p => p.id)]));
     if (productIds.length === 0) return [];
 
     const prods = await db.select({
       id: products.id, name: products.name, price: products.price, unit: products.unit,
-      categoryId: products.categoryId, categoryName: productCategories.name,
+      categoryId: products.categoryId, categoryName: productCategories.name, allowPreOrder: products.allowPreOrder,
     }).from(products)
       .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
       .where(inArray(products.id, productIds));

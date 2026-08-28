@@ -318,7 +318,9 @@ export default function Products() {
                             checked={sp.visible}
                             onCheckedChange={(checked) => setStoreVisibility.mutate({ productId: p.id, visible: checked, storePrice: sp.storePrice })}
                           />
-                          <span className="text-xs text-muted-foreground">{sp.stockQuantity} {p.unit}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {sp.allowPreOrder && sp.stockQuantity === 0 ? "Sob encomenda" : `${sp.stockQuantity} ${p.unit}`}
+                          </span>
                         </div>
                       );
                     })()}

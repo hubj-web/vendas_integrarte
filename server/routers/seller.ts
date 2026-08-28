@@ -118,6 +118,17 @@ export function requireLauncherRole(ctx: TrpcContext) {
 }
 
 export const sellerRouter = router({
+  /** Formas de pagamento que o vendedor pode usar (Dinheiro/PIX/Cartão/Débito), conforme ativadas no cadastro */
+  paymentMethods: protectedProcedure.query(async ({ ctx }) => {
+    requireLauncherRole(ctx);
+    const db = await getDb();
+    if (!db) return [];
+    const { paymentMethods } = await import("../../drizzle/schema");
+    const { inArray, eq } = await import("drizzle-orm");
+    return db.select().from(paymentMethods)
+      .where(and(eq(paymentMethods.active, true), inArray(paymentMethods.code, ["dinheiro_vendedor", "pix_vendedor", "cartao_vendedor", "debito_vendedor"])));
+  }),
+
   /** Catálogo: categorias, produtos, sabores, formas de entrega */
   catalog: protectedProcedure.query(async ({ ctx }) => {
     requireLauncherRole(ctx);
@@ -238,7 +249,7 @@ export const sellerRouter = router({
       deliveryMethodId: z.number(),
       deliveryDate: z.string().optional(),
       deliveryAddress: z.string().optional(),
-      paymentMethod: z.enum(["cash", "pix"]),
+      paymentMethod: z.enum(["cash", "pix", "credit_card", "debit_card"]),
       notes: z.string().optional(),
       totalAmount: z.string(),
       items: z.array(z.object({
@@ -540,7 +551,7 @@ export const sellerRouter = router({
       deliveryMethodId: z.number().optional(),
       deliveryDate: z.string().optional(),
       deliveryAddress: z.string().optional(),
-      paymentMethod: z.enum(["cash", "pix"]).optional(),
+      paymentMethod: z.enum(["cash", "pix", "credit_card", "debit_card"]).optional(),
       notes: z.string().optional(),
       totalAmount: z.string().optional(),
       items: z.array(z.object({
@@ -738,7 +749,7 @@ export const sellerRouter = router({
       deliveryMethodId: z.number(),
       deliveryDate: z.string().optional(),
       deliveryAddress: z.string().optional(),
-      paymentMethod: z.enum(["cash", "pix"]),
+      paymentMethod: z.enum(["cash", "pix", "credit_card", "debit_card"]),
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
