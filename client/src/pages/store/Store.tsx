@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
-import { Store as StoreIcon, ShoppingCart, ImageIcon } from "lucide-react";
+import { ShoppingCart } from "lucide-react";
 import CategoryView from "./CategoryView";
 import StoreCheckout from "./StoreCheckout";
 import { BRAND } from "./brand";
@@ -185,17 +185,18 @@ export default function Store() {
           {activeOptions.map(opt => (
             <button key={String(opt.id)} onClick={() => chooseContext(opt)} className="text-left group">
               <Card className="overflow-hidden transition-all group-hover:shadow-md" style={{ borderColor: BRAND.yellow, borderWidth: 2 }}>
-                <div className="aspect-[3/2] flex items-center justify-center overflow-hidden" style={{ background: BRAND.yellowLight }}>
+                <div className="aspect-square flex items-center justify-center overflow-hidden p-2" style={{ background: BRAND.yellowLight }}>
                   {opt.imageUrl ? (
                     <img src={opt.imageUrl} alt={opt.name} className="w-full h-full object-cover" />
                   ) : (
-                    <StoreIcon className="h-8 w-8" style={{ color: BRAND.blue, opacity: 0.4 }} />
+                    <p className="font-semibold text-center" style={{ color: BRAND.blue }}>{opt.name}</p>
                   )}
                 </div>
-                <CardContent className="p-4">
-                  <p className="font-semibold" style={{ color: BRAND.blue }}>{opt.name}</p>
-                  {opt.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{opt.description}</p>}
-                </CardContent>
+                {opt.imageUrl && opt.description && (
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground line-clamp-2">{opt.description}</p>
+                  </CardContent>
+                )}
               </Card>
             </button>
           ))}
@@ -248,18 +249,15 @@ export default function Store() {
               >
                 <Card className="overflow-hidden transition-all group-hover:shadow-md" style={{ borderColor: BRAND.yellow, borderWidth: 2 }}>
                   <div
-                    className={`flex items-center justify-center overflow-hidden ${cat.displaySize === "pequeno" ? "aspect-[2/1]" : "aspect-square"}`}
+                    className="aspect-square flex items-center justify-center overflow-hidden p-2"
                     style={{ background: BRAND.yellowLight }}
                   >
                     {cat.imageUrl ? (
                       <img src={cat.imageUrl} alt={cat.name} className="w-full h-full object-cover" />
                     ) : (
-                      <ImageIcon className="h-8 w-8" style={{ color: BRAND.blue, opacity: 0.4 }} />
+                      <p className={`font-medium text-center ${cat.displaySize === "grande" ? "text-base" : "text-sm"}`} style={{ color: BRAND.blue }}>{cat.name}</p>
                     )}
                   </div>
-                  <CardContent className="p-3">
-                    <p className={`font-medium text-center ${cat.displaySize === "grande" ? "text-base" : "text-sm"}`} style={{ color: BRAND.blue }}>{cat.name}</p>
-                  </CardContent>
                 </Card>
               </button>
             ))}
