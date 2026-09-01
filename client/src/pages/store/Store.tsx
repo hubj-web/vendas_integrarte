@@ -29,22 +29,20 @@ export function cartItemVariationLabel(item: Pick<CartItem, "flavorNames" | "var
 }
 
 type Context = { type: "regular" } | { type: "event"; eventId: number; eventName: string; eventKind: "ingresso" | "produtos" };
-type View = "loading" | "choose_context" | "categories" | "category" | "checkout" | "closed";
+type View = "loading" | "categories" | "category" | "checkout" | "closed";
+// "root" = tela inicial única (categorias da Venda Regular + eventos misturados).
+// número = dentro de um evento específico, vendo só as categorias dele.
+type LandingScope = "root" | number;
 
 export default function Store() {
   const { data: landing, isLoading: landingLoading } = trpc.publicStore.landing.useQuery(undefined, { refetchInterval: 30000 });
-  const [context, setContext] = useState<Context | null>(null);
+  const [context, setContext] = useState<Context>({ type: "regular" });
   const [view, setView] = useState<View>("loading");
+  const [landingScope, setLandingScope] = useState<LandingScope>("root");
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
 
-  const activeOptions = useMemo(() => {
-    if (!landing) return [];
-    const opts: { type: "regular" | "event"; id: number | "regular"; name: string; imageUrl?: string | null; description?: string | null }[] = [];
-    if (landing.regularOpen) opts.push({ type: "regular", id: "regular", name: "Venda Regular" });
-    for (const ev of landing.events) opts.push({ type: "event", id: ev.id, name: ev.name, imageUrl: ev.imageUrl, description: ev.description });
-    return opts;
-  }, [landing]);
+  const hasAnythingOpen = !!landing && (landing.regularOpen || landing.events.length > 0);
 
   // Só decide a navegação inicial UMA VEZ — sem isso, o refetch periódico do
   // `landing` (a cada 30s) ficava chutando o cliente de volta pro início no
@@ -53,37 +51,41 @@ export default function Store() {
   useEffect(() => {
     if (landingLoading || !landing || hasInitializedRef.current) return;
     hasInitializedRef.current = true;
-    if (activeOptions.length === 0) { setView("closed"); return; }
-    if (activeOptions.length === 1) {
-      const opt = activeOptions[0];
-      if (opt.type === "regular") setContext({ type: "regular" });
-      else {
-        const ev = landing.events.find(e => e.id === opt.id);
-        setContext({ type: "event", eventId: opt.id as number, eventName: opt.name, eventKind: (ev?.type as any) ?? "produtos" });
-      }
-      setView("categories");
-    } else {
-      setView("choose_context");
-    }
-  }, [landing, landingLoading, activeOptions]);
+    setView(hasAnythingOpen ? "categories" : "closed");
+  }, [landing, landingLoading, hasAnythingOpen]);
 
-  const catalogQuery = trpc.publicStore.catalog.useQuery(undefined, {
-    enabled: context?.type === "regular",
+  // Evento cujas categorias estão sendo mostradas agora (tanto na tela
+  // "dentro do evento" quanto quando o cliente já entrou num produto dele).
+  const activeEventId = typeof landingScope === "number" ? landingScope : (context.type === "event" ? context.eventId : null);
+
+  const regularCatalogQuery = trpc.publicStore.catalog.useQuery(undefined, {
+    enabled: !!landing?.regularOpen,
     refetchInterval: 30000,
   });
   const eventCatalogQuery = trpc.publicStore.eventCatalog.useQuery(
-    { eventId: context?.type === "event" ? context.eventId : -1 },
-    { enabled: context?.type === "event", refetchInterval: 30000 }
+    { eventId: activeEventId ?? -1 },
+    { enabled: activeEventId != null, refetchInterval: 30000 }
   );
 
-  const catalog = context?.type === "event" ? eventCatalogQuery.data : catalogQuery.data;
-  const catalogLoading = context?.type === "event" ? eventCatalogQuery.isLoading : catalogQuery.isLoading;
+  // Catálogo relevante pra tela atual: se estamos dentro de um evento
+  // (navegando nas categorias dele, ou já dentro de uma categoria dele),
+  // usa o catálogo desse evento; senão, o catálogo da Venda Regular.
+  const catalog = activeEventId != null ? eventCatalogQuery.data : regularCatalogQuery.data;
+  const catalogLoading = activeEventId != null ? eventCatalogQuery.isLoading : regularCatalogQuery.isLoading;
 
-  const categoriesWithProducts = useMemo(() => {
-    if (!catalog?.products || !catalog.categories) return [];
-    const idsComProduto = new Set(catalog.products.map((p: any) => p.categoryId));
-    return catalog.categories.filter((c: any) => idsComProduto.has(c.id));
-  }, [catalog]);
+  const regularCategoriesWithProducts = useMemo(() => {
+    const c = regularCatalogQuery.data;
+    if (!c?.products || !c.categories) return [];
+    const idsComProduto = new Set(c.products.map((p: any) => p.categoryId));
+    return c.categories.filter((cat: any) => idsComProduto.has(cat.id));
+  }, [regularCatalogQuery.data]);
+
+  const eventCategoriesWithProducts = useMemo(() => {
+    const c = eventCatalogQuery.data;
+    if (!c?.products || !c.categories) return [];
+    const idsComProduto = new Set(c.products.map((p: any) => p.categoryId));
+    return c.categories.filter((cat: any) => idsComProduto.has(cat.id));
+  }, [eventCatalogQuery.data]);
 
   const cartTotal = cart.reduce((acc, i) => acc + i.unitPrice * i.quantity, 0);
   const cartCount = cart.reduce((acc, i) => acc + i.quantity, 0);
@@ -103,19 +105,16 @@ export default function Store() {
     setCart(prev => prev.filter(i => i.key !== key));
   }
 
-  function chooseContext(opt: (typeof activeOptions)[number]) {
-    if (opt.type === "regular") setContext({ type: "regular" });
-    else {
-      const ev = landing?.events.find(e => e.id === opt.id);
-      setContext({ type: "event", eventId: opt.id as number, eventName: opt.name, eventKind: (ev?.type as any) ?? "produtos" });
-    }
-    setView("categories");
+  /** Cliente clicou num evento na tela inicial — mostra as categorias desse evento, sem sair da tela. */
+  function openEvent(ev: NonNullable<typeof landing>["events"][number]) {
+    setLandingScope(ev.id);
+    setContext({ type: "event", eventId: ev.id, eventName: ev.name, eventKind: (ev.type as any) ?? "produtos" });
   }
 
-  function backToStart() {
-    setContext(null);
-    setCart([]);
-    setView(activeOptions.length > 1 ? "choose_context" : "categories");
+  /** Volta da tela de categorias de um evento pra tela inicial única. */
+  function backToRoot() {
+    setLandingScope("root");
+    setContext({ type: "regular" });
   }
 
   if (view === "loading" || landingLoading) {
@@ -143,7 +142,7 @@ export default function Store() {
       <StoreCheckout
         cart={cart}
         total={cartTotal}
-        eventId={context?.type === "event" ? context.eventId : undefined}
+        eventId={context.type === "event" ? context.eventId : undefined}
         onBack={() => setView("categories")}
         onSuccess={() => setCart([])}
       />
@@ -167,53 +166,32 @@ export default function Store() {
     );
   }
 
-  if (view === "choose_context") {
+  // ── view === "categories" ── (tela inicial única, ou categorias de um evento específico)
+  const insideEvent = typeof landingScope === "number";
+  const eventInfo = insideEvent ? landing?.events.find(e => e.id === landingScope) : null;
+
+  function CategoryTile({ imageUrl, name, displaySize, onClick }: { imageUrl?: string | null; name: string; displaySize?: string; onClick: () => void }) {
     return (
-      <div className="min-h-screen pb-10" style={{ background: BRAND.white }}>
-        <header className="py-8 px-4" style={{ background: BRAND.blue }}>
-          <div className="max-w-3xl mx-auto text-center space-y-3">
-            <img src="/integrarte-logo.png" alt="Integrarte" className="mx-auto h-24 w-auto object-contain bg-white rounded-2xl p-2" />
-            <h1 className="text-2xl font-bold tracking-tight text-white">LOJA INTEGRARTE</h1>
-            <p className="text-sm text-white/95 max-w-lg mx-auto leading-relaxed">
-              Olá... que bom ter você aqui. Nossa loja existe exclusivamente para o bem.
-              Todos os nossos produtos têm verba revertida para atividades artísticas ou culturais.
-              Escolha o que você quer ver:
-            </p>
+      <button onClick={onClick} className={`text-left group cursor-pointer ${displaySize === "grande" ? "col-span-2" : ""}`}>
+        <Card className="overflow-hidden transition-all border-0 shadow-none py-0 gap-0 ring-2 ring-transparent group-hover:ring-[#1E4B9C]">
+          <div className={`aspect-square flex items-center justify-center overflow-hidden ${imageUrl ? "" : "p-2"}`} style={{ background: BRAND.yellowLight }}>
+            {imageUrl ? (
+              <img src={imageUrl} alt={name} className="w-full h-full object-cover" />
+            ) : (
+              <p className={`font-medium text-center ${displaySize === "grande" ? "text-base" : "text-sm"}`} style={{ color: BRAND.blue }}>{name}</p>
+            )}
           </div>
-        </header>
-        <main className="max-w-3xl mx-auto p-4 grid gap-4 sm:grid-cols-2 mt-2">
-          {activeOptions.map(opt => (
-            <button key={String(opt.id)} onClick={() => chooseContext(opt)} className="text-left group cursor-pointer">
-              <Card className="overflow-hidden transition-all border-0 shadow-none py-0 gap-0 ring-2 ring-transparent group-hover:ring-[#1E4B9C]">
-                <div className={`aspect-square flex items-center justify-center overflow-hidden ${opt.imageUrl ? "" : "p-2"}`} style={{ background: BRAND.yellowLight }}>
-                  {opt.imageUrl ? (
-                    <img src={opt.imageUrl} alt={opt.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <p className="font-semibold text-center" style={{ color: BRAND.blue }}>{opt.name}</p>
-                  )}
-                </div>
-                {opt.imageUrl && opt.description && (
-                  <CardContent className="p-4">
-                    <p className="text-xs text-muted-foreground line-clamp-2">{opt.description}</p>
-                  </CardContent>
-                )}
-              </Card>
-            </button>
-          ))}
-        </main>
-      </div>
+        </Card>
+      </button>
     );
   }
-
-  // ── view === "categories" ──
-  const eventInfo = context?.type === "event" ? landing?.events.find(e => e.id === context.eventId) : null;
 
   return (
     <div className="min-h-screen pb-10" style={{ background: BRAND.white }}>
       <header className="py-8 px-4 relative" style={{ background: BRAND.blue }}>
-        {activeOptions.length > 1 && (
+        {insideEvent && (
           <button
-            onClick={backToStart}
+            onClick={backToRoot}
             className="absolute left-4 top-4 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold"
             style={{ background: BRAND.white, color: BRAND.blue }}
           >
@@ -223,14 +201,14 @@ export default function Store() {
         <div className="max-w-3xl mx-auto text-center space-y-3">
           <img src="/integrarte-logo.png" alt="Integrarte" className="mx-auto h-24 w-auto object-contain bg-white rounded-2xl p-2" />
           <h1 className="text-2xl font-bold tracking-tight text-white">
-            {context?.type === "event" ? context.eventName.toUpperCase() : "LOJA INTEGRARTE"}
+            {insideEvent ? (eventInfo?.name ?? "").toUpperCase() : "LOJA INTEGRARTE"}
           </h1>
           <p className="text-sm text-white/95 max-w-lg mx-auto leading-relaxed">
-            {context?.type === "event"
+            {insideEvent
               ? (eventInfo?.description || "Escolha a categoria de produtos que você quer ver.")
               : <>Olá... que bom ter você aqui. Nossa loja existe exclusivamente para o bem.
                  Todos os nossos produtos têm verba revertida para atividades artísticas ou culturais.
-                 Agora escolha a categoria de produtos que você quer ver.</>}
+                 Escolha o que você quer ver:</>}
           </p>
         </div>
       </header>
@@ -238,28 +216,34 @@ export default function Store() {
       <main className="max-w-3xl mx-auto p-4">
         {catalogLoading ? (
           <p className="text-center text-muted-foreground py-16">Carregando produtos…</p>
-        ) : categoriesWithProducts.length === 0 ? (
+        ) : insideEvent ? (
+          eventCategoriesWithProducts.length === 0 ? (
+            <p className="text-center text-muted-foreground py-16">Nenhum produto disponível nesse evento no momento.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-2">
+              {eventCategoriesWithProducts.map((cat: any) => (
+                <CategoryTile
+                  key={cat.id} imageUrl={cat.imageUrl} name={cat.name} displaySize={cat.displaySize}
+                  onClick={() => { setSelectedCategoryId(cat.id); setView("category"); }}
+                />
+              ))}
+            </div>
+          )
+        ) : regularCategoriesWithProducts.length === 0 && landing?.events.length === 0 ? (
           <p className="text-center text-muted-foreground py-16">Nenhum produto disponível no momento.</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-2">
-            {categoriesWithProducts.map((cat: any) => (
-              <button
-                key={cat.id} onClick={() => { setSelectedCategoryId(cat.id); setView("category"); }}
-                className={`text-left group cursor-pointer ${cat.displaySize === "grande" ? "col-span-2" : ""}`}
-              >
-                <Card className="overflow-hidden transition-all border-0 shadow-none py-0 gap-0 ring-2 ring-transparent group-hover:ring-[#1E4B9C]">
-                  <div
-                    className={`aspect-square flex items-center justify-center overflow-hidden ${cat.imageUrl ? "" : "p-2"}`}
-                    style={{ background: BRAND.yellowLight }}
-                  >
-                    {cat.imageUrl ? (
-                      <img src={cat.imageUrl} alt={cat.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <p className={`font-medium text-center ${cat.displaySize === "grande" ? "text-base" : "text-sm"}`} style={{ color: BRAND.blue }}>{cat.name}</p>
-                    )}
-                  </div>
-                </Card>
-              </button>
+            {regularCategoriesWithProducts.map((cat: any) => (
+              <CategoryTile
+                key={`cat-${cat.id}`} imageUrl={cat.imageUrl} name={cat.name} displaySize={cat.displaySize}
+                onClick={() => { setContext({ type: "regular" }); setSelectedCategoryId(cat.id); setView("category"); }}
+              />
+            ))}
+            {landing?.events.map(ev => (
+              <CategoryTile
+                key={`event-${ev.id}`} imageUrl={ev.imageUrl} name={ev.name}
+                onClick={() => openEvent(ev)}
+              />
             ))}
           </div>
         )}
