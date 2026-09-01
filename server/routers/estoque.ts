@@ -80,7 +80,7 @@ export const estoqueRouter = router({
       productName: products.name, unit: products.unit,
       categoryId: products.categoryId, categoryName: productCategories.name,
       quantidade: estoqueAtual.quantidade, custoMedioUnitario: estoqueAtual.custoMedioUnitario,
-      validade: estoqueAtual.validade,
+      validade: estoqueAtual.validade, lote: estoqueAtual.lote,
     }).from(estoqueAtual)
       .leftJoin(products, eq(estoqueAtual.productId, products.id))
       .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
@@ -102,6 +102,7 @@ export const estoqueRouter = router({
       categoryId: number | null; categoryName: string | null;
       flavorNames: string[]; quantidade: number; valorTotalCusto: number;
       proximaValidade: Date | null;
+      lotes: { id: number; quantidade: number; custoMedioUnitario: string; lote: string | null; validade: Date | null }[];
     }> = {};
     for (const l of linhas) {
       const flavors = (flavorsByLinha[l.id] ?? []).slice().sort();
@@ -110,11 +111,12 @@ export const estoqueRouter = router({
         grupos[key] = {
           productId: l.productId, productName: l.productName, unit: l.unit,
           categoryId: l.categoryId, categoryName: l.categoryName,
-          flavorNames: flavors, quantidade: 0, valorTotalCusto: 0, proximaValidade: null,
+          flavorNames: flavors, quantidade: 0, valorTotalCusto: 0, proximaValidade: null, lotes: [],
         };
       }
       grupos[key].quantidade += l.quantidade;
       grupos[key].valorTotalCusto += l.quantidade * parseFloat(l.custoMedioUnitario);
+      grupos[key].lotes.push({ id: l.id, quantidade: l.quantidade, custoMedioUnitario: l.custoMedioUnitario, lote: l.lote, validade: l.validade });
       if (l.validade && (!grupos[key].proximaValidade || l.validade < grupos[key].proximaValidade!)) {
         grupos[key].proximaValidade = l.validade;
       }
@@ -124,6 +126,34 @@ export const estoqueRouter = router({
       .map(g => ({ ...g, custoMedioUnitario: g.quantidade > 0 ? (g.valorTotalCusto / g.quantidade).toFixed(2) : "0.00" }))
       .sort((a, b) => (a.categoryName ?? "").localeCompare(b.categoryName ?? "") || (a.productName ?? "").localeCompare(b.productName ?? ""));
   }),
+
+  /** Edita a quantidade (e opcionalmente lote/validade) de um lote específico já lançado */
+  updateLote: adminProcedure
+    .input(z.object({
+      id: z.number(), quantidade: z.number().min(0),
+      lote: z.string().nullable().optional(), validade: z.string().nullable().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.update(estoqueAtual).set({
+        quantidade: input.quantidade,
+        ...(input.lote !== undefined ? { lote: input.lote } : {}),
+        ...(input.validade !== undefined ? { validade: input.validade ? new Date(input.validade) : null } : {}),
+      }).where(eq(estoqueAtual.id, input.id));
+      return { success: true };
+    }),
+
+  /** Remove um lote inteiro do estoque (ex: lançamento feito por engano) */
+  deleteLote: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.delete(estoqueAtualFlavors).where(eq(estoqueAtualFlavors.estoqueAtualId, input.id));
+      await db.delete(estoqueAtual).where(eq(estoqueAtual.id, input.id));
+      return { success: true };
+    }),
 });
 
 export const pedidosEstoqueRouter = router({

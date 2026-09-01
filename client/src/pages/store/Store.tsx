@@ -88,6 +88,17 @@ export default function Store() {
   }, [eventCatalogQuery.data]);
 
   const cartTotal = cart.reduce((acc, i) => acc + i.unitPrice * i.quantity, 0);
+
+  // Se o evento tem só UMA categoria vinculada, não faz sentido mostrar uma
+  // tela de "escolha a categoria" com uma opção só — pula direto pros
+  // produtos dela assim que o catálogo do evento carregar.
+  useEffect(() => {
+    if (view !== "categories" || typeof landingScope !== "number" || eventCatalogQuery.isLoading) return;
+    if (eventCategoriesWithProducts.length === 1) {
+      setSelectedCategoryId(eventCategoriesWithProducts[0].id);
+      setView("category");
+    }
+  }, [view, landingScope, eventCatalogQuery.isLoading, eventCategoriesWithProducts]);
   const cartCount = cart.reduce((acc, i) => acc + i.quantity, 0);
 
   function addToCart(item: CartItem) {
@@ -160,7 +171,16 @@ export default function Store() {
         cartTotal={cartTotal}
         onAddToCart={addToCart}
         onRemoveFromCart={removeFromCart}
-        onContinueShopping={() => setView("categories")}
+        onContinueShopping={() => {
+          // Se veio de um evento com só uma categoria, "voltar" pra tela de
+          // categorias desse evento seria inútil (o pulo automático levaria
+          // de volta pro mesmo produto na hora) — volta direto pro início.
+          if (typeof landingScope === "number" && eventCategoriesWithProducts.length === 1) {
+            backToRoot();
+          } else {
+            setView("categories");
+          }
+        }}
         onPay={() => setView("checkout")}
       />
     );
