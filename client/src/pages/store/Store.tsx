@@ -185,7 +185,7 @@ export default function Store() {
           {activeOptions.map(opt => (
             <button key={String(opt.id)} onClick={() => chooseContext(opt)} className="text-left group">
               <Card className="overflow-hidden transition-all group-hover:shadow-md" style={{ borderColor: BRAND.yellow, borderWidth: 2 }}>
-                <div className="aspect-square flex items-center justify-center overflow-hidden p-2" style={{ background: BRAND.yellowLight }}>
+                <div className={`aspect-square flex items-center justify-center overflow-hidden ${opt.imageUrl ? "" : "p-2"}`} style={{ background: BRAND.yellowLight }}>
                   {opt.imageUrl ? (
                     <img src={opt.imageUrl} alt={opt.name} className="w-full h-full object-cover" />
                   ) : (
@@ -249,7 +249,7 @@ export default function Store() {
               >
                 <Card className="overflow-hidden transition-all group-hover:shadow-md" style={{ borderColor: BRAND.yellow, borderWidth: 2 }}>
                   <div
-                    className="aspect-square flex items-center justify-center overflow-hidden p-2"
+                    className={`aspect-square flex items-center justify-center overflow-hidden ${cat.imageUrl ? "" : "p-2"}`}
                     style={{ background: BRAND.yellowLight }}
                   >
                     {cat.imageUrl ? (
