@@ -183,8 +183,8 @@ export default function Store() {
         </header>
         <main className="max-w-3xl mx-auto p-4 grid gap-4 sm:grid-cols-2 mt-2">
           {activeOptions.map(opt => (
-            <button key={String(opt.id)} onClick={() => chooseContext(opt)} className="text-left group">
-              <Card className="overflow-hidden transition-all group-hover:shadow-md border-0 shadow-none py-0 gap-0">
+            <button key={String(opt.id)} onClick={() => chooseContext(opt)} className="text-left group cursor-pointer">
+              <Card className="overflow-hidden transition-all border-0 shadow-none py-0 gap-0 ring-2 ring-transparent group-hover:ring-[#1E4B9C]">
                 <div className={`aspect-square flex items-center justify-center overflow-hidden ${opt.imageUrl ? "" : "p-2"}`} style={{ background: BRAND.yellowLight }}>
                   {opt.imageUrl ? (
                     <img src={opt.imageUrl} alt={opt.name} className="w-full h-full object-cover" />
@@ -245,9 +245,9 @@ export default function Store() {
             {categoriesWithProducts.map((cat: any) => (
               <button
                 key={cat.id} onClick={() => { setSelectedCategoryId(cat.id); setView("category"); }}
-                className={`text-left group ${cat.displaySize === "grande" ? "col-span-2" : ""}`}
+                className={`text-left group cursor-pointer ${cat.displaySize === "grande" ? "col-span-2" : ""}`}
               >
-                <Card className="overflow-hidden transition-all group-hover:shadow-md border-0 shadow-none py-0 gap-0">
+                <Card className="overflow-hidden transition-all border-0 shadow-none py-0 gap-0 ring-2 ring-transparent group-hover:ring-[#1E4B9C]">
                   <div
                     className={`aspect-square flex items-center justify-center overflow-hidden ${cat.imageUrl ? "" : "p-2"}`}
                     style={{ background: BRAND.yellowLight }}
