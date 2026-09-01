@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Boxes, Link as LinkIcon, ChevronDown, ChevronRight, Tag, Plus } from "lucide-react";
+import { Boxes, Link as LinkIcon, ChevronDown, ChevronRight, Tag, Plus, Pencil, Trash2 } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -49,6 +49,24 @@ export default function Estoque() {
     },
     onError: (err) => toast.error(err.message || "Não foi possível adicionar."),
   });
+
+  // Gerenciar lotes (editar quantidade / excluir um lançamento específico)
+  const [loteDialogFor, setLoteDialogFor] = useState<{ id: number; quantidade: number; lote: string | null; validade: Date | null } | null>(null);
+  const [loteQtdDraft, setLoteQtdDraft] = useState("");
+  const [expandedLotes, setExpandedLotes] = useState<Set<string>>(new Set());
+  const updateLote = trpc.estoque.updateLote.useMutation({
+    onSuccess: () => { utils.estoque.list.invalidate(); toast.success("Lote atualizado!"); setLoteDialogFor(null); },
+    onError: (err) => toast.error(err.message || "Não foi possível atualizar."),
+  });
+  const deleteLote = trpc.estoque.deleteLote.useMutation({
+    onSuccess: () => { utils.estoque.list.invalidate(); toast.success("Lote removido."); },
+    onError: (err) => toast.error(err.message || "Não foi possível remover."),
+  });
+
+  function openLoteDialog(lote: { id: number; quantidade: number; lote: string | null; validade: Date | null }) {
+    setLoteDialogFor(lote);
+    setLoteQtdDraft(String(lote.quantidade));
+  }
 
   function submitManual() {
     if (!manualProductId || !manualQtd || Number(manualQtd) < 1) {
@@ -154,24 +172,61 @@ export default function Estoque() {
                       const diasParaVencer = e.proximaValidade
                         ? Math.ceil((new Date(e.proximaValidade).getTime() - Date.now()) / 86400000)
                         : null;
+                      const loteKey = `${e.productId}::${(e.flavorNames ?? []).join("|")}`;
+                      const lotesAbertos = expandedLotes.has(loteKey);
                       return (
-                      <div key={i} className="p-4 flex items-center justify-between gap-3 bg-muted/10">
-                        <div>
-                          <p className="font-medium text-foreground text-sm">{e.productName}</p>
-                          {e.flavorNames.length > 0 && (
-                            <p className="text-xs text-muted-foreground">{e.flavorNames.join(", ")}</p>
-                          )}
-                          <p className="text-xs text-muted-foreground mt-0.5">Custo médio: {fmt(e.custoMedioUnitario)}/{e.unit}</p>
-                          {diasParaVencer !== null && (
-                            <Badge variant={diasParaVencer <= 5 ? "destructive" : "outline"} className="text-xs mt-1">
-                              {diasParaVencer < 0 ? "Vencido" : diasParaVencer === 0 ? "Vence hoje" : `Vence em ${diasParaVencer} dia${diasParaVencer === 1 ? "" : "s"}`}
-                            </Badge>
-                          )}
+                      <div key={i} className="bg-muted/10">
+                        <div className="p-4 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-foreground text-sm">{e.productName}</p>
+                            {e.flavorNames.length > 0 && (
+                              <p className="text-xs text-muted-foreground">{e.flavorNames.join(", ")}</p>
+                            )}
+                            <p className="text-xs text-muted-foreground mt-0.5">Custo médio: {fmt(e.custoMedioUnitario)}/{e.unit}</p>
+                            {diasParaVencer !== null && (
+                              <Badge variant={diasParaVencer <= 5 ? "destructive" : "outline"} className="text-xs mt-1">
+                                {diasParaVencer < 0 ? "Vencido" : diasParaVencer === 0 ? "Vence hoje" : `Vence em ${diasParaVencer} dia${diasParaVencer === 1 ? "" : "s"}`}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-right shrink-0 flex items-center gap-3">
+                            <div>
+                              <p className="text-lg font-bold text-primary">{e.quantidade}</p>
+                              <Badge variant="outline" className="text-xs">{e.unit}</Badge>
+                            </div>
+                            <Button
+                              size="sm" variant="outline"
+                              onClick={() => setExpandedLotes(prev => { const next = new Set(prev); next.has(loteKey) ? next.delete(loteKey) : next.add(loteKey); return next; })}
+                            >
+                              {lotesAbertos ? "Ocultar lotes" : `Gerenciar (${e.lotes?.length ?? 0})`}
+                            </Button>
+                          </div>
                         </div>
-                        <div className="text-right shrink-0">
-                          <p className="text-lg font-bold text-primary">{e.quantidade}</p>
-                          <Badge variant="outline" className="text-xs">{e.unit}</Badge>
-                        </div>
+                        {lotesAbertos && (
+                          <div className="px-4 pb-3 space-y-1.5">
+                            {(e.lotes ?? []).map((lote: any) => (
+                              <div key={lote.id} className="flex items-center justify-between gap-2 bg-background rounded-lg border px-3 py-2 text-sm">
+                                <div className="text-xs text-muted-foreground">
+                                  {lote.lote && <span className="mr-2">Lote: {lote.lote}</span>}
+                                  {lote.validade && <span>Val: {new Date(lote.validade).toLocaleDateString("pt-BR")}</span>}
+                                  {!lote.lote && !lote.validade && <span>Sem lote/validade cadastrado</span>}
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="font-medium">{lote.quantidade} {e.unit}</span>
+                                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openLoteDialog(lote)}>
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </Button>
+                                  <Button
+                                    size="icon" variant="ghost" className="h-7 w-7 hover:text-destructive"
+                                    onClick={() => { if (confirm(`Excluir esse lançamento de "${e.productName}" (${lote.quantidade} ${e.unit})?`)) deleteLote.mutate({ id: lote.id }); }}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       );
                     })}
@@ -259,6 +314,31 @@ export default function Estoque() {
             <Button variant="outline" onClick={() => setManualOpen(false)}>Cancelar</Button>
             <Button onClick={submitManual} disabled={adicionarManual.isPending}>
               {adicionarManual.isPending ? "Adicionando…" : "Adicionar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={loteDialogFor !== null} onOpenChange={(open) => !open && setLoteDialogFor(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Editar Lote</DialogTitle></DialogHeader>
+          <div>
+            <Label>Quantidade</Label>
+            <Input type="number" min={0} value={loteQtdDraft} onChange={e => setLoteQtdDraft(e.target.value)} />
+            <p className="text-xs text-muted-foreground mt-1">Colocar 0 zera esse lote (fica registrado, mas some do estoque disponível).</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLoteDialogFor(null)}>Cancelar</Button>
+            <Button
+              disabled={updateLote.isPending}
+              onClick={() => {
+                if (!loteDialogFor) return;
+                const qtd = Number(loteQtdDraft);
+                if (isNaN(qtd) || qtd < 0) return toast.error("Quantidade inválida.");
+                updateLote.mutate({ id: loteDialogFor.id, quantidade: qtd });
+              }}
+            >
+              Salvar
             </Button>
           </DialogFooter>
         </DialogContent>
