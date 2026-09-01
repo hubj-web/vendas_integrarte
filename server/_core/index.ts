@@ -47,6 +47,16 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  // O domínio loja.integrarte.ong.br é dedicado à Loja Pública — quem acessa
+  // a raiz dele (sem digitar /loja) já cai direto lá, em vez de ver o CRM.
+  // Outros caminhos desse mesmo domínio (ex: /admin) continuam funcionando
+  // normalmente, sem redirecionar — só a raiz.
+  app.get("/", (req, res, next) => {
+    if (req.hostname === "loja.integrarte.ong.br") {
+      return res.redirect(302, "/loja");
+    }
+    next();
+  });
   // Health check for Railway
   app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
   // One-time database setup route (safe to run multiple times)
