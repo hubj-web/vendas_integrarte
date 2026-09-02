@@ -150,8 +150,9 @@ export default function PeriodosVenda() {
               <Label>Data de corte (opcional)</Label>
               <Input type="datetime-local" value={form.dataCorte} onChange={(e) => setForm(f => ({ ...f, dataCorte: e.target.value }))} />
               <p className="text-xs text-muted-foreground">
-                A partir dessa data (ainda dentro do período), só é possível vender produtos "sob encomenda" que já tenham estoque real —
-                nos dias antes dela, vale a pré-venda sem checar estoque, normalmente. Deixe em branco pra manter o comportamento de sempre.
+                Vale só pro App do Vendedor: a partir dessa data (ainda dentro do período), ele só pode vender o que já tem estoque real —
+                nos dias antes dela, pode vender sem checar estoque, normalmente. Deixe em branco pra manter o comportamento de sempre.
+                (Não afeta a Loja Pública — lá, "sob encomenda" é configurado direto em cada produto.)
               </p>
             </div>
           </div>

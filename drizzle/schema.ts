@@ -42,6 +42,12 @@ export const productCategories = mysqlTable("product_categories", {
   // Tamanho de destaque na Loja Pública — permite deixar uma categoria maior
   // que outra na grade (ex: destacar uma categoria de evento).
   displaySize: mysqlEnum("displaySize", ["pequeno", "medio", "grande"]).default("medio").notNull(),
+  // Janela de disponibilidade na Loja Pública (opcional, com data E hora) —
+  // fora dela, a categoria (e os produtos dela) não aparecem, mesmo que
+  // estejam tudo certo por dentro. Sem preencher, sempre disponível (como
+  // hoje). Ex: categoria "Sobremesas" só libera às 19h no dia do evento.
+  availableFrom: timestamp("availableFrom"),
+  availableUntil: timestamp("availableUntil"),
   sortOrder: int("sortOrder").default(0).notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -90,10 +96,15 @@ export const products = mysqlTable("products", {
   // Tamanho de destaque na Loja Pública — permite deixar um produto maior
   // que outro na lista (ex: destacar um item específico).
   displaySize: mysqlEnum("displaySize", ["pequeno", "medio", "grande"]).default("medio").notNull(),
-  // "Sob encomenda" — enquanto o Período de Vendas estiver na fase de
-  // pré-venda (antes da data de corte), este produto pode ser vendido na
-  // Loja Pública sem checar estoque, igual já acontece pro vendedor.
+  // "Sob encomenda" — quando ligado, este produto pode ser vendido na Loja
+  // Pública sem checar estoque, independente do Período de Vendas (esse
+  // agora serve só pro vendedor). Se `preOrderUntil` estiver vazio, vale
+  // pra sempre (ex: um produto sem controle de estoque nenhum); se tiver
+  // data, a partir dali passa a exigir estoque real normalmente (ex: um
+  // produto sazonal vendido por encomenda até a data de corte com o
+  // fornecedor).
   allowPreOrder: boolean("allowPreOrder").default(false).notNull(),
+  preOrderUntil: timestamp("preOrderUntil"),
   maxFlavors: int("maxFlavors").default(0), // 0 = sem sabores, >0 = quantidade máxima de sabores
   // Rótulo da variação (o que o campo "sabores" representa pra esse produto).
   // Aditivo — todo produto já existente assume 'sabor' (comportamento atual preservado).

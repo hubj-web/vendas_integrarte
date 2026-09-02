@@ -26,6 +26,7 @@ type Product = {
   imageUrl: string | null;
   supplierId: number | null;
   allowPreOrder: boolean | null;
+  preOrderUntil: string | Date | null;
 };
 
 const VARIATION_LABELS: Record<string, string> = { sabor: "Sabor", tamanho: "Tamanho", cor: "Cor" };
@@ -101,7 +102,7 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
 
-  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "", allowPreOrder: false });
+  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "", allowPreOrder: false, preOrderUntil: "" });
 
   // Flavor management dialog
   const [showFlavors, setShowFlavors] = useState(false);
@@ -143,7 +144,7 @@ export default function Products() {
   function openCreate() {
     setEditing(null);
     setImagePreview(null);
-    setForm({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "", allowPreOrder: false });
+    setForm({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "", allowPreOrder: false, preOrderUntil: "" });
     setOpen(true);
   }
 
@@ -163,6 +164,7 @@ export default function Products() {
       displaySize: p.displaySize ?? "medio",
       supplierId: p.supplierId ? String(p.supplierId) : "",
       allowPreOrder: p.allowPreOrder ?? false,
+      preOrderUntil: p.preOrderUntil ? new Date(p.preOrderUntil).toISOString().slice(0, 10) : "",
     });
     setOpen(true);
   }
@@ -197,6 +199,7 @@ export default function Products() {
         variationType,
         displaySize,
         allowPreOrder: form.allowPreOrder,
+        preOrderUntil: form.preOrderUntil || null,
       });
     } else {
       createMutation.mutate({
@@ -212,6 +215,7 @@ export default function Products() {
         variationType,
         displaySize,
         allowPreOrder: form.allowPreOrder,
+        preOrderUntil: form.preOrderUntil || null,
       });
     }
   }
@@ -454,15 +458,24 @@ export default function Products() {
               </Select>
               <p className="text-xs text-muted-foreground">"Grande" aparece com foto maior na lista de produtos.</p>
             </div>
-            <div className="border rounded-lg p-3 space-y-1 bg-muted/30">
+            <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
               <div className="flex items-center justify-between">
                 <Label className="cursor-pointer" htmlFor="allow-pre-order">Vender sob encomenda (sem checar estoque)</Label>
                 <Switch id="allow-pre-order" checked={form.allowPreOrder} onCheckedChange={v => setForm(f => ({ ...f, allowPreOrder: v }))} />
               </div>
               <p className="text-xs text-muted-foreground">
-                Enquanto o Período de Vendas estiver na fase de pré-venda (antes da data de corte), este produto
-                pode ser comprado na Loja Pública sem precisar de estoque — igual já acontece com o vendedor.
+                Ligado, este produto pode ser comprado na Loja Pública mesmo sem estoque nenhum.
               </p>
+              {form.allowPreOrder && (
+                <div>
+                  <Label className="text-xs">Sob encomenda até (opcional)</Label>
+                  <Input type="date" value={form.preOrderUntil} onChange={e => setForm(f => ({ ...f, preOrderUntil: e.target.value }))} className="bg-input mt-1" />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Deixe em branco pra valer sempre (ex: produto sem controle de estoque). Preenchendo, a partir dessa
+                    data o produto passa a exigir estoque real normalmente (ex: fechou pedido com fornecedor).
+                  </p>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Fornecedor</Label>

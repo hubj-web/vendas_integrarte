@@ -17,11 +17,13 @@ import {
   customers, orderItems, orderItemFlavors, orders, orderStatusHistory,
   productCategories, productFlavors, products, storeEvents, storeEventCategories,
   storeProductVisibility, estoqueAtual, estoqueAtualFlavors, deliveryMethods,
+  storeOrderPayments,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { buscarLotesEstoque, descontarLotesEstoque, requireLauncherRole } from "./seller";
 import { isEffectivelyOpen } from "./publicStore";
+import { buildPixPayload, generatePixQrCodeBase64, pixConfigured } from "../pix";
 
 export const sellerEventsRouter = router({
   /** Eventos abertos disponíveis pro vendedor lançar venda */
@@ -174,6 +176,21 @@ export const sellerEventsRouter = router({
         orderId, userId: user.id, fromStatus: null, toStatus: "production",
         notes: `Venda de evento lançada por ${user.name}`,
       });
+
+      // Se o vendedor escolheu PIX, gera o Copia e Cola direto pro CNPJ da
+      // instituição (sem gateway, sem taxa) — o recibo mostra isso pro
+      // vendedor repassar ao cliente. O pedido já nasce "pago" no sistema
+      // (é responsabilidade do vendedor conferir o pagamento por fora).
+      if (input.paymentMethod === "pix" && pixConfigured()) {
+        const payload = buildPixPayload({ amount: totalAmount, txid: `venda${orderId}` });
+        const qrCodeBase64 = await generatePixQrCodeBase64(payload);
+        await db.insert(storeOrderPayments).values({
+          orderId, method: "pix", status: input.paymentStatus === "paid" ? "approved" : "pending",
+          qrCode: payload, qrCodeBase64,
+          amount: totalAmount.toFixed(2),
+          approvedAt: input.paymentStatus === "paid" ? new Date() : undefined,
+        });
+      }
 
       return { success: true, orderId, ticketCode };
     }),

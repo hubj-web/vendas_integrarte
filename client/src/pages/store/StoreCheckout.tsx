@@ -10,6 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2, QrCode, CreditCard, Copy, Check } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BRAND, CREDIT_CARD_ENABLED } from "./brand";
 import { cartItemVariationLabel } from "./Store";
 
@@ -126,42 +127,6 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
     setTimeout(() => setCopied(false), 2500);
   }
 
-  if (step === "pix_aguardando" && pixData) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-muted/20">
-        <Card className="max-w-sm w-full">
-          <CardHeader className="text-center">
-            <QrCode className="mx-auto h-8 w-8 text-primary mb-1" />
-            <CardTitle>Escaneie para pagar</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 text-center">
-            {pixData.qrCodeBase64 && (
-              <img
-                src={`data:image/png;base64,${pixData.qrCodeBase64}`}
-                alt="QR Code PIX"
-                className="mx-auto w-56 h-56 border rounded-lg"
-              />
-            )}
-            <p className="text-sm text-muted-foreground">
-              Abra o app do seu banco, escaneie o QR code ou copie o código abaixo.
-            </p>
-            <Button variant="outline" className="w-full gap-2" onClick={copyPix}>
-              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              {copied ? "Copiado!" : "Copiar código PIX"}
-            </Button>
-            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground pt-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Aguardando confirmação da equipe…
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Assim que alguém confirmar o pagamento, esta tela atualiza sozinha e mostra seu recibo.
-              Pode levar alguns minutos.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-muted/20 pb-8">
@@ -318,6 +283,38 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
           </Card>
         )}
       </div>
+
+      <Dialog open={step === "pix_aguardando" && !!pixData} onOpenChange={() => {}}>
+        <DialogContent className="max-w-sm [&>button]:hidden">
+          <DialogHeader className="text-center items-center">
+            <QrCode className="h-8 w-8 text-primary mb-1" />
+            <DialogTitle>Escaneie para pagar</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-center">
+            {pixData?.qrCodeBase64 && (
+              <img
+                src={`data:image/png;base64,${pixData.qrCodeBase64}`}
+                alt="QR Code PIX"
+                className="mx-auto w-56 h-56 border rounded-lg"
+              />
+            )}
+            <p className="text-sm text-muted-foreground">
+              Abra o app do seu banco, escaneie o QR code ou copie o código abaixo.
+            </p>
+            <Button variant="outline" className="w-full gap-2" onClick={copyPix}>
+              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              {copied ? "Copiado!" : "Copiar código PIX"}
+            </Button>
+            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground pt-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Aguardando pagamento…
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Assim que o pagamento cair, esta tela atualiza sozinha e mostra seu recibo. Costuma ser na hora.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
