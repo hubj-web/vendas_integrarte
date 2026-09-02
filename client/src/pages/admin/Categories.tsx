@@ -19,6 +19,8 @@ type Category = {
   imageUrl: string | null;
   sortOrder: number;
   displaySize: "pequeno" | "medio" | "grande";
+  availableFrom: string | Date | null;
+  availableUntil: string | Date | null;
   active: boolean;
   createdAt: Date;
 };
@@ -28,6 +30,8 @@ type FormData = {
   description: string;
   sortOrder: number;
   displaySize: "pequeno" | "medio" | "grande";
+  availableFrom: string;
+  availableUntil: string;
 };
 
 export default function Categories() {
@@ -38,7 +42,7 @@ export default function Categories() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [form, setForm] = useState<FormData>({ name: "", description: "", sortOrder: 0, displaySize: "medio" });
+  const [form, setForm] = useState<FormData>({ name: "", description: "", sortOrder: 0, displaySize: "medio", availableFrom: "", availableUntil: "" });
 
   const createMutation = trpc.catalog.categories.create.useMutation({
     onSuccess: () => { utils.catalog.categories.list.invalidate(); toast.success("Categoria criada!"); setDialogOpen(false); },
@@ -80,14 +84,24 @@ export default function Categories() {
   function openCreate() {
     setEditingCategory(null);
     setImagePreview(null);
-    setForm({ name: "", description: "", sortOrder: (categories.length) * 10, displaySize: "medio" });
+    setForm({ name: "", description: "", sortOrder: (categories.length) * 10, displaySize: "medio", availableFrom: "", availableUntil: "" });
     setDialogOpen(true);
+  }
+
+  function toDatetimeLocal(v: string | Date) {
+    const d = new Date(v);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
   function openEdit(cat: Category) {
     setEditingCategory(cat);
     setImagePreview(cat.imageUrl ?? null);
-    setForm({ name: cat.name, description: cat.description ?? "", sortOrder: cat.sortOrder, displaySize: cat.displaySize ?? "medio" });
+    setForm({
+      name: cat.name, description: cat.description ?? "", sortOrder: cat.sortOrder, displaySize: cat.displaySize ?? "medio",
+      availableFrom: cat.availableFrom ? toDatetimeLocal(cat.availableFrom) : "",
+      availableUntil: cat.availableUntil ? toDatetimeLocal(cat.availableUntil) : "",
+    });
     setDialogOpen(true);
   }
 
@@ -99,9 +113,15 @@ export default function Categories() {
   function handleSubmit() {
     if (!form.name.trim()) { toast.error("Nome é obrigatório"); return; }
     if (editingCategory) {
-      updateMutation.mutate({ id: editingCategory.id, name: form.name, description: form.description || undefined, sortOrder: form.sortOrder, displaySize: form.displaySize });
+      updateMutation.mutate({
+        id: editingCategory.id, name: form.name, description: form.description || undefined, sortOrder: form.sortOrder, displaySize: form.displaySize,
+        availableFrom: form.availableFrom || null, availableUntil: form.availableUntil || null,
+      });
     } else {
-      createMutation.mutate({ name: form.name, description: form.description || undefined, sortOrder: form.sortOrder, displaySize: form.displaySize });
+      createMutation.mutate({
+        name: form.name, description: form.description || undefined, sortOrder: form.sortOrder, displaySize: form.displaySize,
+        availableFrom: form.availableFrom || undefined, availableUntil: form.availableUntil || undefined,
+      });
     }
   }
 
@@ -253,6 +273,17 @@ export default function Categories() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-gray-400 mt-1">"Grande" ocupa mais espaço na grade, chamando mais atenção.</p>
+            </div>
+            <div>
+              <Label>Disponível na Loja de / até (opcional)</Label>
+              <div className="grid grid-cols-2 gap-2 mt-1">
+                <Input type="datetime-local" value={form.availableFrom} onChange={e => setForm(f => ({ ...f, availableFrom: e.target.value }))} />
+                <Input type="datetime-local" value={form.availableUntil} onChange={e => setForm(f => ({ ...f, availableUntil: e.target.value }))} />
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                Deixe em branco pra sempre disponível. Preenchendo, essa categoria (e os produtos dela) só aparecem
+                na loja dentro dessa janela — ex: sobremesa que libera só no dia/horário do evento.
+              </p>
             </div>
           </div>
           <DialogFooter>

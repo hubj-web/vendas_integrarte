@@ -24,20 +24,35 @@ const categoriesRouter = router({
     return db.select().from(productCategories).orderBy(asc(productCategories.sortOrder), asc(productCategories.name));
   }),
   create: adminProcedure
-    .input(z.object({ name: z.string().min(2), description: z.string().optional(), sortOrder: z.number().optional(), imageUrl: z.string().optional(), displaySize: z.enum(["pequeno", "medio", "grande"]).optional() }))
+    .input(z.object({
+      name: z.string().min(2), description: z.string().optional(), sortOrder: z.number().optional(),
+      imageUrl: z.string().optional(), displaySize: z.enum(["pequeno", "medio", "grande"]).optional(),
+      availableFrom: z.string().nullable().optional(), availableUntil: z.string().nullable().optional(),
+    }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.insert(productCategories).values({ name: input.name, description: input.description || "", sortOrder: input.sortOrder ?? 0, imageUrl: input.imageUrl, displaySize: input.displaySize });
+      await db.insert(productCategories).values({
+        name: input.name, description: input.description || "", sortOrder: input.sortOrder ?? 0,
+        imageUrl: input.imageUrl, displaySize: input.displaySize,
+        availableFrom: input.availableFrom ? new Date(input.availableFrom) : null,
+        availableUntil: input.availableUntil ? new Date(input.availableUntil) : null,
+      });
       return { success: true };
     }),
   update: adminProcedure
-    .input(z.object({ id: z.number(), name: z.string().min(2).optional(), description: z.string().optional(), sortOrder: z.number().optional(), active: z.boolean().optional(), imageUrl: z.string().nullable().optional(), displaySize: z.enum(["pequeno", "medio", "grande"]).optional() }))
+    .input(z.object({
+      id: z.number(), name: z.string().min(2).optional(), description: z.string().optional(), sortOrder: z.number().optional(),
+      active: z.boolean().optional(), imageUrl: z.string().nullable().optional(), displaySize: z.enum(["pequeno", "medio", "grande"]).optional(),
+      availableFrom: z.string().nullable().optional(), availableUntil: z.string().nullable().optional(),
+    }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       const { id, ...data } = input;
-      await db.update(productCategories).set(data).where(eq(productCategories.id, id));
+      if (data.availableFrom !== undefined) (data as any).availableFrom = data.availableFrom ? new Date(data.availableFrom) : null;
+      if (data.availableUntil !== undefined) (data as any).availableUntil = data.availableUntil ? new Date(data.availableUntil) : null;
+      await db.update(productCategories).set(data as any).where(eq(productCategories.id, id));
       return { success: true };
     }),
   delete: adminProcedure
@@ -125,6 +140,7 @@ const productsRouter = router({
         imageUrl: products.imageUrl,
         displaySize: products.displaySize,
         allowPreOrder: products.allowPreOrder,
+        preOrderUntil: products.preOrderUntil,
       })
         .from(products)
         .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
@@ -148,6 +164,7 @@ const productsRouter = router({
       variationType: z.enum(["sabor", "tamanho", "cor"]).default("sabor"),
       displaySize: z.enum(["pequeno", "medio", "grande"]).default("medio"),
       allowPreOrder: z.boolean().default(false),
+      preOrderUntil: z.string().nullable().optional(), // "sob encomenda até" — vazio = sem data limite
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -167,6 +184,7 @@ const productsRouter = router({
         variationType: input.variationType,
         displaySize: input.displaySize,
         allowPreOrder: input.allowPreOrder,
+        preOrderUntil: input.preOrderUntil ? new Date(input.preOrderUntil) : null,
       });
       return { success: true };
     }),
@@ -182,6 +200,7 @@ const productsRouter = router({
       variationType: z.enum(["sabor", "tamanho", "cor"]).optional(),
       displaySize: z.enum(["pequeno", "medio", "grande"]).optional(),
       allowPreOrder: z.boolean().optional(),
+      preOrderUntil: z.string().nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -191,6 +210,9 @@ const productsRouter = router({
       if (!current[0]) throw new TRPCError({ code: "NOT_FOUND" });
 
       const { id, ...data } = input;
+      if (data.preOrderUntil !== undefined) {
+        (data as any).preOrderUntil = data.preOrderUntil ? new Date(data.preOrderUntil) : null;
+      }
       for (const [field, newVal] of Object.entries(data)) {
         const oldVal = (current[0] as Record<string, unknown>)[field];
         if (oldVal !== undefined && String(oldVal) !== String(newVal)) {
@@ -200,7 +222,7 @@ const productsRouter = router({
           });
         }
       }
-      await db.update(products).set(data).where(eq(products.id, id));
+      await db.update(products).set(data as any).where(eq(products.id, id));
       return { success: true };
     }),
 

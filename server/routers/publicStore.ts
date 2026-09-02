@@ -24,9 +24,8 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
-import { buscarLotesEstoque, descontarLotesEstoque, periodoVendaFase } from "./seller";
+import { buscarLotesEstoque, descontarLotesEstoque } from "./seller";
 import { createMercadoPagoPayment, mercadoPagoConfigured } from "../mercadopago";
-import { buildPixPayload, generatePixQrCodeBase64, pixConfigured } from "../pix";
 import { generateQrCodeBase64 } from "../qr";
 import { ENV } from "../_core/env";
 
@@ -70,8 +69,7 @@ async function buildCatalog(
   categoryIdFilter?: number[],
   excludeCategoryIds?: number[],
 ) {
-  const fase = await periodoVendaFase(db);
-  const emPreVenda = fase === "pre_venda";
+  const now = new Date();
 
   const estoqueLinhas = await db.select({
     id: estoqueAtual.id, productId: estoqueAtual.productId, quantidade: estoqueAtual.quantidade,
@@ -89,8 +87,7 @@ async function buildCatalog(
   const productIdsComEstoque = Array.from(new Set(estoqueLinhas.map(l => l.productId)));
 
   // Todo produto marcado visível na loja — não só quem tem estoque, porque
-  // um "sob encomenda" pode aparecer mesmo sem estoque nenhum, durante a
-  // fase de pré-venda.
+  // um "sob encomenda" pode aparecer mesmo sem estoque nenhum.
   const visibilidade = await db.select().from(storeProductVisibility).where(eq(storeProductVisibility.visible, true));
   const visibilidadeMap = new Map(visibilidade.map(v => [v.productId, v]));
   const visibleProductIds = visibilidade.map(v => v.productId);
@@ -104,13 +101,16 @@ async function buildCatalog(
     id: products.id, name: products.name, categoryId: products.categoryId,
     unit: products.unit, price: products.price, description: products.description,
     maxFlavors: products.maxFlavors, variationType: products.variationType, imageUrl: products.imageUrl,
-    displaySize: products.displaySize, allowPreOrder: products.allowPreOrder,
+    displaySize: products.displaySize, allowPreOrder: products.allowPreOrder, preOrderUntil: products.preOrderUntil,
   }).from(products).where(and(...prodConditions));
 
-  // Produto entra no catálogo se: tem estoque de verdade, OU é "sob
-  // encomenda" e estamos na fase de pré-venda (aí não precisa de estoque).
+  /** Sob encomenda: ligado, e (sem data de corte OU ainda antes dela). */
+  const isProductOnPreOrder = (p: { allowPreOrder: boolean; preOrderUntil: Date | null }) =>
+    p.allowPreOrder && (!p.preOrderUntil || now <= p.preOrderUntil);
+
+  // Produto entra no catálogo se: tem estoque de verdade, OU está na janela de sob encomenda.
   const productIdsVisiveis = prods
-    .filter(p => productIdsComEstoque.includes(p.id) || (p.allowPreOrder && emPreVenda))
+    .filter(p => productIdsComEstoque.includes(p.id) || isProductOnPreOrder(p))
     .map(p => p.id);
 
   const prodsFiltered = (excludeCategoryIds && excludeCategoryIds.length > 0
@@ -119,9 +119,17 @@ async function buildCatalog(
   ).filter(p => productIdsVisiveis.includes(p.id));
 
   const categoriaIds = Array.from(new Set(prodsFiltered.map(p => p.categoryId).filter((v): v is number => v != null)));
-  const categorias = categoriaIds.length > 0
+  const categoriasBrutas = categoriaIds.length > 0
     ? await db.select().from(productCategories).where(inArray(productCategories.id, categoriaIds))
     : [];
+
+  // Categoria fora da janela de disponibilidade (se ela tiver uma definida)
+  // não aparece, mesmo que os produtos dela estejam tudo certo por dentro.
+  const categoriaDisponivelAgora = (c: { availableFrom: Date | null; availableUntil: Date | null }) =>
+    (!c.availableFrom || now >= c.availableFrom) && (!c.availableUntil || now <= c.availableUntil);
+  const categorias = categoriasBrutas.filter(categoriaDisponivelAgora);
+  const categoriaIdsDisponiveis = new Set(categorias.map(c => c.id));
+  const prodsFinal = prodsFiltered.filter(p => !p.categoryId || categoriaIdsDisponiveis.has(p.categoryId));
 
   const qtyByProduct: Record<number, number> = {};
   const flavorsByProduct: Record<number, Map<number, string>> = {};
@@ -136,7 +144,7 @@ async function buildCatalog(
   }
 
   // Grupos de variação múltipla (tipo de macarrão + molho + condimentos, etc.)
-  const groups = await db.select().from(productVariationGroups).where(inArray(productVariationGroups.productId, prodsFiltered.map(p => p.id)));
+  const groups = await db.select().from(productVariationGroups).where(inArray(productVariationGroups.productId, prodsFinal.map(p => p.id)));
   const groupIds = groups.map(g => g.id);
   const options = groupIds.length > 0
     ? await db.select().from(productVariationOptions).where(inArray(productVariationOptions.groupId, groupIds))
@@ -146,16 +154,16 @@ async function buildCatalog(
   const groupsByProduct: Record<number, typeof groups> = {};
   for (const g of groups) (groupsByProduct[g.productId] ??= []).push(g);
 
-  const productsOut = prodsFiltered.map(p => {
+  const productsOut = prodsFinal.map(p => {
     const vis = visibilidadeMap.get(p.id);
-    const isPreOrder = p.allowPreOrder && emPreVenda;
+    const isPreOrder = isProductOnPreOrder(p);
     return {
       id: p.id, name: p.name, categoryId: p.categoryId, unit: p.unit,
       price: vis?.storePrice ?? p.price,
       description: p.description, maxFlavors: p.maxFlavors ?? 0,
       variationType: p.variationType, imageUrl: p.imageUrl, displaySize: p.displaySize,
       isPreOrder,
-      // Sob encomenda = sem limite de estoque nessa fase; senão, é a quantidade real.
+      // Sob encomenda = sem limite de estoque; senão, é a quantidade real.
       availableQuantity: isPreOrder ? Number.MAX_SAFE_INTEGER : (qtyByProduct[p.id] ?? 0),
       flavors: Array.from((flavorsByProduct[p.id] ?? new Map()).entries()).map(([id, name]) => ({ id, name })),
       variationGroups: (groupsByProduct[p.id] ?? []).map(g => ({
@@ -326,11 +334,8 @@ export const publicStoreRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      if (input.paymentMethod === "credit_card" && !mercadoPagoConfigured()) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pagamento por cartão ainda não configurado." });
-      }
-      if (input.paymentMethod === "pix" && !pixConfigured()) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pagamento por PIX ainda não configurado." });
+      if ((input.paymentMethod === "credit_card" || input.paymentMethod === "pix") && !mercadoPagoConfigured()) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Pagamento ainda não configurado." });
       }
 
       let allowedCategoryIds: number[] | null = null;
@@ -383,8 +388,7 @@ export const publicStoreRouter = router({
         .where(inArray(products.id, input.items.map(i => i.productId)));
       const produtosMap = new Map(produtosRows.map(p => [p.id, p]));
 
-      const fase = await periodoVendaFase(db);
-      const emPreVenda = fase === "pre_venda";
+      const now = new Date();
 
       let totalAmount = 0;
       const itemsResolved: {
@@ -403,10 +407,10 @@ export const publicStoreRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: `"${prod.name}" não pertence a este evento.` });
         }
 
-        // Item "sob encomenda" durante a pré-venda não precisa de estoque —
-        // é registrado sem checar/descontar nada, igual já acontece com o
-        // vendedor. Fora dessa fase, cai na regra normal (precisa estoque real).
-        const isPreOrder = prod.allowPreOrder && emPreVenda;
+        // Item "sob encomenda" (dentro da janela configurada nele, se houver
+        // uma) não precisa de estoque — é registrado sem checar/descontar
+        // nada. Fora dessa janela, cai na regra normal (precisa estoque real).
+        const isPreOrder = prod.allowPreOrder && (!prod.preOrderUntil || now <= prod.preOrderUntil);
         if (!isPreOrder) {
           const lotes = await buscarLotesEstoque(db, item.productId, item.flavorIds ?? []);
           const disponivel = lotes.reduce((acc, l) => acc + l.quantity, 0);
@@ -512,24 +516,11 @@ export const publicStoreRouter = router({
         notes: "Pedido criado pela Loja Pública",
       });
 
-      // Cria o "pagamento": PIX é gerado localmente (BR Code direto pro CNPJ,
-      // sem nenhum gateway) — fica pendente até alguém confirmar manualmente
-      // no painel. Cartão continua indo pro Mercado Pago (Payment Brick), que
-      // aprova (ou não) na hora.
+      // Cria o pagamento no Mercado Pago — tanto PIX quanto Cartão passam pelo
+      // mesmo gateway agora, com confirmação automática via webhook (assim
+      // que o cliente paga, o pedido já vira "pago" e o estoque já desconta,
+      // sem precisar de ninguém confirmar manualmente no painel).
       try {
-        if (input.paymentMethod === "pix") {
-          const payload = buildPixPayload({ amount: totalAmount, txid: `pedido${orderId}` });
-          const qrCodeBase64 = await generatePixQrCodeBase64(payload);
-
-          await db.insert(storeOrderPayments).values({
-            orderId, method: "pix", status: "pending",
-            qrCode: payload, qrCodeBase64,
-            amount: totalAmount.toFixed(2),
-          });
-
-          return { success: true, orderId, ticketCode, paymentStatus: "pending", qrCode: payload, qrCodeBase64 };
-        }
-
         const mpResult = await createMercadoPagoPayment({
           orderId, amount: totalAmount, method: input.paymentMethod,
           customerName: input.customerName, customerEmail: `${input.customerPhone.replace(/\D/g, "")}@loja.integrarte.app.br`,

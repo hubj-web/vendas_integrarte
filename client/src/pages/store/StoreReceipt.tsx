@@ -64,6 +64,26 @@ export default function StoreReceipt({ ticketCode }: { ticketCode: string }) {
             </div>
           )}
 
+          {(order as any).payment?.method === "pix" && (order as any).payment?.qrCode && (
+            <div className="rounded-lg border p-3 space-y-2" style={{ borderColor: BRAND.blue }}>
+              <p className="text-sm font-medium text-center" style={{ color: BRAND.blue }}>Pagamento via PIX</p>
+              {(order as any).payment.qrCodeBase64 && (
+                <img
+                  src={`data:image/png;base64,${(order as any).payment.qrCodeBase64}`}
+                  alt="QR code do PIX"
+                  className="w-40 h-40 mx-auto border rounded-lg"
+                />
+              )}
+              <button
+                onClick={() => navigator.clipboard.writeText((order as any).payment.qrCode)}
+                className="w-full text-xs py-2 rounded-lg font-medium"
+                style={{ background: BRAND.yellowLight, color: BRAND.blue }}
+              >
+                Copiar código PIX (Copia e Cola)
+              </button>
+            </div>
+          )}
+
           <Separator />
 
           <div className="flex items-center justify-between">
