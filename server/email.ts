@@ -26,8 +26,12 @@ function getTransport() {
       user: ENV.gmailUser,
       pass: ENV.gmailAppPassword,
     },
+    // O ambiente de produção (Railway) não tem saída IPv6 funcional — sem isso,
+    // o Node às vezes escolhe o endereço IPv6 do Gmail e a conexão trava/falha
+    // com ENETUNREACH. Forçando IPv4 evita esse problema.
+    family: 4,
     connectionTimeout: 15000,
-  });
+  } as any);
 }
 
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {

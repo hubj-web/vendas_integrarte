@@ -204,6 +204,12 @@ export const publicStoreRouter = router({
       welcomeMessage: settings?.welcomeMessage ||
         "Olá... que bom ter você aqui. Nossa loja existe exclusivamente para o bem. Todos os nossos produtos têm verba revertida para atividades artísticas ou culturais. Escolha o que você quer ver:",
       primaryColor: settings?.primaryColor || "#1E4B9C",
+      titleFontFamily: settings?.titleFontFamily || null,
+      titleFontSize: settings?.titleFontSize || null,
+      titleColor: settings?.titleColor || null,
+      messageFontFamily: settings?.messageFontFamily || null,
+      messageFontSize: settings?.messageFontSize || null,
+      messageColor: settings?.messageColor || null,
       events: events.map(e => ({
         id: e.id, name: e.name, type: e.type, description: e.description,
         imageUrl: e.imageUrl, eventDate: e.eventDate,

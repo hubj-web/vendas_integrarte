@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ShoppingCart } from "lucide-react";
 import CategoryView from "./CategoryView";
 import StoreCheckout from "./StoreCheckout";
-import { BRAND } from "./brand";
+import { BRAND, loadStoreFonts } from "./brand";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -53,6 +53,8 @@ export default function Store() {
     hasInitializedRef.current = true;
     setView(hasAnythingOpen ? "categories" : "closed");
   }, [landing, landingLoading, hasAnythingOpen]);
+
+  useEffect(() => { loadStoreFonts(); }, []);
 
   // Evento cujas categorias estão sendo mostradas agora (tanto na tela
   // "dentro do evento" quanto quando o cliente já entrou num produto dele).
@@ -220,10 +222,24 @@ export default function Store() {
         )}
         <div className="max-w-3xl mx-auto text-center space-y-3">
           <img src="/integrarte-logo.png" alt="Integrarte" className="mx-auto h-24 w-auto object-contain bg-white rounded-2xl p-2" />
-          <h1 className="text-2xl font-bold tracking-tight text-white">
+          <h1
+            className="text-2xl font-bold tracking-tight text-white"
+            style={{
+              fontFamily: landing?.titleFontFamily || undefined,
+              fontSize: landing?.titleFontSize ? `${landing.titleFontSize}px` : undefined,
+              color: landing?.titleColor || undefined,
+            }}
+          >
             {insideEvent ? (eventInfo?.name ?? "").toUpperCase() : (landing?.storeTitle ?? "LOJA INTEGRARTE")}
           </h1>
-          <p className="text-sm text-white/95 max-w-lg mx-auto leading-relaxed">
+          <p
+            className="text-sm text-white/95 max-w-lg mx-auto leading-relaxed"
+            style={{
+              fontFamily: landing?.messageFontFamily || undefined,
+              fontSize: landing?.messageFontSize ? `${landing.messageFontSize}px` : undefined,
+              color: landing?.messageColor || undefined,
+            }}
+          >
             {insideEvent
               ? (eventInfo?.description || "Escolha a categoria de produtos que você quer ver.")
               : (landing?.welcomeMessage ?? "")}

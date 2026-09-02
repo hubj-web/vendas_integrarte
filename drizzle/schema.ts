@@ -467,6 +467,14 @@ export const storeSettings = mysqlTable("store_settings", {
   storeTitle: varchar("storeTitle", { length: 100 }),
   welcomeMessage: text("welcomeMessage"),
   primaryColor: varchar("primaryColor", { length: 7 }), // hex, ex: #1E4B9C
+  // Tipografia do título e da mensagem de boas-vindas — em branco, usa o
+  // padrão do sistema (fonte do app, branco, tamanhos atuais).
+  titleFontFamily: varchar("titleFontFamily", { length: 50 }),
+  titleFontSize: int("titleFontSize"), // em px
+  titleColor: varchar("titleColor", { length: 7 }),
+  messageFontFamily: varchar("messageFontFamily", { length: 50 }),
+  messageFontSize: int("messageFontSize"), // em px
+  messageColor: varchar("messageColor", { length: 7 }),
   updatedBy: int("updatedBy"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

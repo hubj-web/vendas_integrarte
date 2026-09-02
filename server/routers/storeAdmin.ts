@@ -34,6 +34,8 @@ export const storeAdminRouter = router({
       saleStartsAt: z.string().nullable().optional(), saleEndsAt: z.string().nullable().optional(),
       storeTitle: z.string().nullable().optional(), welcomeMessage: z.string().nullable().optional(),
       primaryColor: z.string().nullable().optional(),
+      titleFontFamily: z.string().nullable().optional(), titleFontSize: z.number().nullable().optional(), titleColor: z.string().nullable().optional(),
+      messageFontFamily: z.string().nullable().optional(), messageFontSize: z.number().nullable().optional(), messageColor: z.string().nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -48,6 +50,12 @@ export const storeAdminRouter = router({
         ...(input.storeTitle !== undefined ? { storeTitle: input.storeTitle } : {}),
         ...(input.welcomeMessage !== undefined ? { welcomeMessage: input.welcomeMessage } : {}),
         ...(input.primaryColor !== undefined ? { primaryColor: input.primaryColor } : {}),
+        ...(input.titleFontFamily !== undefined ? { titleFontFamily: input.titleFontFamily } : {}),
+        ...(input.titleFontSize !== undefined ? { titleFontSize: input.titleFontSize } : {}),
+        ...(input.titleColor !== undefined ? { titleColor: input.titleColor } : {}),
+        ...(input.messageFontFamily !== undefined ? { messageFontFamily: input.messageFontFamily } : {}),
+        ...(input.messageFontSize !== undefined ? { messageFontSize: input.messageFontSize } : {}),
+        ...(input.messageColor !== undefined ? { messageColor: input.messageColor } : {}),
       };
       if (existing) {
         await db.update(storeSettings).set(values).where(eq(storeSettings.id, existing.id));

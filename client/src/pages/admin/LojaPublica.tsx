@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { FONT_OPTIONS } from "../store/brand";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -67,7 +68,11 @@ export default function LojaPublica() {
     onSuccess: () => { utils.storeAdmin.getSettings.invalidate(); toast.success("Configuração salva!"); },
   });
 
-  const [appearanceForm, setAppearanceForm] = useState({ storeTitle: "", welcomeMessage: "", primaryColor: "#1E4B9C" });
+  const [appearanceForm, setAppearanceForm] = useState({
+    storeTitle: "", welcomeMessage: "", primaryColor: "#1E4B9C",
+    titleFontFamily: "", titleFontSize: "", titleColor: "",
+    messageFontFamily: "", messageFontSize: "", messageColor: "",
+  });
   const [appearanceLoaded, setAppearanceLoaded] = useState(false);
   useEffect(() => {
     if (settings && !appearanceLoaded) {
@@ -75,6 +80,12 @@ export default function LojaPublica() {
         storeTitle: settings.storeTitle ?? "",
         welcomeMessage: settings.welcomeMessage ?? "",
         primaryColor: settings.primaryColor ?? "#1E4B9C",
+        titleFontFamily: settings.titleFontFamily ?? "",
+        titleFontSize: settings.titleFontSize ? String(settings.titleFontSize) : "",
+        titleColor: settings.titleColor ?? "",
+        messageFontFamily: settings.messageFontFamily ?? "",
+        messageFontSize: settings.messageFontSize ? String(settings.messageFontSize) : "",
+        messageColor: settings.messageColor ?? "",
       });
       setAppearanceLoaded(true);
     }
@@ -414,6 +425,30 @@ export default function LojaPublica() {
                   onChange={e => setAppearanceForm(f => ({ ...f, storeTitle: e.target.value }))}
                   placeholder="LOJA INTEGRARTE"
                 />
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  <Select value={appearanceForm.titleFontFamily} onValueChange={v => setAppearanceForm(f => ({ ...f, titleFontFamily: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Fonte" /></SelectTrigger>
+                    <SelectContent>
+                      {FONT_OPTIONS.map(font => <SelectItem key={font.value} value={font.value || "default"}>{font.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="number" placeholder="Tamanho (px)"
+                    value={appearanceForm.titleFontSize}
+                    onChange={e => setAppearanceForm(f => ({ ...f, titleFontSize: e.target.value }))}
+                  />
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="color" value={appearanceForm.titleColor || "#ffffff"}
+                      onChange={e => setAppearanceForm(f => ({ ...f, titleColor: e.target.value }))}
+                      className="h-9 w-10 rounded border cursor-pointer shrink-0"
+                    />
+                    <Input
+                      placeholder="Cor" value={appearanceForm.titleColor}
+                      onChange={e => setAppearanceForm(f => ({ ...f, titleColor: e.target.value }))}
+                    />
+                  </div>
+                </div>
               </div>
               <div>
                 <Label>Mensagem de boas-vindas</Label>
@@ -423,6 +458,30 @@ export default function LojaPublica() {
                   onChange={e => setAppearanceForm(f => ({ ...f, welcomeMessage: e.target.value }))}
                   placeholder="Olá... que bom ter você aqui..."
                 />
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  <Select value={appearanceForm.messageFontFamily} onValueChange={v => setAppearanceForm(f => ({ ...f, messageFontFamily: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Fonte" /></SelectTrigger>
+                    <SelectContent>
+                      {FONT_OPTIONS.map(font => <SelectItem key={font.value} value={font.value || "default"}>{font.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="number" placeholder="Tamanho (px)"
+                    value={appearanceForm.messageFontSize}
+                    onChange={e => setAppearanceForm(f => ({ ...f, messageFontSize: e.target.value }))}
+                  />
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="color" value={appearanceForm.messageColor || "#ffffff"}
+                      onChange={e => setAppearanceForm(f => ({ ...f, messageColor: e.target.value }))}
+                      className="h-9 w-10 rounded border cursor-pointer shrink-0"
+                    />
+                    <Input
+                      placeholder="Cor" value={appearanceForm.messageColor}
+                      onChange={e => setAppearanceForm(f => ({ ...f, messageColor: e.target.value }))}
+                    />
+                  </div>
+                </div>
               </div>
               <div>
                 <Label>Cor principal (cabeçalho)</Label>
@@ -445,6 +504,12 @@ export default function LojaPublica() {
                   storeTitle: appearanceForm.storeTitle || null,
                   welcomeMessage: appearanceForm.welcomeMessage || null,
                   primaryColor: appearanceForm.primaryColor || null,
+                  titleFontFamily: (appearanceForm.titleFontFamily === "default" ? "" : appearanceForm.titleFontFamily) || null,
+                  titleFontSize: appearanceForm.titleFontSize ? Number(appearanceForm.titleFontSize) : null,
+                  titleColor: appearanceForm.titleColor || null,
+                  messageFontFamily: (appearanceForm.messageFontFamily === "default" ? "" : appearanceForm.messageFontFamily) || null,
+                  messageFontSize: appearanceForm.messageFontSize ? Number(appearanceForm.messageFontSize) : null,
+                  messageColor: appearanceForm.messageColor || null,
                 })}
                 disabled={updateSettings.isPending}
               >
