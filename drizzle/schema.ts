@@ -212,6 +212,7 @@ export const customers = mysqlTable("customers", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 150 }).notNull(),
   phone: varchar("phone", { length: 30 }).notNull(),
+  email: varchar("email", { length: 255 }), // opcional — usado pra mandar o recibo por e-mail
   locationReference: text("locationReference"),
   customerReference: varchar("customerReference", { length: 200 }),
   street: varchar("street", { length: 200 }),
@@ -246,6 +247,9 @@ export const orders = mysqlTable("orders", {
   // Código único do pedido/ingresso — usado no link/QR code do recibo, tanto
   // pra comprovar um ingresso quanto como identificador do recibo em geral.
   ticketCode: varchar("ticketCode", { length: 20 }),
+  // Check-in do ingresso/comprovante na entrada do evento — null = ainda não
+  // foi lido. Preenchido = já passou pela leitura (evita reuso do mesmo QR).
+  checkedInAt: timestamp("checkedInAt"),
   status: mysqlEnum("status", ["production", "in_route", "packaged", "delivered", "paid", "cancelled"]).default("production").notNull(),
   paymentStatus: mysqlEnum("paymentStatus", ["pending", "paid", "partial", "cancelled"]).default("pending").notNull(),
   totalAmount: decimal("totalAmount", { precision: 10, scale: 2 }).notNull(),
@@ -458,6 +462,11 @@ export const storeSettings = mysqlTable("store_settings", {
   // da janela (se houver uma definida). Sem datas = comportamento de sempre.
   saleStartsAt: timestamp("saleStartsAt"),
   saleEndsAt: timestamp("saleEndsAt"),
+  // Aparência da tela inicial da loja — em branco, usa os valores padrão do
+  // sistema (definidos no código). Preenchido, sobrescreve.
+  storeTitle: varchar("storeTitle", { length: 100 }),
+  welcomeMessage: text("welcomeMessage"),
+  primaryColor: varchar("primaryColor", { length: 7 }), // hex, ex: #1E4B9C
   updatedBy: int("updatedBy"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -519,6 +528,10 @@ export const storeEvents = mysqlTable("store_events", {
   saleStartsAt: timestamp("saleStartsAt"),
   saleEndsAt: timestamp("saleEndsAt"),
   sortOrder: int("sortOrder").default(0).notNull(),
+  // Código curto (6 dígitos) pra liberar a tela de check-in sem precisar de
+  // login — gerado automaticamente na criação do evento, pra compartilhar
+  // com voluntários que vão ler os ingressos na entrada.
+  checkInCode: varchar("checkInCode", { length: 6 }),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

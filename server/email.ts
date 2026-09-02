@@ -131,3 +131,39 @@ export async function sendPasswordResetEmail(params: {
 
   return sendEmail(params.to, "Redefinição de senha — Integrarte", html);
 }
+
+/** E-mail com o recibo/comprovante enviado depois de uma compra na Loja Pública. */
+export async function sendReceiptEmail(params: {
+  to: string;
+  customerName: string;
+  ticketCode: string;
+  totalAmount: string;
+  isTicket: boolean;
+}): Promise<boolean> {
+  const receiptUrl = `${ENV.appUrl}/loja/r/${params.ticketCode}`;
+  const fmt = (v: string) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
+
+  const html = EMAIL_WRAPPER(
+    params.isTicket ? "Seu ingresso está confirmado!" : "Recebemos seu pedido!",
+    `
+      <p style="font-size: 14px; color: #374151; line-height: 1.6;">
+        Olá, ${params.customerName}. Obrigado por comprar na Loja Integrarte — todo produto tem verba revertida
+        pra atividades artísticas e culturais.
+      </p>
+      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 16px 0;">
+        <p style="font-size: 13px; color: #374151; margin: 0;"><strong>Total:</strong> ${fmt(params.totalAmount)}</p>
+      </div>
+      <p style="font-size: 14px; color: #374151; line-height: 1.6;">
+        Guarde o link abaixo — é o seu comprovante${params.isTicket ? " de ingresso" : ""}, com QR code pra apresentar.
+      </p>
+      <div style="text-align: center; margin: 24px 0 8px 0;">
+        <a href="${receiptUrl}" style="background: #059669; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-size: 14px; font-weight: bold; display: inline-block;">
+          Ver meu comprovante
+        </a>
+      </div>
+      <p style="font-size: 11px; color: #9ca3af; text-align: center;">${receiptUrl}</p>
+    `
+  );
+
+  return sendEmail(params.to, params.isTicket ? "Seu ingresso — Loja Integrarte" : "Seu pedido — Loja Integrarte", html);
+}

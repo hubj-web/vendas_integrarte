@@ -27,20 +27,27 @@ export const storeAdminRouter = router({
     return settings ?? null;
   }),
 
-  /** Abre ou fecha a loja pública */
+  /** Abre ou fecha a loja pública, e/ou ajusta a aparência (título, mensagem, cor) */
   updateSettings: adminProcedure
     .input(z.object({
-      isOpen: z.boolean(), closedMessage: z.string().optional(),
+      isOpen: z.boolean().optional(), closedMessage: z.string().optional(),
       saleStartsAt: z.string().nullable().optional(), saleEndsAt: z.string().nullable().optional(),
+      storeTitle: z.string().nullable().optional(), welcomeMessage: z.string().nullable().optional(),
+      primaryColor: z.string().nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const [existing] = await db.select({ id: storeSettings.id }).from(storeSettings).orderBy(desc(storeSettings.id)).limit(1);
+      const [existing] = await db.select().from(storeSettings).orderBy(desc(storeSettings.id)).limit(1);
       const values = {
-        isOpen: input.isOpen, closedMessage: input.closedMessage, updatedBy: ctx.user.id,
+        isOpen: input.isOpen ?? existing?.isOpen ?? false,
+        closedMessage: input.closedMessage ?? existing?.closedMessage,
+        updatedBy: ctx.user.id,
         ...(input.saleStartsAt !== undefined ? { saleStartsAt: input.saleStartsAt ? new Date(input.saleStartsAt) : null } : {}),
         ...(input.saleEndsAt !== undefined ? { saleEndsAt: input.saleEndsAt ? new Date(input.saleEndsAt) : null } : {}),
+        ...(input.storeTitle !== undefined ? { storeTitle: input.storeTitle } : {}),
+        ...(input.welcomeMessage !== undefined ? { welcomeMessage: input.welcomeMessage } : {}),
+        ...(input.primaryColor !== undefined ? { primaryColor: input.primaryColor } : {}),
       };
       if (existing) {
         await db.update(storeSettings).set(values).where(eq(storeSettings.id, existing.id));
@@ -50,7 +57,9 @@ export const storeAdminRouter = router({
       await logActivity({
         userId: ctx.user.id, userName: ctx.user.name, action: "store.updateSettings",
         entityType: "store_settings",
-        description: `${ctx.user.name} ${input.isOpen ? "abriu" : "fechou"} a Venda Regular da loja`,
+        description: input.isOpen !== undefined
+          ? `${ctx.user.name} ${input.isOpen ? "abriu" : "fechou"} a Venda Regular da loja`
+          : `${ctx.user.name} atualizou a aparência da loja`,
       });
       return { success: true };
     }),
@@ -264,8 +273,9 @@ export const storeAdminRouter = router({
         id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
         totalAmount: orders.totalAmount, paymentMethod: orders.paymentMethod, channel: orders.channel,
         createdAt: orders.createdAt, deliveryAddress: orders.deliveryAddress, notes: orders.notes,
-        deliveryMethodName: deliveryMethods.name, eventName: storeEvents.name, ticketCode: orders.ticketCode,
-        customerName: customers.name, customerPhone: customers.phone,
+        deliveryMethodName: deliveryMethods.name, deliveryMethodId: orders.deliveryMethodId,
+        eventName: storeEvents.name, ticketCode: orders.ticketCode,
+        customerName: customers.name, customerPhone: customers.phone, customerId: orders.customerId,
       }).from(orders)
         .leftJoin(customers, eq(orders.customerId, customers.id))
         .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
@@ -294,6 +304,49 @@ export const storeAdminRouter = router({
       return { ...order, items: itemsWithExtras, payment: payment ?? null };
     }),
 
+  /** Edita os dados de um pedido da loja (cliente, entrega, status, observações) */
+  updateOrder: adminProcedure
+    .input(z.object({
+      orderId: z.number(),
+      customerName: z.string().optional(), customerPhone: z.string().optional(),
+      deliveryAddress: z.string().nullable().optional(), deliveryMethodId: z.number().optional(),
+      status: z.enum(["production", "in_route", "packaged", "delivered", "paid", "cancelled"]).optional(),
+      paymentStatus: z.enum(["pending", "paid", "cancelled"]).optional(),
+      notes: z.string().nullable().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [order] = await db.select({ customerId: orders.customerId }).from(orders).where(eq(orders.id, input.orderId)).limit(1);
+      if (!order) throw new TRPCError({ code: "NOT_FOUND" });
+
+      if (order.customerId && (input.customerName !== undefined || input.customerPhone !== undefined)) {
+        await db.update(customers).set({
+          ...(input.customerName !== undefined ? { name: input.customerName } : {}),
+          ...(input.customerPhone !== undefined ? { phone: input.customerPhone } : {}),
+        }).where(eq(customers.id, order.customerId));
+      }
+
+      const orderUpdates: Record<string, any> = {};
+      if (input.deliveryAddress !== undefined) orderUpdates.deliveryAddress = input.deliveryAddress;
+      if (input.deliveryMethodId !== undefined) orderUpdates.deliveryMethodId = input.deliveryMethodId;
+      if (input.status !== undefined) orderUpdates.status = input.status;
+      if (input.paymentStatus !== undefined) orderUpdates.paymentStatus = input.paymentStatus;
+      if (input.notes !== undefined) orderUpdates.notes = input.notes;
+      if (Object.keys(orderUpdates).length > 0) {
+        await db.update(orders).set(orderUpdates).where(eq(orders.id, input.orderId));
+      }
+
+      await logActivity({
+        userId: ctx.user.id, userName: ctx.user.name, action: "store.updateOrder",
+        entityType: "order", entityId: input.orderId,
+        description: `${ctx.user.name} editou o pedido #${input.orderId} da loja`,
+      });
+
+      return { success: true };
+    }),
+
   // ── EVENTOS DA LOJA ──────────────────────────────────────────────────────
   events: router({
     /** Lista todos os eventos (abertos ou não), com as categorias já vinculadas */
@@ -320,13 +373,25 @@ export const storeAdminRouter = router({
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const checkInCode = String(Math.floor(100000 + Math.random() * 900000));
         const result = await db.insert(storeEvents).values({
           name: input.name, type: input.type, description: input.description,
           eventDate: input.eventDate ? new Date(input.eventDate) : undefined,
-          createdBy: ctx.user.id,
+          createdBy: ctx.user.id, checkInCode,
         });
         const id = Number((result as any).insertId ?? (result as any)[0]?.insertId);
         return { success: true, id };
+      }),
+
+    /** Gera (ou troca) o código de check-in de um evento — pra invalidar o antigo se vazar */
+    regenerateCheckInCode: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const checkInCode = String(Math.floor(100000 + Math.random() * 900000));
+        await db.update(storeEvents).set({ checkInCode }).where(eq(storeEvents.id, input.id));
+        return { success: true, checkInCode };
       }),
 
     update: adminProcedure

@@ -208,12 +208,12 @@ export default function Store() {
 
   return (
     <div className="min-h-screen pb-10" style={{ background: BRAND.white }}>
-      <header className="py-8 px-4 relative" style={{ background: BRAND.blue }}>
+      <header className="py-8 px-4 relative" style={{ background: landing?.primaryColor || BRAND.blue }}>
         {insideEvent && (
           <button
             onClick={backToRoot}
             className="absolute left-4 top-4 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold"
-            style={{ background: BRAND.white, color: BRAND.blue }}
+            style={{ background: BRAND.white, color: landing?.primaryColor || BRAND.blue }}
           >
             ← Voltar
           </button>
@@ -221,14 +221,12 @@ export default function Store() {
         <div className="max-w-3xl mx-auto text-center space-y-3">
           <img src="/integrarte-logo.png" alt="Integrarte" className="mx-auto h-24 w-auto object-contain bg-white rounded-2xl p-2" />
           <h1 className="text-2xl font-bold tracking-tight text-white">
-            {insideEvent ? (eventInfo?.name ?? "").toUpperCase() : "LOJA INTEGRARTE"}
+            {insideEvent ? (eventInfo?.name ?? "").toUpperCase() : (landing?.storeTitle ?? "LOJA INTEGRARTE")}
           </h1>
           <p className="text-sm text-white/95 max-w-lg mx-auto leading-relaxed">
             {insideEvent
               ? (eventInfo?.description || "Escolha a categoria de produtos que você quer ver.")
-              : <>Olá... que bom ter você aqui. Nossa loja existe exclusivamente para o bem.
-                 Todos os nossos produtos têm verba revertida para atividades artísticas ou culturais.
-                 Escolha o que você quer ver:</>}
+              : (landing?.welcomeMessage ?? "")}
           </p>
         </div>
       </header>

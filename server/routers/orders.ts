@@ -5,7 +5,7 @@ import {
   customers, orders, orderItems, orderItemFlavors, orderMinipizzas, orderMinipizzaFlavors,
   orderJellies, orderStatusHistory, products, productFlavors, minipizzaTypes, minipizzaFlavors,
   jellyFlavors, deliveryMethods, users, deliveryRecords, paymentRecords, routeOrders, deliveryRoutes,
-  storeEvents,
+  storeEvents, storeOrderPayments, orderItemVariationSelections,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -988,10 +988,13 @@ export const ordersRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       
       // Delete from related tables first
-      await db.delete(orderItems).where(inArray(orderItems.orderId, input.ids));
-      await db.delete(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId, 
+      await db.delete(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId,
         db.select({ id: orderItems.id }).from(orderItems).where(inArray(orderItems.orderId, input.ids))
       ));
+      await db.delete(orderItemVariationSelections).where(inArray(orderItemVariationSelections.orderItemId,
+        db.select({ id: orderItems.id }).from(orderItems).where(inArray(orderItems.orderId, input.ids))
+      ));
+      await db.delete(orderItems).where(inArray(orderItems.orderId, input.ids));
       await db.delete(orderMinipizzas).where(inArray(orderMinipizzas.orderId, input.ids));
       await db.delete(orderMinipizzaFlavors).where(inArray(orderMinipizzaFlavors.orderMinipizzaId,
         db.select({ id: orderMinipizzas.id }).from(orderMinipizzas).where(inArray(orderMinipizzas.orderId, input.ids))
@@ -1001,6 +1004,7 @@ export const ordersRouter = router({
       await db.delete(deliveryRecords).where(inArray(deliveryRecords.orderId, input.ids));
       await db.delete(paymentRecords).where(inArray(paymentRecords.orderId, input.ids));
       await db.delete(routeOrders).where(inArray(routeOrders.orderId, input.ids));
+      await db.delete(storeOrderPayments).where(inArray(storeOrderPayments.orderId, input.ids));
       
       // Finally delete the orders
       await db.delete(orders).where(inArray(orders.id, input.ids));

@@ -50,6 +50,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
   const [step, setStep] = useState<Step>("dados");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [deliveryMethodId, setDeliveryMethodId] = useState<number | null>(null);
   const [address, setAddress] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"pix" | "credit_card">("pix");
@@ -99,7 +100,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
   async function submitPix() {
     try {
       const result = await createOrder.mutateAsync({
-        customerName: name, customerPhone: phone,
+        customerName: name, customerPhone: phone, customerEmail: email || undefined,
         deliveryMethodId: deliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
         eventId,
         items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds })),
@@ -172,6 +173,11 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                 <Label>Telefone (WhatsApp)</Label>
                 <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(00) 00000-0000" />
                 <p className="text-xs text-muted-foreground mt-1">Usado como identificação — sem necessidade de senha.</p>
+              </div>
+              <div>
+                <Label>E-mail (opcional)</Label>
+                <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seuemail@exemplo.com" />
+                <p className="text-xs text-muted-foreground mt-1">Preenchendo, mandamos o comprovante por e-mail também.</p>
               </div>
               <div>
                 <Label>Como você quer receber?</Label>
@@ -257,7 +263,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                   onSubmit={async (cardData) => {
                     try {
                       const result = await createOrder.mutateAsync({
-                        customerName: name, customerPhone: phone,
+                        customerName: name, customerPhone: phone, customerEmail: email || undefined,
                         deliveryMethodId: deliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
                         eventId,
                         items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds })),

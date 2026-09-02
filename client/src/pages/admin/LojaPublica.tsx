@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,29 @@ export default function LojaPublica() {
   });
   const [detailOrderId, setDetailOrderId] = useState<number | null>(null);
   const { data: orderDetail } = trpc.storeAdmin.orderDetail.useQuery({ orderId: detailOrderId ?? -1 }, { enabled: detailOrderId !== null });
+  const [editingOrder, setEditingOrder] = useState(false);
+  const [orderEditForm, setOrderEditForm] = useState({
+    customerName: "", customerPhone: "", deliveryAddress: "", deliveryMethodId: "",
+    status: "", paymentStatus: "", notes: "",
+  });
+  const updateOrder = trpc.storeAdmin.updateOrder.useMutation({
+    onSuccess: () => { utils.storeAdmin.orderDetail.invalidate(); utils.storeAdmin.orders.invalidate(); toast.success("Pedido atualizado!"); setEditingOrder(false); },
+    onError: (err) => toast.error(err.message || "Não foi possível salvar."),
+  });
+  const deleteOrder = trpc.orders.bulkDelete.useMutation({
+    onSuccess: () => { utils.storeAdmin.orders.invalidate(); toast.success("Pedido excluído."); setDetailOrderId(null); },
+    onError: (err) => toast.error(err.message || "Não foi possível excluir."),
+  });
+
+  function startEditOrder() {
+    if (!orderDetail) return;
+    setOrderEditForm({
+      customerName: orderDetail.customerName ?? "", customerPhone: orderDetail.customerPhone ?? "",
+      deliveryAddress: orderDetail.deliveryAddress ?? "", deliveryMethodId: String(orderDetail.deliveryMethodId ?? ""),
+      status: orderDetail.status, paymentStatus: orderDetail.paymentStatus, notes: orderDetail.notes ?? "",
+    });
+    setEditingOrder(true);
+  }
   const { data: deliveryMethodsList = [] } = trpc.storeAdmin.listDeliveryMethods.useQuery();
   const { data: events = [] } = trpc.storeAdmin.events.list.useQuery();
   const { data: allCategories = [] } = trpc.catalog.categories.list.useQuery();
@@ -43,6 +66,19 @@ export default function LojaPublica() {
   const updateSettings = trpc.storeAdmin.updateSettings.useMutation({
     onSuccess: () => { utils.storeAdmin.getSettings.invalidate(); toast.success("Configuração salva!"); },
   });
+
+  const [appearanceForm, setAppearanceForm] = useState({ storeTitle: "", welcomeMessage: "", primaryColor: "#1E4B9C" });
+  const [appearanceLoaded, setAppearanceLoaded] = useState(false);
+  useEffect(() => {
+    if (settings && !appearanceLoaded) {
+      setAppearanceForm({
+        storeTitle: settings.storeTitle ?? "",
+        welcomeMessage: settings.welcomeMessage ?? "",
+        primaryColor: settings.primaryColor ?? "#1E4B9C",
+      });
+      setAppearanceLoaded(true);
+    }
+  }, [settings, appearanceLoaded]);
   const setVisibility = trpc.storeAdmin.setProductVisibility.useMutation({
     onSuccess: () => { utils.storeAdmin.listStockProducts.invalidate(); },
   });
@@ -115,6 +151,19 @@ export default function LojaPublica() {
 
   function openPaymentDialog(ev: any) {
     setPaymentDialogEventId(ev.id);
+  }
+
+  const [checkInDialogEvent, setCheckInDialogEvent] = useState<{ id: number; checkInCode: string | null } | null>(null);
+  const regenerateCheckInCode = trpc.storeAdmin.events.regenerateCheckInCode.useMutation({
+    onSuccess: (data) => {
+      utils.storeAdmin.events.list.invalidate();
+      setCheckInDialogEvent(prev => prev ? { ...prev, checkInCode: data.checkInCode } : prev);
+      toast.success("Código gerado!");
+    },
+  });
+
+  function openCheckInDialog(ev: any) {
+    setCheckInDialogEvent({ id: ev.id, checkInCode: ev.checkInCode ?? null });
   }
 
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
@@ -202,6 +251,7 @@ export default function LojaPublica() {
           <TabsTrigger value="eventos">Eventos</TabsTrigger>
           <TabsTrigger value="regular">Venda Regular</TabsTrigger>
           <TabsTrigger value="pagamento">Formas de Pagamento</TabsTrigger>
+          <TabsTrigger value="aparencia">Aparência</TabsTrigger>
           <TabsTrigger value="produtos">Produtos na Loja</TabsTrigger>
           <TabsTrigger value="entregas">Formas de Entrega</TabsTrigger>
           <TabsTrigger value="pedidos">Pedidos ({orders.length})</TabsTrigger>
@@ -261,6 +311,7 @@ export default function LojaPublica() {
                       <Button size="sm" variant="outline" onClick={() => openCategoriesDialog(ev)}>Categorias</Button>
                       <Button size="sm" variant="outline" onClick={() => openSaleWindowDialog(ev)}>Janela de venda</Button>
                       <Button size="sm" variant="outline" onClick={() => openPaymentDialog(ev)}>Pagamento</Button>
+                      <Button size="sm" variant="outline" onClick={() => openCheckInDialog(ev)}>Check-in</Button>
                       <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm(`Excluir o evento "${ev.name}"?`)) deleteEvent.mutate({ id: ev.id }); }}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -346,6 +397,59 @@ export default function LojaPublica() {
               {paymentMethodsList.length === 0 && (
                 <p className="text-center text-muted-foreground py-8">Nenhuma forma de pagamento cadastrada.</p>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="aparencia" className="space-y-3 pt-3">
+          <p className="text-sm text-muted-foreground">
+            Título, mensagem de boas-vindas e cor principal mostrados na tela inicial da loja (não afeta eventos, que têm sua própria imagem/descrição).
+          </p>
+          <Card>
+            <CardContent className="pt-4 space-y-4">
+              <div>
+                <Label>Título da loja</Label>
+                <Input
+                  value={appearanceForm.storeTitle}
+                  onChange={e => setAppearanceForm(f => ({ ...f, storeTitle: e.target.value }))}
+                  placeholder="LOJA INTEGRARTE"
+                />
+              </div>
+              <div>
+                <Label>Mensagem de boas-vindas</Label>
+                <Textarea
+                  rows={4}
+                  value={appearanceForm.welcomeMessage}
+                  onChange={e => setAppearanceForm(f => ({ ...f, welcomeMessage: e.target.value }))}
+                  placeholder="Olá... que bom ter você aqui..."
+                />
+              </div>
+              <div>
+                <Label>Cor principal (cabeçalho)</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={appearanceForm.primaryColor}
+                    onChange={e => setAppearanceForm(f => ({ ...f, primaryColor: e.target.value }))}
+                    className="h-10 w-14 rounded border cursor-pointer"
+                  />
+                  <Input
+                    value={appearanceForm.primaryColor}
+                    onChange={e => setAppearanceForm(f => ({ ...f, primaryColor: e.target.value }))}
+                    className="max-w-[140px]"
+                  />
+                </div>
+              </div>
+              <Button
+                onClick={() => updateSettings.mutate({
+                  storeTitle: appearanceForm.storeTitle || null,
+                  welcomeMessage: appearanceForm.welcomeMessage || null,
+                  primaryColor: appearanceForm.primaryColor || null,
+                })}
+                disabled={updateSettings.isPending}
+              >
+                Salvar aparência
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -499,10 +603,84 @@ export default function LojaPublica() {
       </Tabs>
 
       {/* Detalhe do pedido */}
-      <Dialog open={detailOrderId !== null} onOpenChange={(open) => !open && setDetailOrderId(null)}>
+      <Dialog open={detailOrderId !== null} onOpenChange={(open) => { if (!open) { setDetailOrderId(null); setEditingOrder(false); } }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Pedido #{detailOrderId}</DialogTitle></DialogHeader>
-          {orderDetail ? (
+          {orderDetail ? editingOrder ? (
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Cliente</Label>
+                  <Input value={orderEditForm.customerName} onChange={e => setOrderEditForm(f => ({ ...f, customerName: e.target.value }))} />
+                </div>
+                <div>
+                  <Label className="text-xs">Telefone</Label>
+                  <Input value={orderEditForm.customerPhone} onChange={e => setOrderEditForm(f => ({ ...f, customerPhone: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Forma de entrega</Label>
+                <Select value={orderEditForm.deliveryMethodId} onValueChange={v => setOrderEditForm(f => ({ ...f, deliveryMethodId: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {deliveryMethodsList.map((m: any) => <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Endereço</Label>
+                <Textarea rows={2} value={orderEditForm.deliveryAddress} onChange={e => setOrderEditForm(f => ({ ...f, deliveryAddress: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Status</Label>
+                  <Select value={orderEditForm.status} onValueChange={v => setOrderEditForm(f => ({ ...f, status: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="production">Em preparação</SelectItem>
+                      <SelectItem value="packaged">Pronto</SelectItem>
+                      <SelectItem value="in_route">Saiu para entrega</SelectItem>
+                      <SelectItem value="delivered">Entregue</SelectItem>
+                      <SelectItem value="paid">Concluído</SelectItem>
+                      <SelectItem value="cancelled">Cancelado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Pagamento</Label>
+                  <Select value={orderEditForm.paymentStatus} onValueChange={v => setOrderEditForm(f => ({ ...f, paymentStatus: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">Pendente</SelectItem>
+                      <SelectItem value="paid">Pago</SelectItem>
+                      <SelectItem value="cancelled">Cancelado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Observações</Label>
+                <Textarea rows={2} value={orderEditForm.notes} onChange={e => setOrderEditForm(f => ({ ...f, notes: e.target.value }))} />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <Button variant="outline" className="flex-1" onClick={() => setEditingOrder(false)}>Cancelar</Button>
+                <Button
+                  className="flex-1"
+                  disabled={updateOrder.isPending}
+                  onClick={() => updateOrder.mutate({
+                    orderId: detailOrderId!,
+                    customerName: orderEditForm.customerName, customerPhone: orderEditForm.customerPhone,
+                    deliveryAddress: orderEditForm.deliveryAddress || null,
+                    deliveryMethodId: orderEditForm.deliveryMethodId ? Number(orderEditForm.deliveryMethodId) : undefined,
+                    status: orderEditForm.status as any, paymentStatus: orderEditForm.paymentStatus as any,
+                    notes: orderEditForm.notes || null,
+                  })}
+                >
+                  Salvar
+                </Button>
+              </div>
+            </div>
+          ) : (
             <div className="space-y-4 text-sm">
               <div className="grid grid-cols-2 gap-3">
                 <div><span className="text-muted-foreground">Cliente</span><p className="font-medium">{orderDetail.customerName}</p></div>
@@ -540,6 +718,18 @@ export default function LojaPublica() {
                   Ver recibo/ingresso do cliente →
                 </a>
               )}
+              <div className="flex gap-2 pt-2 border-t">
+                <Button variant="outline" className="flex-1 gap-1.5" onClick={startEditOrder}>
+                  <Pencil className="w-3.5 h-3.5" /> Editar
+                </Button>
+                <Button
+                  variant="outline" className="flex-1 gap-1.5 text-destructive hover:text-destructive"
+                  disabled={deleteOrder.isPending}
+                  onClick={() => { if (confirm(`Excluir o pedido #${detailOrderId} definitivamente? Essa ação não pode ser desfeita.`)) deleteOrder.mutate({ ids: [detailOrderId!] }); }}
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Excluir
+                </Button>
+              </div>
             </div>
           ) : (
             <p className="text-muted-foreground text-sm py-4">Carregando…</p>
@@ -686,6 +876,51 @@ export default function LojaPublica() {
           </div>
           <DialogFooter>
             <Button onClick={() => setPaymentDialogEventId(null)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={checkInDialogEvent !== null} onOpenChange={(open) => !open && setCheckInDialogEvent(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Check-in do Evento</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Compartilhe esse link e o código com quem vai ler os ingressos/comprovantes na entrada
+            (não precisam de login no sistema).
+          </p>
+          {checkInDialogEvent?.checkInCode ? (
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs">Código de acesso</Label>
+                <p className="text-3xl font-bold tracking-widest text-center py-2" style={{ letterSpacing: "0.3em" }}>
+                  {checkInDialogEvent.checkInCode}
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs">Link</Label>
+                <div className="flex gap-2">
+                  <Input readOnly value={`${window.location.origin}/checkin/${checkInDialogEvent.id}`} />
+                  <Button
+                    variant="outline"
+                    onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/checkin/${checkInDialogEvent.id}`); toast.success("Link copiado!"); }}
+                  >
+                    Copiar
+                  </Button>
+                </div>
+              </div>
+              <Button
+                variant="ghost" size="sm" className="text-muted-foreground"
+                onClick={() => { if (confirm("Gerar um código novo invalida o antigo — quem já tinha o código antigo perde o acesso. Continuar?")) regenerateCheckInCode.mutate({ id: checkInDialogEvent.id }); }}
+              >
+                Gerar novo código (invalida o atual)
+              </Button>
+            </div>
+          ) : (
+            <Button onClick={() => checkInDialogEvent && regenerateCheckInCode.mutate({ id: checkInDialogEvent.id })} disabled={regenerateCheckInCode.isPending}>
+              Gerar código de check-in
+            </Button>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setCheckInDialogEvent(null)}>Fechar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
