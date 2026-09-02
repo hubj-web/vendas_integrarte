@@ -668,10 +668,11 @@ export const publicStoreRouter = router({
 
 async function resolveOrderDetails(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, whereClause: any) {
   const [order] = await db.select({
-    id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
+    id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus, paymentMethod: orders.paymentMethod,
     totalAmount: orders.totalAmount, createdAt: orders.createdAt,
     deliveryMethodId: orders.deliveryMethodId, eventId: orders.eventId, ticketCode: orders.ticketCode,
-    customerName: customers.name, deliveryMethodName: deliveryMethods.name, deliveryCost: deliveryMethods.cost,
+    customerName: customers.name, customerPhone: customers.phone, notes: orders.notes,
+    deliveryMethodName: deliveryMethods.name, deliveryCost: deliveryMethods.cost,
   }).from(orders)
     .leftJoin(customers, eq(orders.customerId, customers.id))
     .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
