@@ -321,6 +321,16 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
           </div>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={createOrder.isPending && paymentMethod === "credit_card"} onOpenChange={() => {}}>
+        <DialogContent className="max-w-sm [&>button]:hidden">
+          <div className="flex flex-col items-center gap-3 py-4 text-center">
+            <Loader2 className="h-8 w-8 animate-spin" style={{ color: BRAND.blue }} />
+            <p className="font-semibold" style={{ color: BRAND.blue }}>Pagamento em andamento</p>
+            <p className="text-sm text-muted-foreground">Não feche nem atualize esta página — estamos processando seu cartão.</p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

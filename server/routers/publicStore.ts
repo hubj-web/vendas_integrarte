@@ -504,22 +504,25 @@ export const publicStoreRouter = router({
       });
       const orderId = Number((orderResult as any)[0]?.insertId ?? (orderResult as any).insertId);
 
-      // Manda o recibo por e-mail, se o cliente informou um — não trava o
-      // pedido se o envio falhar (sistema de e-mail fora do ar, etc.)
+      // Manda o recibo por e-mail, se o cliente informou um — sem AWAIT de
+      // propósito, pra não travar a resposta do pedido esperando o e-mail
+      // sair (mesma lição já aprendida com o e-mail de boas-vindas de usuário).
       if (input.customerEmail) {
-        try {
-          let isTicket = false;
-          if (input.eventId) {
-            const [ev] = await db.select({ type: storeEvents.type }).from(storeEvents).where(eq(storeEvents.id, input.eventId)).limit(1);
-            isTicket = ev?.type === "ingresso";
+        (async () => {
+          try {
+            let isTicket = false;
+            if (input.eventId) {
+              const [ev] = await db.select({ type: storeEvents.type }).from(storeEvents).where(eq(storeEvents.id, input.eventId)).limit(1);
+              isTicket = ev?.type === "ingresso";
+            }
+            await sendReceiptEmail({
+              to: input.customerEmail!, customerName: input.customerName, ticketCode,
+              totalAmount: totalAmount.toFixed(2), isTicket,
+            });
+          } catch (err) {
+            console.error("Erro ao enviar e-mail do recibo (pedido já criado normalmente):", err);
           }
-          await sendReceiptEmail({
-            to: input.customerEmail, customerName: input.customerName, ticketCode,
-            totalAmount: totalAmount.toFixed(2), isTicket,
-          });
-        } catch (err) {
-          console.error("Erro ao enviar e-mail do recibo (pedido segue normalmente):", err);
-        }
+        })();
       }
 
       for (const item of itemsResolved) {
