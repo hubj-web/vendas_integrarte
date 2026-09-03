@@ -210,6 +210,7 @@ export const publicStoreRouter = router({
       messageFontFamily: settings?.messageFontFamily || null,
       messageFontSize: settings?.messageFontSize || null,
       messageColor: settings?.messageColor || null,
+      whatsappNumber: settings?.whatsappNumber || null,
       events: events.map(e => ({
         id: e.id, name: e.name, type: e.type, description: e.description,
         imageUrl: e.imageUrl, eventDate: e.eventDate,

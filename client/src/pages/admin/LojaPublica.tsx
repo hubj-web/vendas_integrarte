@@ -72,6 +72,7 @@ export default function LojaPublica() {
     storeTitle: "", welcomeMessage: "", primaryColor: "#1E4B9C",
     titleFontFamily: "", titleFontSize: "", titleColor: "",
     messageFontFamily: "", messageFontSize: "", messageColor: "",
+    whatsappNumber: "",
   });
   const [appearanceLoaded, setAppearanceLoaded] = useState(false);
   useEffect(() => {
@@ -86,6 +87,7 @@ export default function LojaPublica() {
         messageFontFamily: settings.messageFontFamily ?? "",
         messageFontSize: settings.messageFontSize ? String(settings.messageFontSize) : "",
         messageColor: settings.messageColor ?? "",
+        whatsappNumber: settings.whatsappNumber ?? "",
       });
       setAppearanceLoaded(true);
     }
@@ -499,6 +501,17 @@ export default function LojaPublica() {
                   />
                 </div>
               </div>
+              <div>
+                <Label>Botão flutuante de WhatsApp — número</Label>
+                <Input
+                  value={appearanceForm.whatsappNumber}
+                  onChange={e => setAppearanceForm(f => ({ ...f, whatsappNumber: e.target.value }))}
+                  placeholder="Ex: 5534999998888 (DDI + DDD + número, só números)"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Deixe em branco pra não mostrar o botão. Preenchido, aparece um botão flutuante de WhatsApp em todas as telas da loja.
+                </p>
+              </div>
               <Button
                 onClick={() => updateSettings.mutate({
                   storeTitle: appearanceForm.storeTitle || null,
@@ -510,6 +523,7 @@ export default function LojaPublica() {
                   messageFontFamily: (appearanceForm.messageFontFamily === "default" ? "" : appearanceForm.messageFontFamily) || null,
                   messageFontSize: appearanceForm.messageFontSize ? Number(appearanceForm.messageFontSize) : null,
                   messageColor: appearanceForm.messageColor || null,
+                  whatsappNumber: appearanceForm.whatsappNumber.replace(/\D/g, "") || null,
                 })}
                 disabled={updateSettings.isPending}
               >

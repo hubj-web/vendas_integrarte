@@ -5,6 +5,7 @@ import { ShoppingCart } from "lucide-react";
 import CategoryView from "./CategoryView";
 import StoreCheckout from "./StoreCheckout";
 import { BRAND, loadStoreFonts } from "./brand";
+import WhatsAppFloatButton from "./WhatsAppFloatButton";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -146,6 +147,7 @@ export default function Store() {
             </p>
           </CardContent>
         </Card>
+        <WhatsAppFloatButton />
       </div>
     );
   }
@@ -313,6 +315,7 @@ export default function Store() {
           </div>
         </div>
       )}
+      <WhatsAppFloatButton />
     </div>
   );
 }

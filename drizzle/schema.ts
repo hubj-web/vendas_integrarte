@@ -475,6 +475,9 @@ export const storeSettings = mysqlTable("store_settings", {
   messageFontFamily: varchar("messageFontFamily", { length: 50 }),
   messageFontSize: int("messageFontSize"), // em px
   messageColor: varchar("messageColor", { length: 7 }),
+  // Botão flutuante de WhatsApp na Loja Pública — em branco, o botão não
+  // aparece. Formato: só números, com DDI+DDD (ex: 5534999998888).
+  whatsappNumber: varchar("whatsappNumber", { length: 20 }),
   updatedBy: int("updatedBy"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
