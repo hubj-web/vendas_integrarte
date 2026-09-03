@@ -28,6 +28,7 @@ const categoriesRouter = router({
       name: z.string().min(2), description: z.string().optional(), sortOrder: z.number().optional(),
       imageUrl: z.string().optional(), displaySize: z.enum(["pequeno", "medio", "grande"]).optional(),
       availableFrom: z.string().nullable().optional(), availableUntil: z.string().nullable().optional(),
+      popupEnabled: z.boolean().optional(), popupMessage: z.string().nullable().optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -37,6 +38,7 @@ const categoriesRouter = router({
         imageUrl: input.imageUrl, displaySize: input.displaySize,
         availableFrom: input.availableFrom ? new Date(input.availableFrom) : null,
         availableUntil: input.availableUntil ? new Date(input.availableUntil) : null,
+        popupEnabled: input.popupEnabled ?? false, popupMessage: input.popupMessage,
       });
       return { success: true };
     }),
@@ -45,6 +47,7 @@ const categoriesRouter = router({
       id: z.number(), name: z.string().min(2).optional(), description: z.string().optional(), sortOrder: z.number().optional(),
       active: z.boolean().optional(), imageUrl: z.string().nullable().optional(), displaySize: z.enum(["pequeno", "medio", "grande"]).optional(),
       availableFrom: z.string().nullable().optional(), availableUntil: z.string().nullable().optional(),
+      popupEnabled: z.boolean().optional(), popupMessage: z.string().nullable().optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -63,6 +66,17 @@ const categoriesRouter = router({
       const linked = await db.select().from(products).where(eq(products.categoryId, input.id)).limit(1);
       if (linked.length > 0) throw new TRPCError({ code: "CONFLICT", message: "Categoria possui produtos associados. Remova os vínculos antes de excluir." });
       await db.delete(productCategories).where(eq(productCategories.id, input.id));
+      return { success: true };
+    }),
+  /** Salva a ordem de várias categorias de uma vez (usado no "arrastar pra reordenar" e no "ordenar A-Z") */
+  reorder: adminProcedure
+    .input(z.object({ items: z.array(z.object({ id: z.number(), sortOrder: z.number() })) }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      for (const item of input.items) {
+        await db.update(productCategories).set({ sortOrder: item.sortOrder }).where(eq(productCategories.id, item.id));
+      }
       return { success: true };
     }),
   /** Sobe a imagem de capa da categoria (mostrada na Loja Pública) e já salva o link nela. */

@@ -28,10 +28,12 @@ import {
 
 const statusOptions = [
   { value: "all", label: "Todos os status" },
+  { value: "received", label: "Recebido" },
   { value: "production", label: "Em Produção" },
   { value: "in_route", label: "Em Rota" },
   { value: "packaged", label: "Empacotado" },
   { value: "delivered", label: "Entregue" },
+  { value: "delivery_failed", label: "Entrega sem sucesso" },
   { value: "paid", label: "Pago" },
   { value: "cancelled", label: "Cancelado" },
 ];

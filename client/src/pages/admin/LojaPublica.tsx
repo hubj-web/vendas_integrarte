@@ -24,6 +24,11 @@ const fmt = (v: number | string) =>
 const PAYMENT_STATUS_LABEL: Record<string, string> = {
   pending: "Pendente", paid: "Pago", partial: "Parcial", cancelled: "Cancelado",
 };
+const ORDER_STATUS_LABEL: Record<string, string> = {
+  received: "Recebido", production: "Em produção", packaged: "Pronto",
+  in_route: "Saiu para entrega", delivered: "Entregue", delivery_failed: "Entrega sem sucesso",
+  paid: "Concluído", cancelled: "Cancelado",
+};
 
 export default function LojaPublica() {
   const utils = trpc.useUtils();
@@ -34,6 +39,19 @@ export default function LojaPublica() {
     eventId: orderFilterEventId === "all" ? undefined : orderFilterEventId === "regular" ? "regular" : Number(orderFilterEventId),
   });
   const [detailOrderId, setDetailOrderId] = useState<number | null>(null);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState("");
+  const bulkUpdateStatus = trpc.orders.bulkUpdateStatus.useMutation({
+    onSuccess: () => { utils.storeAdmin.orders.invalidate(); toast.success("Status atualizado!"); setSelectedOrderIds(new Set()); setBulkStatus(""); },
+    onError: (err) => toast.error(err.message || "Não foi possível atualizar."),
+  });
+  const bulkDeleteOrders = trpc.orders.bulkDelete.useMutation({
+    onSuccess: () => { utils.storeAdmin.orders.invalidate(); toast.success("Pedidos excluídos."); setSelectedOrderIds(new Set()); },
+    onError: (err) => toast.error(err.message || "Não foi possível excluir."),
+  });
+  function toggleOrderSelected(id: number) {
+    setSelectedOrderIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  }
   const { data: orderDetail } = trpc.storeAdmin.orderDetail.useQuery({ orderId: detailOrderId ?? -1 }, { enabled: detailOrderId !== null });
   const [editingOrder, setEditingOrder] = useState(false);
   const [orderEditForm, setOrderEditForm] = useState({
@@ -72,7 +90,7 @@ export default function LojaPublica() {
     storeTitle: "", welcomeMessage: "", primaryColor: "#1E4B9C",
     titleFontFamily: "", titleFontSize: "", titleColor: "",
     messageFontFamily: "", messageFontSize: "", messageColor: "",
-    whatsappNumber: "", instagramUrl: "", websiteUrl: "",
+    whatsappNumber: "", instagramUrl: "", websiteUrl: "", logoUrl: "",
   });
   const [appearanceLoaded, setAppearanceLoaded] = useState(false);
   useEffect(() => {
@@ -90,6 +108,7 @@ export default function LojaPublica() {
         whatsappNumber: settings.whatsappNumber ?? "",
         instagramUrl: settings.instagramUrl ?? "",
         websiteUrl: settings.websiteUrl ?? "",
+        logoUrl: settings.logoUrl ?? "",
       });
       setAppearanceLoaded(true);
     }
@@ -375,45 +394,72 @@ export default function LojaPublica() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="pagamento" className="space-y-3 pt-3">
-          <p className="text-sm text-muted-foreground">
-            Controla onde cada forma de pagamento aparece. O interruptor "Ativa" desliga em todo o sistema de uma vez;
-            "Na Venda Regular" controla só essa loja específica. Pra controlar por Evento, use o botão "Pagamento" no card do evento, na aba Eventos.
-          </p>
-          <Card>
-            <CardContent className="pt-4 space-y-1">
-              {paymentMethodsList.map((m: any) => (
-                <div key={m.id} className="flex items-center justify-between py-3 border-b last:border-0">
-                  <div>
-                    <p className="font-medium">{m.name}</p>
-                    {m.description && <p className="text-xs text-muted-foreground">{m.description}</p>}
-                  </div>
-                  <div className="flex items-center gap-4 shrink-0">
-                    {(m.code === "pix_loja" || m.code === "cartao_loja") && (
-                      <div className="flex items-center gap-2">
-                        <Label className="text-xs text-muted-foreground">Na Venda Regular</Label>
+        <TabsContent value="pagamento" className="space-y-4 pt-3">
+          <div>
+            <h3 className="text-sm font-semibold mb-1">🛒 Loja Pública</h3>
+            <p className="text-xs text-muted-foreground mb-2">
+              O cliente escolhe uma dessas na hora de pagar sozinho, sem ninguém acompanhando.
+            </p>
+            <Card>
+              <CardContent className="pt-4 space-y-1">
+                {paymentMethodsList.filter((m: any) => m.code === "pix_loja" || m.code === "cartao_loja").map((m: any) => (
+                  <div key={m.id} className="flex items-center justify-between py-3 border-b last:border-0">
+                    <div>
+                      <p className="font-medium">{m.name}</p>
+                      {m.description && <p className="text-xs text-muted-foreground">{m.description}</p>}
+                    </div>
+                    <div className="flex items-center gap-4 shrink-0">
+                      <div className="flex flex-col items-center gap-1">
+                        <Label className="text-[11px] text-muted-foreground">Ativa aqui</Label>
                         <Switch
                           checked={m.visibleInRegular}
                           disabled={!m.active}
                           onCheckedChange={(checked) => setPaymentRegularVisibility.mutate({ paymentMethodId: m.id, visible: checked })}
                         />
                       </div>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <Label className="text-xs text-muted-foreground">Ativa</Label>
+                      <div className="flex flex-col items-center gap-1">
+                        <Label className="text-[11px] text-muted-foreground">Existe no sistema</Label>
+                        <Switch
+                          checked={m.active}
+                          onCheckedChange={(checked) => setPaymentActive.mutate({ id: m.id, active: checked })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+            <p className="text-xs text-muted-foreground mt-2">
+              Pra ligar/desligar essas mesmas formas só num evento específico (sem afetar a loja de sempre), use o botão
+              "Pagamento" no card daquele evento, na aba Eventos.
+            </p>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold mb-1">🧑‍💼 App do Vendedor</h3>
+            <p className="text-xs text-muted-foreground mb-2">
+              Pagamento combinado pessoalmente com o cliente (o vendedor usa a própria maquininha/chave Pix por fora) — o sistema só registra qual foi usada.
+            </p>
+            <Card>
+              <CardContent className="pt-4 space-y-1">
+                {paymentMethodsList.filter((m: any) => !["pix_loja", "cartao_loja"].includes(m.code)).map((m: any) => (
+                  <div key={m.id} className="flex items-center justify-between py-3 border-b last:border-0">
+                    <div>
+                      <p className="font-medium">{m.name}</p>
+                      {m.description && <p className="text-xs text-muted-foreground">{m.description}</p>}
+                    </div>
+                    <div className="flex flex-col items-center gap-1 shrink-0">
+                      <Label className="text-[11px] text-muted-foreground">Existe no sistema</Label>
                       <Switch
                         checked={m.active}
                         onCheckedChange={(checked) => setPaymentActive.mutate({ id: m.id, active: checked })}
                       />
                     </div>
                   </div>
-                </div>
-              ))}
-              {paymentMethodsList.length === 0 && (
-                <p className="text-center text-muted-foreground py-8">Nenhuma forma de pagamento cadastrada.</p>
-              )}
-            </CardContent>
-          </Card>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="aparencia" className="space-y-3 pt-3">
@@ -422,6 +468,29 @@ export default function LojaPublica() {
           </p>
           <Card>
             <CardContent className="pt-4 space-y-4">
+              <div>
+                <Label>Logo da loja</Label>
+                <div className="flex items-center gap-3 mt-1">
+                  {appearanceForm.logoUrl && (
+                    <img src={appearanceForm.logoUrl} alt="Logo atual" className="h-16 w-16 object-contain rounded-lg border bg-muted/30 p-1" />
+                  )}
+                  <div className="flex-1">
+                    <Input
+                      type="file" accept="image/*"
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        compressImageFile(file).then(base64 => setAppearanceForm(f => ({ ...f, logoUrl: base64 })));
+                      }}
+                    />
+                    {appearanceForm.logoUrl && (
+                      <Button variant="ghost" size="sm" className="mt-1 text-xs text-muted-foreground" onClick={() => setAppearanceForm(f => ({ ...f, logoUrl: "" }))}>
+                        Remover e voltar pra logo padrão
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
               <div>
                 <Label>Título da loja</Label>
                 <Input
@@ -547,6 +616,7 @@ export default function LojaPublica() {
                   whatsappNumber: appearanceForm.whatsappNumber.replace(/\D/g, "") || null,
                   instagramUrl: appearanceForm.instagramUrl || null,
                   websiteUrl: appearanceForm.websiteUrl || null,
+                  logoUrl: appearanceForm.logoUrl || null,
                 })}
                 disabled={updateSettings.isPending}
               >
@@ -653,9 +723,44 @@ export default function LojaPublica() {
           </div>
           <Card>
             <CardContent className="pt-4">
+              {selectedOrderIds.size > 0 && (
+                <div className="flex items-center justify-between bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 mb-3">
+                  <p className="text-sm font-medium">{selectedOrderIds.size} pedido(s) selecionado(s)</p>
+                  <div className="flex items-center gap-2">
+                    <Select value={bulkStatus} onValueChange={setBulkStatus}>
+                      <SelectTrigger className="w-[180px] h-9"><SelectValue placeholder="Mudar status pra..." /></SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(ORDER_STATUS_LABEL).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="sm" variant="outline" disabled={!bulkStatus || bulkUpdateStatus.isPending}
+                      onClick={() => bulkUpdateStatus.mutate({ ids: Array.from(selectedOrderIds), status: bulkStatus as any })}
+                    >
+                      Aplicar
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setSelectedOrderIds(new Set())}>Cancelar</Button>
+                    <Button
+                      size="sm" variant="destructive" disabled={bulkDeleteOrders.isPending}
+                      onClick={() => { if (confirm(`Excluir ${selectedOrderIds.size} pedido(s) definitivamente? Essa ação não pode ser desfeita.`)) bulkDeleteOrders.mutate({ ids: Array.from(selectedOrderIds) }); }}
+                    >
+                      Excluir
+                    </Button>
+                  </div>
+                </div>
+              )}
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-8">
+                      <input
+                        type="checkbox" className="h-4 w-4 cursor-pointer accent-primary"
+                        checked={orders.length > 0 && selectedOrderIds.size === orders.length}
+                        onChange={() => setSelectedOrderIds(prev => prev.size === orders.length ? new Set() : new Set(orders.map((o: any) => o.id)))}
+                      />
+                    </TableHead>
                     <TableHead>#</TableHead>
                     <TableHead>Cliente</TableHead>
                     <TableHead>Origem</TableHead>
@@ -670,6 +775,13 @@ export default function LojaPublica() {
                 <TableBody>
                   {orders.map((o: any) => (
                     <TableRow key={o.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setDetailOrderId(o.id)}>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox" className="h-4 w-4 cursor-pointer accent-primary"
+                          checked={selectedOrderIds.has(o.id)}
+                          onChange={() => toggleOrderSelected(o.id)}
+                        />
+                      </TableCell>
                       <TableCell>{o.id}</TableCell>
                       <TableCell>
                         <p className="font-medium">{o.customerName}</p>
@@ -683,7 +795,7 @@ export default function LojaPublica() {
                           {PAYMENT_STATUS_LABEL[o.paymentStatus] ?? o.paymentStatus}
                         </Badge>
                       </TableCell>
-                      <TableCell>{o.status}</TableCell>
+                      <TableCell>{ORDER_STATUS_LABEL[o.status] ?? o.status}</TableCell>
                       <TableCell className="text-right">{fmt(o.totalAmount)}</TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
@@ -751,11 +863,12 @@ export default function LojaPublica() {
                   <Select value={orderEditForm.status} onValueChange={v => setOrderEditForm(f => ({ ...f, status: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="production">Em preparação</SelectItem>
+                      <SelectItem value="received">Recebido</SelectItem>
+                      <SelectItem value="production">Em produção</SelectItem>
                       <SelectItem value="packaged">Pronto</SelectItem>
                       <SelectItem value="in_route">Saiu para entrega</SelectItem>
                       <SelectItem value="delivered">Entregue</SelectItem>
-                      <SelectItem value="paid">Concluído</SelectItem>
+                      <SelectItem value="delivery_failed">Entrega sem sucesso</SelectItem>
                       <SelectItem value="cancelled">Cancelado</SelectItem>
                     </SelectContent>
                   </Select>
@@ -802,7 +915,7 @@ export default function LojaPublica() {
                 <div><span className="text-muted-foreground">Origem</span><p className="font-medium">{orderDetail.eventName ?? "Venda Regular"}</p></div>
                 <div><span className="text-muted-foreground">Entrega</span><p className="font-medium">{orderDetail.deliveryMethodName}</p></div>
                 <div><span className="text-muted-foreground">Pagamento</span><p className="font-medium">{orderDetail.paymentMethod}</p></div>
-                <div><span className="text-muted-foreground">Status</span><p className="font-medium">{orderDetail.status} / {PAYMENT_STATUS_LABEL[orderDetail.paymentStatus] ?? orderDetail.paymentStatus}</p></div>
+                <div><span className="text-muted-foreground">Status</span><p className="font-medium">{ORDER_STATUS_LABEL[orderDetail.status] ?? orderDetail.status} / {PAYMENT_STATUS_LABEL[orderDetail.paymentStatus] ?? orderDetail.paymentStatus}</p></div>
               </div>
               {orderDetail.deliveryAddress && (
                 <div><span className="text-muted-foreground">Endereço</span><p className="font-medium">{orderDetail.deliveryAddress}</p></div>

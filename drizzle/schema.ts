@@ -48,6 +48,10 @@ export const productCategories = mysqlTable("product_categories", {
   // hoje). Ex: categoria "Sobremesas" só libera às 19h no dia do evento.
   availableFrom: timestamp("availableFrom"),
   availableUntil: timestamp("availableUntil"),
+  // Pop-up de aviso ao entrar na categoria (opcional) — só aparece se ligado
+  // E com uma mensagem preenchida.
+  popupEnabled: boolean("popupEnabled").default(false).notNull(),
+  popupMessage: text("popupMessage"),
   sortOrder: int("sortOrder").default(0).notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -250,7 +254,10 @@ export const orders = mysqlTable("orders", {
   // Check-in do ingresso/comprovante na entrada do evento — null = ainda não
   // foi lido. Preenchido = já passou pela leitura (evita reuso do mesmo QR).
   checkedInAt: timestamp("checkedInAt"),
-  status: mysqlEnum("status", ["production", "in_route", "packaged", "delivered", "paid", "cancelled"]).default("production").notNull(),
+  // Numeração sequencial do ingresso, por evento (001, 002, ...) — só
+  // preenchida em pedidos de evento do tipo "ingresso".
+  ticketNumber: int("ticketNumber"),
+  status: mysqlEnum("status", ["received", "production", "in_route", "packaged", "delivered", "delivery_failed", "paid", "cancelled"]).default("production").notNull(),
   paymentStatus: mysqlEnum("paymentStatus", ["pending", "paid", "partial", "cancelled"]).default("pending").notNull(),
   totalAmount: decimal("totalAmount", { precision: 10, scale: 2 }).notNull(),
   notes: text("notes"),
@@ -467,6 +474,8 @@ export const storeSettings = mysqlTable("store_settings", {
   storeTitle: varchar("storeTitle", { length: 100 }),
   welcomeMessage: text("welcomeMessage"),
   primaryColor: varchar("primaryColor", { length: 7 }), // hex, ex: #1E4B9C
+  // Logo mostrada acima do título na loja — em branco, usa a padrão do sistema.
+  logoUrl: longtext("logoUrl"),
   // Tipografia do título e da mensagem de boas-vindas — em branco, usa o
   // padrão do sistema (fonte do app, branco, tamanhos atuais).
   titleFontFamily: varchar("titleFontFamily", { length: 50 }),

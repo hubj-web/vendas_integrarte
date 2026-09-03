@@ -38,6 +38,7 @@ export const storeAdminRouter = router({
       messageFontFamily: z.string().nullable().optional(), messageFontSize: z.number().nullable().optional(), messageColor: z.string().nullable().optional(),
       whatsappNumber: z.string().nullable().optional(),
       instagramUrl: z.string().nullable().optional(), websiteUrl: z.string().nullable().optional(),
+      logoUrl: z.string().nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -61,6 +62,7 @@ export const storeAdminRouter = router({
         ...(input.whatsappNumber !== undefined ? { whatsappNumber: input.whatsappNumber } : {}),
         ...(input.instagramUrl !== undefined ? { instagramUrl: input.instagramUrl } : {}),
         ...(input.websiteUrl !== undefined ? { websiteUrl: input.websiteUrl } : {}),
+        ...(input.logoUrl !== undefined ? { logoUrl: input.logoUrl } : {}),
       };
       if (existing) {
         await db.update(storeSettings).set(values).where(eq(storeSettings.id, existing.id));
@@ -102,6 +104,7 @@ export const storeAdminRouter = router({
     const prods = await db.select({
       id: products.id, name: products.name, price: products.price, unit: products.unit,
       categoryId: products.categoryId, categoryName: productCategories.name, allowPreOrder: products.allowPreOrder,
+      preOrderUntil: products.preOrderUntil,
     }).from(products)
       .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
       .where(inArray(products.id, productIds));
@@ -215,11 +218,13 @@ export const storeAdminRouter = router({
     const visMap = new Map(visRows.map(v => [v.categoryId, v.visible]));
     const eventLinks = await db.select({ categoryId: storeEventCategories.categoryId }).from(storeEventCategories);
     const linkedToEvent = new Set(eventLinks.map(l => l.categoryId));
-    return cats.map(c => ({
+    // Categoria vinculada a evento não aparece mais aqui — ela já tem seu
+    // próprio acesso pelo evento, não precisa (e não deve) de um toggle
+    // separado pra também aparecer na Venda Regular.
+    return cats.filter(c => !linkedToEvent.has(c.id)).map(c => ({
       ...c,
-      linkedToEvent: linkedToEvent.has(c.id),
-      // Default: categoria de evento fica OCULTA na Venda Regular até liberar; categoria "normal" fica visível.
-      visibleInRegular: visMap.get(c.id) ?? !linkedToEvent.has(c.id),
+      linkedToEvent: false,
+      visibleInRegular: visMap.get(c.id) ?? true,
     }));
   }),
 
@@ -323,7 +328,7 @@ export const storeAdminRouter = router({
       orderId: z.number(),
       customerName: z.string().optional(), customerPhone: z.string().optional(),
       deliveryAddress: z.string().nullable().optional(), deliveryMethodId: z.number().optional(),
-      status: z.enum(["production", "in_route", "packaged", "delivered", "paid", "cancelled"]).optional(),
+      status: z.enum(["received", "production", "in_route", "packaged", "delivered", "delivery_failed", "paid", "cancelled"]).optional(),
       paymentStatus: z.enum(["pending", "paid", "cancelled"]).optional(),
       notes: z.string().nullable().optional(),
     }))

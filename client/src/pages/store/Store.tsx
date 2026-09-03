@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { ShoppingCart } from "lucide-react";
 import CategoryView from "./CategoryView";
 import StoreCheckout from "./StoreCheckout";
@@ -93,6 +95,22 @@ export default function Store() {
   }, [eventCatalogQuery.data]);
 
   const cartTotal = cart.reduce((acc, i) => acc + i.unitPrice * i.quantity, 0);
+  const [categoryPopup, setCategoryPopup] = useState<{ name: string; message: string } | null>(null);
+  // Lembra se a categoria atual foi aberta pelo "pulo automático" (evento com
+  // só 1 categoria) — assim o botão "voltar" sabe ir direto pro início, sem
+  // precisar recalcular a contagem de categorias na hora (que pode variar
+  // por causa do carregamento e levar pra tela errada).
+  const [openedByAutoSkip, setOpenedByAutoSkip] = useState(false);
+
+  /** Abre uma categoria — e, se ela tiver um recado configurado, mostra o pop-up também. */
+  function openCategory(cat: { id: number; name: string; popupEnabled?: boolean | null; popupMessage?: string | null }, autoSkip = false) {
+    setSelectedCategoryId(cat.id);
+    setView("category");
+    setOpenedByAutoSkip(autoSkip);
+    if (cat.popupEnabled && cat.popupMessage) {
+      setCategoryPopup({ name: cat.name, message: cat.popupMessage });
+    }
+  }
 
   // Se o evento tem só UMA categoria vinculada, não faz sentido mostrar uma
   // tela de "escolha a categoria" com uma opção só — pula direto pros
@@ -100,8 +118,7 @@ export default function Store() {
   useEffect(() => {
     if (view !== "categories" || typeof landingScope !== "number" || eventCatalogQuery.isLoading) return;
     if (eventCategoriesWithProducts.length === 1) {
-      setSelectedCategoryId(eventCategoriesWithProducts[0].id);
-      setView("category");
+      openCategory(eventCategoriesWithProducts[0], true);
     }
   }, [view, landingScope, eventCatalogQuery.isLoading, eventCategoriesWithProducts]);
   const cartCount = cart.reduce((acc, i) => acc + i.quantity, 0);
@@ -142,7 +159,7 @@ export default function Store() {
       <div className="min-h-screen flex items-center justify-center p-6" style={{ background: BRAND.white }}>
         <Card className="max-w-md w-full text-center">
           <CardContent className="pt-8 pb-8 space-y-3">
-            <img src="/integrarte-logo.png" alt="Integrarte" className="mx-auto h-20 w-auto object-contain" />
+            <img src={landing?.logoUrl || "/integrarte-logo.png"} alt="Integrarte" className="mx-auto h-20 w-auto object-contain" />
             <h1 className="text-xl font-semibold" style={{ color: BRAND.blue }}>Loja fechada no momento</h1>
             <p className="text-muted-foreground text-sm">
               {landing?.regularClosedMessage || "Volte em breve — estamos preparando novidades!"}
@@ -180,10 +197,11 @@ export default function Store() {
         onAddToCart={addToCart}
         onRemoveFromCart={removeFromCart}
         onContinueShopping={() => {
-          // Se veio de um evento com só uma categoria, "voltar" pra tela de
-          // categorias desse evento seria inútil (o pulo automático levaria
-          // de volta pro mesmo produto na hora) — volta direto pro início.
-          if (typeof landingScope === "number" && eventCategoriesWithProducts.length === 1) {
+          // Se veio de um evento com só uma categoria (pulo automático),
+          // "voltar" pra tela de categorias desse evento seria inútil (o
+          // pulo levaria de volta pro mesmo produto na hora) — volta direto
+          // pro início.
+          if (openedByAutoSkip) {
             backToRoot();
           } else {
             setView("categories");
@@ -199,14 +217,16 @@ export default function Store() {
   const eventInfo = insideEvent ? landing?.events.find(e => e.id === landingScope) : null;
 
   function CategoryTile({ imageUrl, name, displaySize, onClick }: { imageUrl?: string | null; name: string; displaySize?: string; onClick: () => void }) {
+    const isPequeno = displaySize === "pequeno";
+    const isGrande = displaySize === "grande";
     return (
-      <button onClick={onClick} className={`text-left group cursor-pointer ${displaySize === "grande" ? "col-span-2" : ""}`}>
-        <Card className="overflow-hidden transition-all border-0 shadow-none py-0 gap-0 ring-2 ring-transparent group-hover:ring-[#1E4B9C]">
+      <button onClick={onClick} className={`text-left group cursor-pointer ${isGrande ? "col-span-2" : ""} ${isPequeno ? "flex justify-center" : ""}`}>
+        <Card className={`overflow-hidden transition-all border-0 shadow-none py-0 gap-0 ring-2 ring-transparent group-hover:ring-[#1E4B9C] ${isPequeno ? "w-2/3" : "w-full"}`}>
           <div className={`aspect-square flex items-center justify-center overflow-hidden ${imageUrl ? "" : "p-2"}`} style={{ background: BRAND.yellowLight }}>
             {imageUrl ? (
               <img src={imageUrl} alt={name} className="w-full h-full object-cover" />
             ) : (
-              <p className={`font-medium text-center ${displaySize === "grande" ? "text-base" : "text-sm"}`} style={{ color: BRAND.blue }}>{name}</p>
+              <p className={`font-medium text-center ${isGrande ? "text-base" : isPequeno ? "text-xs" : "text-sm"}`} style={{ color: BRAND.blue }}>{name}</p>
             )}
           </div>
         </Card>
@@ -227,7 +247,7 @@ export default function Store() {
           </button>
         )}
         <div className="max-w-3xl mx-auto text-center space-y-3">
-          <img src="/integrarte-logo.png" alt="Integrarte" className="mx-auto h-24 w-auto object-contain bg-white rounded-2xl p-2" />
+          <img src={landing?.logoUrl || "/integrarte-logo.png"} alt="Integrarte" className="mx-auto h-24 w-auto object-contain bg-white rounded-2xl p-2" />
           <h1
             className="text-2xl font-bold tracking-tight text-white"
             style={{
@@ -264,7 +284,7 @@ export default function Store() {
               {eventCategoriesWithProducts.map((cat: any) => (
                 <CategoryTile
                   key={cat.id} imageUrl={cat.imageUrl} name={cat.name} displaySize={cat.displaySize}
-                  onClick={() => { setSelectedCategoryId(cat.id); setView("category"); }}
+                  onClick={() => openCategory(cat)}
                 />
               ))}
             </div>
@@ -276,7 +296,7 @@ export default function Store() {
             {regularCategoriesWithProducts.map((cat: any) => (
               <CategoryTile
                 key={`cat-${cat.id}`} imageUrl={cat.imageUrl} name={cat.name} displaySize={cat.displaySize}
-                onClick={() => { setContext({ type: "regular" }); setSelectedCategoryId(cat.id); setView("category"); }}
+                onClick={() => { setContext({ type: "regular" }); openCategory(cat); }}
               />
             ))}
             {landing?.events.map(ev => (
@@ -322,6 +342,16 @@ export default function Store() {
       <StoreSocialFooter />
       <HubJFooter />
       <WhatsAppFloatButton />
+
+      <Dialog open={categoryPopup !== null} onOpenChange={(open) => !open && setCategoryPopup(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{categoryPopup?.name}</DialogTitle></DialogHeader>
+          <p className="text-sm whitespace-pre-line">{categoryPopup?.message}</p>
+          <DialogFooter>
+            <Button className="w-full" onClick={() => setCategoryPopup(null)}>Entendi</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
