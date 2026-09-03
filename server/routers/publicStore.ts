@@ -239,20 +239,18 @@ export const publicStoreRouter = router({
       return { open: false, closedMessage: settings?.closedMessage ?? null, categories: [], products: [] };
     }
 
-    // Categoria vinculada a algum evento não aparece na Venda Regular por
-    // padrão (evita "Ingressos" ou coisas de evento se misturarem com a loja
-    // de sempre) — a menos que alguém libere ela explicitamente na aba
-    // "Venda Regular" do painel. Categoria que nunca foi ligada a evento
-    // nenhum continua aparecendo normalmente, como sempre.
+    // Categoria vinculada a algum evento NUNCA aparece na Venda Regular — ela
+    // já tem seu próprio acesso pelo evento (evita duplicar o mesmo conteúdo
+    // duas vezes na tela inicial). Categoria que nunca foi ligada a evento
+    // nenhum continua aparecendo normalmente, como sempre — a menos que
+    // alguém tenha escondido ela manualmente.
     const visRows = await db.select().from(storeRegularCategoryVisibility);
-    const explicitlyVisible = new Set(visRows.filter(v => v.visible).map(v => v.categoryId));
     const explicitlyHidden = new Set(visRows.filter(v => !v.visible).map(v => v.categoryId));
 
     const eventLinks = await db.select({ categoryId: storeEventCategories.categoryId }).from(storeEventCategories);
     const eventLinkedCategoryIds = new Set(eventLinks.map(l => l.categoryId));
 
-    const hiddenCategoryIds = Array.from(eventLinkedCategoryIds).filter(id => !explicitlyVisible.has(id));
-    for (const id of Array.from(explicitlyHidden)) if (!hiddenCategoryIds.includes(id)) hiddenCategoryIds.push(id);
+    const hiddenCategoryIds = Array.from(new Set([...Array.from(eventLinkedCategoryIds), ...Array.from(explicitlyHidden)]));
 
     const { categories, products: productsOut } = await buildCatalog(db, undefined, hiddenCategoryIds);
     return { open: true, closedMessage: null, categories, products: productsOut };
