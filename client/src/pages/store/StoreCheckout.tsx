@@ -13,6 +13,8 @@ import { ArrowLeft, Loader2, QrCode, CreditCard, Copy, Check } from "lucide-reac
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BRAND, CREDIT_CARD_ENABLED } from "./brand";
 import WhatsAppFloatButton from "./WhatsAppFloatButton";
+import HubJFooter from "@/components/HubJFooter";
+import StoreSocialFooter from "./StoreSocialFooter";
 import { cartItemVariationLabel } from "./Store";
 
 const fmt = (v: number) =>
@@ -332,6 +334,8 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
           </div>
         </DialogContent>
       </Dialog>
+      <StoreSocialFooter />
+      <HubJFooter />
       <WhatsAppFloatButton />
     </div>
   );

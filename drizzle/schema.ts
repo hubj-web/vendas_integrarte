@@ -478,6 +478,9 @@ export const storeSettings = mysqlTable("store_settings", {
   // Botão flutuante de WhatsApp na Loja Pública — em branco, o botão não
   // aparece. Formato: só números, com DDI+DDD (ex: 5534999998888).
   whatsappNumber: varchar("whatsappNumber", { length: 20 }),
+  // Redes sociais/site da instituição — mostrados no rodapé da loja.
+  instagramUrl: varchar("instagramUrl", { length: 255 }),
+  websiteUrl: varchar("websiteUrl", { length: 255 }),
   updatedBy: int("updatedBy"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

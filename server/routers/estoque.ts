@@ -154,6 +154,17 @@ export const estoqueRouter = router({
       await db.delete(estoqueAtual).where(eq(estoqueAtual.id, input.id));
       return { success: true };
     }),
+
+  /** Exclui vários lançamentos de estoque de uma vez (marcar e excluir em massa) */
+  bulkDeleteLotes: adminProcedure
+    .input(z.object({ ids: z.array(z.number()).min(1) }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await db.delete(estoqueAtualFlavors).where(inArray(estoqueAtualFlavors.estoqueAtualId, input.ids));
+      await db.delete(estoqueAtual).where(inArray(estoqueAtual.id, input.ids));
+      return { success: true, count: input.ids.length };
+    }),
 });
 
 export const pedidosEstoqueRouter = router({

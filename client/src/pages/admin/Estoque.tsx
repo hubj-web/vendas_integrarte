@@ -63,6 +63,20 @@ export default function Estoque() {
     onError: (err) => toast.error(err.message || "Não foi possível remover."),
   });
 
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const bulkDeleteLotes = trpc.estoque.bulkDeleteLotes.useMutation({
+    onSuccess: (data) => {
+      utils.estoque.list.invalidate();
+      toast.success(`${data.count} lançamento(s) excluído(s)!`);
+      setSelectedItems(new Set());
+    },
+    onError: (err) => toast.error(err.message || "Não foi possível excluir."),
+  });
+
+  function toggleItemSelected(key: string) {
+    setSelectedItems(prev => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; });
+  }
+
   function openLoteDialog(lote: { id: number; quantidade: number; lote: string | null; validade: Date | null }) {
     setLoteDialogFor(lote);
     setLoteQtdDraft(String(lote.quantidade));
@@ -136,6 +150,31 @@ export default function Estoque() {
         </CardContent>
       </Card>
 
+      {selectedItems.size > 0 && (
+        <div className="flex items-center justify-between bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3">
+          <p className="text-sm font-medium">{selectedItems.size} produto(s) selecionado(s)</p>
+          <div className="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setSelectedItems(new Set())}>Cancelar</Button>
+            <Button
+              size="sm" variant="destructive" disabled={bulkDeleteLotes.isPending}
+              onClick={() => {
+                const ids: number[] = [];
+                for (const item of estoque ?? []) {
+                  const key = `${item.productId}::${(item.flavorNames ?? []).join("|")}`;
+                  if (selectedItems.has(key)) ids.push(...(item.lotes ?? []).map((l: any) => l.id));
+                }
+                if (ids.length === 0) return toast.error("Nada pra excluir nesses itens.");
+                if (confirm(`Excluir todo o estoque de ${selectedItems.size} produto(s) selecionado(s)? Essa ação não pode ser desfeita.`)) {
+                  bulkDeleteLotes.mutate({ ids });
+                }
+              }}
+            >
+              Excluir selecionados
+            </Button>
+          </div>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}</div>
       ) : estoque?.length === 0 ? (
@@ -177,17 +216,25 @@ export default function Estoque() {
                       return (
                       <div key={i} className="bg-muted/10">
                         <div className="p-4 flex items-center justify-between gap-3">
-                          <div>
-                            <p className="font-medium text-foreground text-sm">{e.productName}</p>
-                            {e.flavorNames.length > 0 && (
-                              <p className="text-xs text-muted-foreground">{e.flavorNames.join(", ")}</p>
-                            )}
-                            <p className="text-xs text-muted-foreground mt-0.5">Custo médio: {fmt(e.custoMedioUnitario)}/{e.unit}</p>
-                            {diasParaVencer !== null && (
+                          <div className="flex items-start gap-3 min-w-0">
+                            <input
+                              type="checkbox"
+                              className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-primary"
+                              checked={selectedItems.has(loteKey)}
+                              onChange={() => toggleItemSelected(loteKey)}
+                            />
+                            <div>
+                              <p className="font-medium text-foreground text-sm">{e.productName}</p>
+                              {e.flavorNames.length > 0 && (
+                                <p className="text-xs text-muted-foreground">{e.flavorNames.join(", ")}</p>
+                              )}
+                              <p className="text-xs text-muted-foreground mt-0.5">Custo médio: {fmt(e.custoMedioUnitario)}/{e.unit}</p>
+                              {diasParaVencer !== null && (
                               <Badge variant={diasParaVencer <= 5 ? "destructive" : "outline"} className="text-xs mt-1">
                                 {diasParaVencer < 0 ? "Vencido" : diasParaVencer === 0 ? "Vence hoje" : `Vence em ${diasParaVencer} dia${diasParaVencer === 1 ? "" : "s"}`}
                               </Badge>
                             )}
+                            </div>
                           </div>
                           <div className="text-right shrink-0 flex items-center gap-3">
                             <div>

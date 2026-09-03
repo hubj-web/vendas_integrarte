@@ -72,7 +72,7 @@ export default function LojaPublica() {
     storeTitle: "", welcomeMessage: "", primaryColor: "#1E4B9C",
     titleFontFamily: "", titleFontSize: "", titleColor: "",
     messageFontFamily: "", messageFontSize: "", messageColor: "",
-    whatsappNumber: "",
+    whatsappNumber: "", instagramUrl: "", websiteUrl: "",
   });
   const [appearanceLoaded, setAppearanceLoaded] = useState(false);
   useEffect(() => {
@@ -88,6 +88,8 @@ export default function LojaPublica() {
         messageFontSize: settings.messageFontSize ? String(settings.messageFontSize) : "",
         messageColor: settings.messageColor ?? "",
         whatsappNumber: settings.whatsappNumber ?? "",
+        instagramUrl: settings.instagramUrl ?? "",
+        websiteUrl: settings.websiteUrl ?? "",
       });
       setAppearanceLoaded(true);
     }
@@ -509,7 +511,26 @@ export default function LojaPublica() {
                   placeholder="Ex: 5534999998888 (DDI + DDD + número, só números)"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Deixe em branco pra não mostrar o botão. Preenchido, aparece um botão flutuante de WhatsApp em todas as telas da loja.
+                  Deixe em branco pra não mostrar o botão. Preenchido, aparece um botão flutuante de WhatsApp em todas as telas da loja (esse mesmo número também aparece como ícone no rodapé).
+                </p>
+              </div>
+              <div>
+                <Label>Instagram (link completo)</Label>
+                <Input
+                  value={appearanceForm.instagramUrl}
+                  onChange={e => setAppearanceForm(f => ({ ...f, instagramUrl: e.target.value }))}
+                  placeholder="https://instagram.com/integrarte"
+                />
+              </div>
+              <div>
+                <Label>Site (link completo)</Label>
+                <Input
+                  value={appearanceForm.websiteUrl}
+                  onChange={e => setAppearanceForm(f => ({ ...f, websiteUrl: e.target.value }))}
+                  placeholder="https://www.integrarte.ong.br"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Instagram e Site aparecem como ícones no rodapé da loja, junto com o WhatsApp acima. Deixe em branco o que não quiser mostrar.
                 </p>
               </div>
               <Button
@@ -524,6 +545,8 @@ export default function LojaPublica() {
                   messageFontSize: appearanceForm.messageFontSize ? Number(appearanceForm.messageFontSize) : null,
                   messageColor: appearanceForm.messageColor || null,
                   whatsappNumber: appearanceForm.whatsappNumber.replace(/\D/g, "") || null,
+                  instagramUrl: appearanceForm.instagramUrl || null,
+                  websiteUrl: appearanceForm.websiteUrl || null,
                 })}
                 disabled={updateSettings.isPending}
               >
