@@ -649,11 +649,23 @@ export default function LojaPublica() {
                       <TableCell>{o.status}</TableCell>
                       <TableCell className="text-right">{fmt(o.totalAmount)}</TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                        {o.paymentStatus !== "paid" && o.paymentMethod === "pix" && (
-                          <Button size="sm" variant="outline" disabled={confirmPayment.isPending} onClick={() => confirmPayment.mutate({ orderId: o.id })}>
-                            Confirmar Pagamento
+                        <div className="flex items-center justify-end gap-1">
+                          {o.paymentStatus !== "paid" && o.paymentMethod === "pix" && (
+                            <Button size="sm" variant="outline" disabled={confirmPayment.isPending} onClick={() => confirmPayment.mutate({ orderId: o.id })}>
+                              Confirmar Pagamento
+                            </Button>
+                          )}
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setDetailOrderId(o.id)}>
+                            <Pencil className="w-3.5 h-3.5" />
                           </Button>
-                        )}
+                          <Button
+                            size="icon" variant="ghost" className="h-8 w-8 hover:text-destructive"
+                            disabled={deleteOrder.isPending}
+                            onClick={() => { if (confirm(`Excluir o pedido #${o.id} definitivamente? Essa ação não pode ser desfeita.`)) deleteOrder.mutate({ ids: [o.id] }); }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

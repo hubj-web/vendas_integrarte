@@ -66,6 +66,13 @@ async function startServer() {
   // Webhook do Mercado Pago — confirma pagamentos da Loja Pública
   registerMercadoPagoWebhook(app);
   // tRPC API
+  app.use("/api/trpc", (_req, res, next) => {
+    // Impede que navegador/proxy guarde em cache as respostas da API — sem
+    // isso, em algumas redes/celulares, a tela mostrava dados desatualizados
+    // (ex: configurações da loja) até um refresh forçado.
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    next();
+  });
   app.use(
     "/api/trpc",
     createExpressMiddleware({
