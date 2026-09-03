@@ -36,6 +36,7 @@ export const storeAdminRouter = router({
       primaryColor: z.string().nullable().optional(),
       titleFontFamily: z.string().nullable().optional(), titleFontSize: z.number().nullable().optional(), titleColor: z.string().nullable().optional(),
       messageFontFamily: z.string().nullable().optional(), messageFontSize: z.number().nullable().optional(), messageColor: z.string().nullable().optional(),
+      whatsappNumber: z.string().nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -56,6 +57,7 @@ export const storeAdminRouter = router({
         ...(input.messageFontFamily !== undefined ? { messageFontFamily: input.messageFontFamily } : {}),
         ...(input.messageFontSize !== undefined ? { messageFontSize: input.messageFontSize } : {}),
         ...(input.messageColor !== undefined ? { messageColor: input.messageColor } : {}),
+        ...(input.whatsappNumber !== undefined ? { whatsappNumber: input.whatsappNumber } : {}),
       };
       if (existing) {
         await db.update(storeSettings).set(values).where(eq(storeSettings.id, existing.id));
