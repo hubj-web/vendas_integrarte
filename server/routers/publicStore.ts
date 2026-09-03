@@ -10,7 +10,7 @@
  * sistema "Loja Pública" como launcherId (nunca um ID vindo do cliente).
  */
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import {
@@ -25,6 +25,7 @@ import {
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
 import { buscarLotesEstoque, descontarLotesEstoque } from "./seller";
+import { isProductOnPreOrder } from "../storeHelpers";
 import { sendReceiptEmail } from "../email";
 import { createMercadoPagoPayment, mercadoPagoConfigured } from "../mercadopago";
 import { generateQrCodeBase64 } from "../qr";
@@ -48,6 +49,17 @@ export function isEffectivelyOpen(row: { isOpen: boolean; saleStartsAt?: Date | 
 }
 
 const SYSTEM_USER_EMAIL = "loja-publica@sistema.integrarte.local";
+
+/** Formata o número do ingresso com no mínimo 3 dígitos (001, 042, 150, 1234...). */
+export function formatTicketNumber(n: number): string {
+  return String(n).padStart(3, "0");
+}
+
+/** Próximo número sequencial de ingresso desse evento (maior já usado + 1). */
+export async function nextTicketNumber(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, eventId: number): Promise<number> {
+  const [row] = await db.select({ max: sql<number>`MAX(${orders.ticketNumber})` }).from(orders).where(eq(orders.eventId, eventId));
+  return (row?.max ?? 0) + 1;
+}
 
 async function getSystemUserId(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
   const [u] = await db.select({ id: users.id }).from(users).where(eq(users.email, SYSTEM_USER_EMAIL)).limit(1);
@@ -104,10 +116,6 @@ async function buildCatalog(
     maxFlavors: products.maxFlavors, variationType: products.variationType, imageUrl: products.imageUrl,
     displaySize: products.displaySize, allowPreOrder: products.allowPreOrder, preOrderUntil: products.preOrderUntil,
   }).from(products).where(and(...prodConditions));
-
-  /** Sob encomenda: ligado, e (sem data de corte OU ainda antes dela). */
-  const isProductOnPreOrder = (p: { allowPreOrder: boolean; preOrderUntil: Date | null }) =>
-    p.allowPreOrder && (!p.preOrderUntil || now <= p.preOrderUntil);
 
   // Produto entra no catálogo se: tem estoque de verdade, OU está na janela de sob encomenda.
   const productIdsVisiveis = prods
@@ -213,6 +221,7 @@ export const publicStoreRouter = router({
       whatsappNumber: settings?.whatsappNumber || null,
       instagramUrl: settings?.instagramUrl || null,
       websiteUrl: settings?.websiteUrl || null,
+      logoUrl: settings?.logoUrl || null,
       events: events.map(e => ({
         id: e.id, name: e.name, type: e.type, description: e.description,
         imageUrl: e.imageUrl, eventDate: e.eventDate,
@@ -425,7 +434,7 @@ export const publicStoreRouter = router({
         // Item "sob encomenda" (dentro da janela configurada nele, se houver
         // uma) não precisa de estoque — é registrado sem checar/descontar
         // nada. Fora dessa janela, cai na regra normal (precisa estoque real).
-        const isPreOrder = prod.allowPreOrder && (!prod.preOrderUntil || now <= prod.preOrderUntil);
+        const isPreOrder = isProductOnPreOrder(prod, now);
         if (!isPreOrder) {
           const lotes = await buscarLotesEstoque(db, item.productId, item.flavorIds ?? []);
           const disponivel = lotes.reduce((acc, l) => acc + l.quantity, 0);
@@ -491,6 +500,12 @@ export const publicStoreRouter = router({
       const systemUserId = await getSystemUserId(db);
       const ticketCode = nanoid(12);
 
+      let ticketNumber: number | undefined;
+      if (input.eventId) {
+        const [ev] = await db.select({ type: storeEvents.type }).from(storeEvents).where(eq(storeEvents.id, input.eventId)).limit(1);
+        if (ev?.type === "ingresso") ticketNumber = await nextTicketNumber(db, input.eventId);
+      }
+
       const orderResult = await db.insert(orders).values({
         customerId,
         launcherId: systemUserId,
@@ -499,8 +514,9 @@ export const publicStoreRouter = router({
         paymentMethod: input.paymentMethod,
         channel: "loja_publica",
         eventId: input.eventId,
+        ticketNumber,
         ticketCode,
-        status: "production",
+        status: "received",
         paymentStatus: "pending",
         totalAmount: totalAmount.toFixed(2),
         notes: "Pedido feito pela Loja Pública (on-line)",
@@ -513,14 +529,10 @@ export const publicStoreRouter = router({
       if (input.customerEmail) {
         (async () => {
           try {
-            let isTicket = false;
-            if (input.eventId) {
-              const [ev] = await db.select({ type: storeEvents.type }).from(storeEvents).where(eq(storeEvents.id, input.eventId)).limit(1);
-              isTicket = ev?.type === "ingresso";
-            }
+            const isTicket = ticketNumber !== undefined;
             await sendReceiptEmail({
               to: input.customerEmail!, customerName: input.customerName, ticketCode,
-              totalAmount: totalAmount.toFixed(2), isTicket,
+              totalAmount: totalAmount.toFixed(2), isTicket, ticketNumber,
             });
           } catch (err) {
             console.error("Erro ao enviar e-mail do recibo (pedido já criado normalmente):", err);
@@ -674,7 +686,7 @@ export const publicStoreRouter = router({
 
 async function resolveOrderDetails(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, whereClause: any) {
   const [order] = await db.select({
-    id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus, paymentMethod: orders.paymentMethod,
+    id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus, paymentMethod: orders.paymentMethod, ticketNumber: orders.ticketNumber,
     totalAmount: orders.totalAmount, createdAt: orders.createdAt,
     deliveryMethodId: orders.deliveryMethodId, eventId: orders.eventId, ticketCode: orders.ticketCode,
     customerName: customers.name, customerPhone: customers.phone, notes: orders.notes,

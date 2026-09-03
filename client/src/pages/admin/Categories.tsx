@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -21,6 +22,8 @@ type Category = {
   displaySize: "pequeno" | "medio" | "grande";
   availableFrom: string | Date | null;
   availableUntil: string | Date | null;
+  popupEnabled: boolean;
+  popupMessage: string | null;
   active: boolean;
   createdAt: Date;
 };
@@ -32,17 +35,51 @@ type FormData = {
   displaySize: "pequeno" | "medio" | "grande";
   availableFrom: string;
   availableUntil: string;
+  popupEnabled: boolean;
+  popupMessage: string;
 };
 
 export default function Categories() {
   const utils = trpc.useUtils();
   const { data: categories = [], isLoading } = trpc.catalog.categories.list.useQuery();
 
+  // Lista local, pra poder reordenar visualmente antes de salvar (arrastar)
+  const [orderedList, setOrderedList] = useState<Category[]>([]);
+  useEffect(() => { setOrderedList(categories); }, [categories]);
+  const dragIndexRef = useRef<number | null>(null);
+
+  const reorderMutation = trpc.catalog.categories.reorder.useMutation({
+    onSuccess: () => utils.catalog.categories.list.invalidate(),
+    onError: (e) => { toast.error(e.message); utils.catalog.categories.list.invalidate(); },
+  });
+
+  function saveOrder(list: Category[]) {
+    reorderMutation.mutate({ items: list.map((c, i) => ({ id: c.id, sortOrder: i * 10 })) });
+  }
+
+  function handleDrop(dropIndex: number) {
+    const dragIndex = dragIndexRef.current;
+    if (dragIndex === null || dragIndex === dropIndex) return;
+    const next = [...orderedList];
+    const [moved] = next.splice(dragIndex, 1);
+    next.splice(dropIndex, 0, moved);
+    setOrderedList(next);
+    saveOrder(next);
+    dragIndexRef.current = null;
+  }
+
+  function sortAlphabetically() {
+    const next = [...orderedList].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+    setOrderedList(next);
+    saveOrder(next);
+    toast.success("Ordenado alfabeticamente!");
+  }
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [form, setForm] = useState<FormData>({ name: "", description: "", sortOrder: 0, displaySize: "medio", availableFrom: "", availableUntil: "" });
+  const [form, setForm] = useState<FormData>({ name: "", description: "", sortOrder: 0, displaySize: "medio", availableFrom: "", availableUntil: "", popupEnabled: false, popupMessage: "" });
 
   const createMutation = trpc.catalog.categories.create.useMutation({
     onSuccess: () => { utils.catalog.categories.list.invalidate(); toast.success("Categoria criada!"); setDialogOpen(false); },
@@ -84,7 +121,7 @@ export default function Categories() {
   function openCreate() {
     setEditingCategory(null);
     setImagePreview(null);
-    setForm({ name: "", description: "", sortOrder: (categories.length) * 10, displaySize: "medio", availableFrom: "", availableUntil: "" });
+    setForm({ name: "", description: "", sortOrder: (categories.length) * 10, displaySize: "medio", availableFrom: "", availableUntil: "", popupEnabled: false, popupMessage: "" });
     setDialogOpen(true);
   }
 
@@ -101,6 +138,7 @@ export default function Categories() {
       name: cat.name, description: cat.description ?? "", sortOrder: cat.sortOrder, displaySize: cat.displaySize ?? "medio",
       availableFrom: cat.availableFrom ? toDatetimeLocal(cat.availableFrom) : "",
       availableUntil: cat.availableUntil ? toDatetimeLocal(cat.availableUntil) : "",
+      popupEnabled: cat.popupEnabled ?? false, popupMessage: cat.popupMessage ?? "",
     });
     setDialogOpen(true);
   }
@@ -116,11 +154,13 @@ export default function Categories() {
       updateMutation.mutate({
         id: editingCategory.id, name: form.name, description: form.description || undefined, sortOrder: form.sortOrder, displaySize: form.displaySize,
         availableFrom: form.availableFrom || null, availableUntil: form.availableUntil || null,
+        popupEnabled: form.popupEnabled, popupMessage: form.popupMessage || null,
       });
     } else {
       createMutation.mutate({
         name: form.name, description: form.description || undefined, sortOrder: form.sortOrder, displaySize: form.displaySize,
         availableFrom: form.availableFrom || undefined, availableUntil: form.availableUntil || undefined,
+        popupEnabled: form.popupEnabled, popupMessage: form.popupMessage || undefined,
       });
     }
   }
@@ -135,11 +175,16 @@ export default function Categories() {
             <Tag className="w-6 h-6 text-blue-600" />
             Categorias de Produtos
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Gerencie as categorias que agrupam os tipos de produto</p>
+          <p className="text-sm text-gray-500 mt-1">Gerencie as categorias que agrupam os tipos de produto — arraste pela ⠿ pra reordenar manualmente.</p>
         </div>
-        <Button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
-          <Plus className="w-4 h-4" /> Nova Categoria
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={sortAlphabetically} disabled={reorderMutation.isPending}>
+            Ordenar A-Z
+          </Button>
+          <Button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+            <Plus className="w-4 h-4" /> Nova Categoria
+          </Button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -154,12 +199,16 @@ export default function Categories() {
         </div>
       ) : (
         <div className="space-y-3">
-          {categories.map((cat) => (
+          {orderedList.map((cat, index) => (
             <div
               key={cat.id}
+              draggable
+              onDragStart={() => { dragIndexRef.current = index; }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => handleDrop(index)}
               className={`flex items-center gap-4 p-4 rounded-xl border bg-white shadow-sm transition-all ${!cat.active ? "opacity-60" : ""}`}
             >
-              <GripVertical className="w-4 h-4 text-gray-300 flex-shrink-0" />
+              <GripVertical className="w-4 h-4 text-gray-300 flex-shrink-0 cursor-grab active:cursor-grabbing" />
               {cat.imageUrl ? (
                 <img src={cat.imageUrl} alt={cat.name} className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border" />
               ) : (
@@ -173,7 +222,6 @@ export default function Categories() {
                   {!cat.active && <Badge variant="secondary" className="text-xs">Inativa</Badge>}
                 </div>
                 {cat.description && <p className="text-sm text-gray-500 mt-0.5 truncate">{cat.description}</p>}
-                <p className="text-xs text-gray-400 mt-0.5">Ordem: {cat.sortOrder}</p>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
                 <Button
@@ -251,18 +299,6 @@ export default function Categories() {
               />
             </div>
             <div>
-              <Label htmlFor="cat-order">Ordem de exibição</Label>
-              <Input
-                id="cat-order"
-                type="number"
-                value={form.sortOrder}
-                onChange={e => setForm(f => ({ ...f, sortOrder: Number(e.target.value) }))}
-                placeholder="0"
-                className="mt-1 w-32"
-              />
-              <p className="text-xs text-gray-400 mt-1">Menor número aparece primeiro</p>
-            </div>
-            <div>
               <Label>Tamanho de destaque na Loja Pública</Label>
               <Select value={form.displaySize} onValueChange={(v) => setForm(f => ({ ...f, displaySize: v as any }))}>
                 <SelectTrigger className="mt-1 w-40"><SelectValue /></SelectTrigger>
@@ -284,6 +320,22 @@ export default function Categories() {
                 Deixe em branco pra sempre disponível. Preenchendo, essa categoria (e os produtos dela) só aparecem
                 na loja dentro dessa janela — ex: sobremesa que libera só no dia/horário do evento.
               </p>
+            </div>
+            <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
+              <div className="flex items-center justify-between">
+                <Label className="cursor-pointer" htmlFor="popup-enabled">Mostrar pop-up de aviso ao entrar na categoria</Label>
+                <Switch id="popup-enabled" checked={form.popupEnabled} onCheckedChange={v => setForm(f => ({ ...f, popupEnabled: v }))} />
+              </div>
+              {form.popupEnabled && (
+                <div>
+                  <Label className="text-xs">Mensagem do pop-up</Label>
+                  <Textarea
+                    rows={4} value={form.popupMessage}
+                    onChange={e => setForm(f => ({ ...f, popupMessage: e.target.value }))}
+                    placeholder="Ex: Esses quadros são pintados à mão, cada um é único — o tempo de produção pode levar até 15 dias."
+                  />
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>

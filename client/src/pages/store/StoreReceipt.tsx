@@ -50,6 +50,7 @@ function loadHtml2Canvas(): Promise<void> {
 
 export default function StoreReceipt({ ticketCode }: { ticketCode: string }) {
   const { data: order, isLoading } = trpc.publicStore.orderByTicketCode.useQuery({ ticketCode }, { refetchInterval: 15000 });
+  const { data: landing } = trpc.publicStore.landing.useQuery(undefined, { staleTime: 60_000 });
   const receiptRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
 
@@ -100,7 +101,7 @@ export default function StoreReceipt({ ticketCode }: { ticketCode: string }) {
         <div ref={receiptRef} style={{ width: "100%", background: "#ffffff", fontFamily: "'Segoe UI', Arial, sans-serif", color: "#1a1a1a", borderRadius: 16, overflow: "hidden", boxShadow: "0 4px 24px rgba(0,0,0,0.12)" }}>
           {/* Header */}
           <div style={{ background: "#1a4731", padding: "20px 24px 16px", textAlign: "center" }}>
-            <img src="/integrarte-logo.png" alt="Integrarte" style={{ height: 40, margin: "0 auto 8px", display: "block", background: "#fff", borderRadius: 10, padding: 4 }} />
+            <img src={landing?.logoUrl || "/integrarte-logo.png"} alt="Integrarte" style={{ height: 40, margin: "0 auto 8px", display: "block", background: "#fff", borderRadius: 10, padding: 4 }} />
             <div style={{ color: "#ffffff", fontSize: 22, fontWeight: 700, letterSpacing: 0.5 }}>Integrarte</div>
             <div style={{ color: "#86efac", fontSize: 12, marginTop: 2 }}>{isTicket ? "Recibo de Ingresso" : "Recibo de Pedido"}</div>
           </div>
@@ -116,6 +117,13 @@ export default function StoreReceipt({ ticketCode }: { ticketCode: string }) {
               <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{fmtDateTime(order.createdAt)}</div>
             </div>
           </div>
+
+          {isTicket && (order as any).ticketNumber != null && (
+            <div style={{ background: "#eff6ff", borderBottom: "1px solid #bfdbfe", padding: "14px 24px", textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: "#1e40af", textTransform: "uppercase", letterSpacing: 0.8 }}>Ingresso Nº</div>
+              <div style={{ fontSize: 32, fontWeight: 800, color: "#1e40af" }}>{String((order as any).ticketNumber).padStart(3, "0")}</div>
+            </div>
+          )}
 
           <div style={{ padding: "16px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
             {order.event && (

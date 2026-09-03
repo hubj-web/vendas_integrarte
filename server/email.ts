@@ -144,9 +144,11 @@ export async function sendReceiptEmail(params: {
   ticketCode: string;
   totalAmount: string;
   isTicket: boolean;
+  ticketNumber?: number;
 }): Promise<boolean> {
   const receiptUrl = `${ENV.appUrl}/loja/r/${params.ticketCode}`;
   const fmt = (v: string) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
+  const ticketNumberLabel = params.ticketNumber !== undefined ? String(params.ticketNumber).padStart(3, "0") : null;
 
   const html = EMAIL_WRAPPER(
     params.isTicket ? "Seu ingresso está confirmado!" : "Recebemos seu pedido!",
@@ -155,6 +157,12 @@ export async function sendReceiptEmail(params: {
         Olá, ${params.customerName}. Obrigado por comprar na Loja Integrarte — todo produto tem verba revertida
         pra atividades artísticas e culturais.
       </p>
+      ${ticketNumberLabel ? `
+      <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 16px; margin: 16px 0; text-align: center;">
+        <p style="font-size: 11px; color: #1e40af; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">Ingresso Nº</p>
+        <p style="font-size: 28px; color: #1e40af; margin: 4px 0 0; font-weight: 800;">${ticketNumberLabel}</p>
+      </div>
+      ` : ""}
       <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 16px 0;">
         <p style="font-size: 13px; color: #374151; margin: 0;"><strong>Total:</strong> ${fmt(params.totalAmount)}</p>
       </div>

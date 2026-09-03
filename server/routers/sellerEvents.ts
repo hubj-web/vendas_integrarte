@@ -22,7 +22,7 @@ import {
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { buscarLotesEstoque, descontarLotesEstoque, requireLauncherRole } from "./seller";
-import { isEffectivelyOpen } from "./publicStore";
+import { isEffectivelyOpen, nextTicketNumber } from "./publicStore";
 import { buildPixPayload, generatePixQrCodeBase64, pixConfigured } from "../pix";
 
 export const sellerEventsRouter = router({
@@ -140,6 +140,7 @@ export const sellerEventsRouter = router({
       if (!deliveryMethodId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nenhuma forma de entrega cadastrada." });
 
       const ticketCode = nanoid(12);
+      const ticketNumber = event.type === "ingresso" ? await nextTicketNumber(db, input.eventId) : undefined;
 
       const orderResult = await db.insert(orders).values({
         customerId,
@@ -149,7 +150,8 @@ export const sellerEventsRouter = router({
         channel: "vendedor_evento",
         eventId: input.eventId,
         ticketCode,
-        status: "production",
+        ticketNumber,
+        status: "received",
         paymentStatus: input.paymentStatus,
         totalAmount: totalAmount.toFixed(2),
         notes: input.notes ?? `Venda de evento (${event.name}) lançada por ${user.name}`,

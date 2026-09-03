@@ -323,7 +323,9 @@ export default function Products() {
                             onCheckedChange={(checked) => setStoreVisibility.mutate({ productId: p.id, visible: checked, storePrice: sp.storePrice })}
                           />
                           <span className="text-xs text-muted-foreground">
-                            {sp.allowPreOrder && sp.stockQuantity === 0 ? "Sob encomenda" : `${sp.stockQuantity} ${p.unit}`}
+                            {sp.allowPreOrder && sp.stockQuantity === 0
+                              ? `Sob encomenda${sp.preOrderUntil ? ` até ${new Date(sp.preOrderUntil).toLocaleDateString("pt-BR")}` : ""}`
+                              : `${sp.stockQuantity} ${p.unit}`}
                           </span>
                         </div>
                       );

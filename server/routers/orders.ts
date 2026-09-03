@@ -494,7 +494,7 @@ export const ordersRouter = router({
         paymentMethod: input.paymentMethod,
         notes: input.notes,
         totalAmount: input.totalAmount,
-        status: "production",
+        status: "received",
         paymentStatus: "pending",
       });
 
@@ -646,7 +646,7 @@ export const ordersRouter = router({
   updateStatus: protectedProcedure
     .input(z.object({
       id: z.number(),
-      status: z.enum(["production", "in_route", "packaged", "delivered", "paid", "cancelled"]),
+      status: z.enum(["received", "production", "in_route", "packaged", "delivered", "delivery_failed", "paid", "cancelled"]),
       notes: z.string().optional(),
       cancelReason: z.string().optional(),
     }))
@@ -859,7 +859,7 @@ export const ordersRouter = router({
   bulkUpdateStatus: protectedProcedure
     .input(z.object({
       ids: z.array(z.number()),
-      status: z.enum(["production", "in_route", "packaged", "delivered", "paid", "cancelled"]),
+      status: z.enum(["received", "production", "in_route", "packaged", "delivered", "delivery_failed", "paid", "cancelled"]),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
