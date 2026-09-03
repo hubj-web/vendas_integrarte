@@ -148,6 +148,7 @@ export default function Store() {
   function backToRoot() {
     setLandingScope("root");
     setContext({ type: "regular" });
+    setView("categories");
   }
 
   if (view === "loading" || landingLoading) {
