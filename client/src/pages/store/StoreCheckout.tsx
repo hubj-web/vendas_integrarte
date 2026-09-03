@@ -30,6 +30,8 @@ interface CartItem {
   flavorNames: string[];
   optionIds: number[];
   variationSelections: { groupName: string; optionName: string }[];
+  deliveryMethodId?: number;
+  deliveryMethodName?: string;
 }
 
 interface Props {
@@ -74,10 +76,19 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
     if (paymentMethod === "credit_card" && !cardEnabled && pixEnabled) setPaymentMethod("pix");
   }, [allowedPayments, pixEnabled, cardEnabled]);
 
+  // Dentro de Evento, se todo item do carrinho já veio com sua própria forma
+  // de entrega escolhida (lá na tela de categoria), não precisa perguntar de
+  // novo aqui — soma o custo de cada forma distinta usada.
+  const isPerItemDelivery = !!eventId && cart.length > 0 && cart.every(i => i.deliveryMethodId != null);
+  const usedMethods = isPerItemDelivery
+    ? deliveryMethods.filter(m => new Set(cart.map(i => i.deliveryMethodId)).has(m.id))
+    : [];
+
   const selectedMethod = deliveryMethods.find(m => m.id === deliveryMethodId);
-  const requiresAddress = !!selectedMethod?.requiresAddress;
-  const deliveryCost = selectedMethod ? Number(selectedMethod.cost) : 0;
+  const requiresAddress = isPerItemDelivery ? usedMethods.some(m => m.requiresAddress) : !!selectedMethod?.requiresAddress;
+  const deliveryCost = isPerItemDelivery ? usedMethods.reduce((acc, m) => acc + Number(m.cost), 0) : (selectedMethod ? Number(selectedMethod.cost) : 0);
   const grandTotal = total + deliveryCost;
+  const [customerNotes, setCustomerNotes] = useState("");
 
   const createOrder = trpc.publicStore.createOrder.useMutation();
   const { data: orderStatus } = trpc.publicStore.orderStatus.useQuery(
@@ -95,7 +106,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
   function validateDados() {
     if (!name.trim()) { toast.error("Informe seu nome."); return false; }
     if (phone.replace(/\D/g, "").length < 10) { toast.error("Informe um telefone válido."); return false; }
-    if (!deliveryMethodId) { toast.error("Escolha como quer receber."); return false; }
+    if (!isPerItemDelivery && !deliveryMethodId) { toast.error("Escolha como quer receber."); return false; }
     if (requiresAddress && !address.trim()) { toast.error("Informe o endereço de entrega."); return false; }
     return true;
   }
@@ -103,10 +114,10 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
   async function submitPix() {
     try {
       const result = await createOrder.mutateAsync({
-        customerName: name, customerPhone: phone, customerEmail: email || undefined,
-        deliveryMethodId: deliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
+        customerName: name, customerPhone: phone, customerEmail: email || undefined, customerNotes: customerNotes || undefined,
+        deliveryMethodId: (isPerItemDelivery ? cart[0].deliveryMethodId! : deliveryMethodId)!, deliveryAddress: requiresAddress ? address : undefined,
         eventId,
-        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds })),
+        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds, deliveryMethodId: i.deliveryMethodId })),
         paymentMethod: "pix",
       });
       setOrderId(result.orderId);
@@ -182,29 +193,47 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                 <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seuemail@exemplo.com" />
                 <p className="text-xs text-muted-foreground mt-1">Preenchendo, mandamos o comprovante por e-mail também.</p>
               </div>
-              <div>
-                <Label>Como você quer receber?</Label>
-                <RadioGroup value={deliveryMethodId ? String(deliveryMethodId) : ""} onValueChange={v => setDeliveryMethodId(Number(v))} className="mt-1">
-                  {deliveryMethods.map(m => (
-                    <div key={m.id} className="flex items-center space-x-2 border rounded-lg p-3">
-                      <RadioGroupItem value={String(m.id)} id={`dm-${m.id}`} />
-                      <Label htmlFor={`dm-${m.id}`} className="flex-1 cursor-pointer flex items-center justify-between gap-2">
-                        <span>
-                          <span className="font-medium">{m.name}</span>
-                          {m.description && <p className="text-xs text-muted-foreground">{m.description}</p>}
-                        </span>
-                        {Number(m.cost) > 0 && <span className="text-sm font-medium shrink-0">+{fmt(Number(m.cost))}</span>}
-                      </Label>
-                    </div>
-                  ))}
-                </RadioGroup>
-              </div>
+              {isPerItemDelivery ? (
+                <div className="rounded-lg border p-3 bg-muted/30">
+                  <Label className="text-xs text-muted-foreground">Forma de entrega escolhida por item</Label>
+                  <div className="mt-1.5 space-y-1">
+                    {cart.map(item => (
+                      <div key={item.key} className="flex items-center justify-between text-sm">
+                        <span className="truncate">{item.name}</span>
+                        <span className="text-muted-foreground shrink-0 ml-2">{item.deliveryMethodName}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <Label>Como você quer receber?</Label>
+                  <RadioGroup value={deliveryMethodId ? String(deliveryMethodId) : ""} onValueChange={v => setDeliveryMethodId(Number(v))} className="mt-1">
+                    {deliveryMethods.map(m => (
+                      <div key={m.id} className="flex items-center space-x-2 border rounded-lg p-3">
+                        <RadioGroupItem value={String(m.id)} id={`dm-${m.id}`} />
+                        <Label htmlFor={`dm-${m.id}`} className="flex-1 cursor-pointer flex items-center justify-between gap-2">
+                          <span>
+                            <span className="font-medium">{m.name}</span>
+                            {m.description && <p className="text-xs text-muted-foreground">{m.description}</p>}
+                          </span>
+                          {Number(m.cost) > 0 && <span className="text-sm font-medium shrink-0">+{fmt(Number(m.cost))}</span>}
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </div>
+              )}
               {requiresAddress && (
                 <div>
                   <Label>Endereço completo</Label>
                   <Textarea value={address} onChange={e => setAddress(e.target.value)} placeholder="Rua, número, bairro, referência" />
                 </div>
               )}
+              <div>
+                <Label>Observação (opcional)</Label>
+                <Textarea value={customerNotes} onChange={e => setCustomerNotes(e.target.value)} placeholder="Alguma coisa que a gente precise saber sobre o seu pedido?" />
+              </div>
               <Button className="w-full text-white" style={{ background: BRAND.green }} onClick={() => validateDados() && setStep("pagamento")}>
                 Continuar para pagamento
               </Button>
@@ -266,10 +295,10 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                   onSubmit={async (cardData) => {
                     try {
                       const result = await createOrder.mutateAsync({
-                        customerName: name, customerPhone: phone, customerEmail: email || undefined,
-                        deliveryMethodId: deliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
+                        customerName: name, customerPhone: phone, customerEmail: email || undefined, customerNotes: customerNotes || undefined,
+                        deliveryMethodId: (isPerItemDelivery ? cart[0].deliveryMethodId! : deliveryMethodId)!, deliveryAddress: requiresAddress ? address : undefined,
                         eventId,
-                        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds })),
+                        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds, deliveryMethodId: i.deliveryMethodId })),
                         paymentMethod: "credit_card",
                         cardToken: cardData.token, installments: cardData.installments,
                         paymentMethodId: cardData.paymentMethodId, issuerId: cardData.issuerId,

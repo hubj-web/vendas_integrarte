@@ -25,6 +25,10 @@ export interface CartItem {
   optionIds: number[];
   variationSelections: { groupName: string; optionName: string }[];
   maxAvailable: number;
+  // Só usado dentro de Evento — cada item pode ter sua própria forma de
+  // entrega (ex: sobremesa "consumo no local" + marmitex "retirada").
+  deliveryMethodId?: number;
+  deliveryMethodName?: string;
 }
 
 /** Texto entre parênteses mostrando sabor + variações escolhidas (ex: "Morango, Talharim, Molho Branco") */
@@ -41,6 +45,7 @@ type LandingScope = "root" | number;
 
 export default function Store() {
   const { data: landing, isLoading: landingLoading } = trpc.publicStore.landing.useQuery(undefined, { refetchInterval: 30000 });
+  const { data: deliveryMethodsList } = trpc.publicStore.deliveryMethods.useQuery();
   const [context, setContext] = useState<Context>({ type: "regular" });
   const [view, setView] = useState<View>("loading");
   const [landingScope, setLandingScope] = useState<LandingScope>("root");
@@ -197,6 +202,8 @@ export default function Store() {
         cartTotal={cartTotal}
         onAddToCart={addToCart}
         onRemoveFromCart={removeFromCart}
+        isEventContext={context.type === "event"}
+        deliveryMethods={deliveryMethodsList ?? []}
         onContinueShopping={() => {
           // Se veio de um evento com só uma categoria (pulo automático),
           // "voltar" pra tela de categorias desse evento seria inútil (o

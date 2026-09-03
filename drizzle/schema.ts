@@ -278,6 +278,11 @@ export const orderItems = mysqlTable("order_items", {
   quantity: int("quantity").notNull(),
   unitPrice: decimal("unitPrice", { precision: 10, scale: 2 }).notNull(),
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
+  // Forma de entrega específica desse item — só usada dentro de Eventos (ex:
+  // sobremesa "consumo no local" e marmitex "retirada" no mesmo pedido). Em
+  // compras fora de evento, fica sempre null — a entrega vale pro pedido
+  // inteiro, no campo orders.deliveryMethodId de sempre.
+  deliveryMethodId: int("deliveryMethodId"),
 });
 
 // ─── ORDER ITEM FLAVORS (sabores escolhidos por item do pedido) ──────────────

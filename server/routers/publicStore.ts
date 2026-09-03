@@ -338,6 +338,7 @@ export const publicStoreRouter = router({
       customerName: z.string().min(1),
       customerPhone: z.string().min(8),
       customerEmail: z.string().email().optional(),
+      customerNotes: z.string().optional(),
       deliveryMethodId: z.number(),
       deliveryAddress: z.string().optional(),
       eventId: z.number().optional(), // presente = compra dentro de um Evento; ausente = Venda Regular
@@ -346,6 +347,10 @@ export const publicStoreRouter = router({
         quantity: z.number().min(1),
         flavorIds: z.array(z.number()).optional(),
         optionIds: z.array(z.number()).optional(), // grupos de variação múltipla escolhidos
+        // Forma de entrega específica desse item — só faz sentido dentro de
+        // Evento (ex: sobremesa "consumo no local" + marmitex "retirada").
+        // Fora de evento, é ignorado — vale a forma de entrega do pedido todo.
+        deliveryMethodId: z.number().optional(),
       })).min(1, "O carrinho está vazio."),
       paymentMethod: z.enum(["pix", "credit_card"]),
       cardToken: z.string().optional(),
@@ -416,7 +421,7 @@ export const publicStoreRouter = router({
       const itemsResolved: {
         productId: number; quantity: number; flavorIds: number[]; unitPrice: number; subtotal: number; nomeItem: string;
         selections: { groupName: string; optionName: string; additionalPrice: number }[];
-        isPreOrder: boolean;
+        isPreOrder: boolean; deliveryMethodId: number | null;
       }[] = [];
 
       for (const item of input.items) {
@@ -473,13 +478,30 @@ export const publicStoreRouter = router({
         const unitPrice = Number(vis.storePrice ?? prod.price) + additionalPrice;
         const subtotal = unitPrice * item.quantity;
         totalAmount += subtotal;
-        itemsResolved.push({ productId: item.productId, quantity: item.quantity, flavorIds: item.flavorIds ?? [], unitPrice, subtotal, nomeItem: prod.name, selections, isPreOrder });
+        itemsResolved.push({
+          productId: item.productId, quantity: item.quantity, flavorIds: item.flavorIds ?? [], unitPrice, subtotal, nomeItem: prod.name, selections, isPreOrder,
+          deliveryMethodId: input.eventId ? (item.deliveryMethodId ?? input.deliveryMethodId) : null,
+        });
       }
 
-      // Soma o custo da forma de entrega escolhida (quando tiver) no total.
-      const [chosenDeliveryMethod] = await db.select({ cost: deliveryMethods.cost, name: deliveryMethods.name })
-        .from(deliveryMethods).where(eq(deliveryMethods.id, input.deliveryMethodId)).limit(1);
-      const deliveryCost = Number(chosenDeliveryMethod?.cost ?? 0);
+      // Custo de entrega: dentro de Evento, cada item pode ter sua própria
+      // forma (soma o custo de cada forma distinta usada); fora de evento,
+      // é sempre uma só pro pedido inteiro, como já era.
+      let deliveryCost = 0;
+      if (input.eventId) {
+        const methodIdsUsados = Array.from(new Set(input.items.map(i => i.deliveryMethodId ?? input.deliveryMethodId)));
+        const metodosUsados = await db.select({ id: deliveryMethods.id, cost: deliveryMethods.cost, requiresAddress: deliveryMethods.requiresAddress })
+          .from(deliveryMethods).where(inArray(deliveryMethods.id, methodIdsUsados));
+        const precisaEndereco = metodosUsados.some(m => m.requiresAddress);
+        if (precisaEndereco && !input.deliveryAddress) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Endereço é obrigatório pra pelo menos um dos itens escolhidos." });
+        }
+        for (const m of metodosUsados) deliveryCost += Number(m.cost ?? 0);
+      } else {
+        const [chosenDeliveryMethod] = await db.select({ cost: deliveryMethods.cost })
+          .from(deliveryMethods).where(eq(deliveryMethods.id, input.deliveryMethodId)).limit(1);
+        deliveryCost = Number(chosenDeliveryMethod?.cost ?? 0);
+      }
       totalAmount += deliveryCost;
 
       // Acha ou cria o cliente pelo telefone (sem senha, sem login)
@@ -517,7 +539,9 @@ export const publicStoreRouter = router({
         status: "received",
         paymentStatus: "pending",
         totalAmount: totalAmount.toFixed(2),
-        notes: "Pedido feito pela Loja Pública (on-line)",
+        notes: input.customerNotes
+          ? `Pedido feito pela Loja Pública (on-line). Observação do cliente: ${input.customerNotes}`
+          : "Pedido feito pela Loja Pública (on-line)",
       });
       const orderId = Number((orderResult as any)[0]?.insertId ?? (orderResult as any).insertId);
 
@@ -542,6 +566,7 @@ export const publicStoreRouter = router({
         const itemResult = await db.insert(orderItems).values({
           orderId, productId: item.productId, quantity: item.quantity,
           unitPrice: item.unitPrice.toFixed(2), subtotal: item.subtotal.toFixed(2),
+          deliveryMethodId: item.deliveryMethodId,
         });
         const orderItemId = Number((itemResult as any)[0]?.insertId ?? (itemResult as any).insertId);
         if (item.flavorIds.length > 0) {
