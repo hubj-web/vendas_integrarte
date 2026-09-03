@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Download, Share2, Printer } from "lucide-react";
 import { toast } from "sonner";
 import WhatsAppFloatButton from "./WhatsAppFloatButton";
+import HubJFooter from "@/components/HubJFooter";
+import StoreSocialFooter from "./StoreSocialFooter";
 
 const fmt = (v: number | string) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
@@ -230,6 +232,8 @@ export default function StoreReceipt({ ticketCode }: { ticketCode: string }) {
           </Button>
         </div>
       </div>
+      <StoreSocialFooter />
+      <HubJFooter />
       <WhatsAppFloatButton />
     </div>
   );

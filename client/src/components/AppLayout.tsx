@@ -11,6 +11,7 @@ import {
   Pizza, Grape, MapPin, CreditCard, AlertCircle, Tag, Download, Database, Contact, PackageCheck, CalendarRange, Boxes, ShoppingCart, Store, History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import HubJFooter from "./HubJFooter";
 
 type NavItem = {
   label: string;
@@ -210,6 +211,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {/* Page content */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           {children}
+          <HubJFooter />
         </main>
       </div>
     </div>

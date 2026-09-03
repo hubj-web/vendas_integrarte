@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ShoppingCart, ImageIcon, Plus, Minus, Trash2 } from "lucide-react";
+import { ArrowLeft, ShoppingCart, ImageIcon, Plus, Minus, Trash2, ZoomIn, X } from "lucide-react";
 import { toast } from "sonner";
 import type { CartItem } from "./Store";
 import { cartItemVariationLabel } from "./Store";
@@ -71,6 +71,7 @@ function QuantityStepper({ value, onChange, max }: { value: number; onChange: (v
 
 export default function CategoryView({ categoryName, products, cart, cartTotal, onAddToCart, onRemoveFromCart, onContinueShopping, onPay }: Props) {
   const [drafts, setDrafts] = useState<Record<string, number>>({});
+  const [zoomedImage, setZoomedImage] = useState<{ url: string; name: string } | null>(null);
 
   function setDraft(key: string, value: number, max: number) {
     const clamped = Math.max(0, Math.min(max, isNaN(value) ? 0 : value));
@@ -221,7 +222,19 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
               <CardContent className="pt-4 space-y-3">
                 <div className="flex items-start gap-3">
                   {product.imageUrl ? (
-                    <img src={product.imageUrl} alt={product.name} className={`${thumbSize} rounded-lg object-cover border shrink-0`} />
+                    <button
+                      onClick={() => setZoomedImage({ url: product.imageUrl!, name: product.name })}
+                      className={`relative ${thumbSize} shrink-0 group cursor-pointer`}
+                      aria-label={`Ampliar foto de ${product.name}`}
+                    >
+                      <img src={product.imageUrl} alt={product.name} className="w-full h-full rounded-lg object-cover border" />
+                      <div className="absolute inset-0 rounded-lg bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                        <ZoomIn className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <div className="absolute -bottom-1 -right-1 rounded-full p-1 shadow" style={{ background: BRAND.blue }}>
+                        <ZoomIn className="h-2.5 w-2.5 text-white" />
+                      </div>
+                    </button>
                   ) : (
                     <div className={`${thumbSize} rounded-lg flex items-center justify-center border shrink-0`} style={{ background: BRAND.yellowLight }}>
                       <ImageIcon className={iconSize} style={{ color: BRAND.blue, opacity: 0.3 }} />
@@ -235,6 +248,9 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
                       </Badge>
                     </div>
                     {product.description && <p className="text-xs text-muted-foreground mt-0.5">{product.description}</p>}
+                    {product.imageUrl && (
+                      <p className="text-[11px] mt-1" style={{ color: BRAND.blue }}>📷 Toque na foto para ampliar</p>
+                    )}
                   </div>
                 </div>
 
@@ -338,6 +354,25 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
           </Button>
         </div>
       </div>
+
+      {zoomedImage && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setZoomedImage(null)}
+        >
+          <button
+            onClick={() => setZoomedImage(null)}
+            className="absolute top-4 right-4 rounded-full p-2 bg-white/10 hover:bg-white/20 text-white"
+            aria-label="Fechar"
+          >
+            <X className="h-6 w-6" />
+          </button>
+          <div className="flex flex-col items-center gap-3 max-w-2xl w-full" onClick={e => e.stopPropagation()}>
+            <img src={zoomedImage.url} alt={zoomedImage.name} className="max-w-full max-h-[80vh] rounded-lg object-contain" />
+            <p className="text-white text-sm text-center">{zoomedImage.name}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
