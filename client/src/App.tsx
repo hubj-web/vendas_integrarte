@@ -55,6 +55,7 @@ import ResetPassword from "./pages/ResetPassword";
 import Profile from "./pages/Profile";
 import StorePage from "./pages/store/Store";
 import StoreReceipt from "./pages/store/StoreReceipt";
+import CheckIn from "./pages/CheckIn";
 import LojaPublica from "./pages/admin/LojaPublica";
 
 function StoreReceiptRoute({ params }: { params: { code: string } }) {
@@ -290,6 +291,7 @@ function Router() {
 
       {/* ── LOJA PÚBLICA (sem login) ── */}
       <Route path="/loja/r/:code" component={StoreReceiptRoute} />
+      <Route path="/checkin/:eventId" component={CheckIn} />
       <Route path="/loja">
         <StorePage />
       </Route>

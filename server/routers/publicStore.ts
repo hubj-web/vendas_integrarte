@@ -25,6 +25,7 @@ import {
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
 import { buscarLotesEstoque, descontarLotesEstoque } from "./seller";
+import { sendReceiptEmail } from "../email";
 import { createMercadoPagoPayment, mercadoPagoConfigured } from "../mercadopago";
 import { generateQrCodeBase64 } from "../qr";
 import { ENV } from "../_core/env";
@@ -199,6 +200,16 @@ export const publicStoreRouter = router({
     return {
       regularOpen: !!settings && isEffectivelyOpen(settings),
       regularClosedMessage: settings?.closedMessage ?? null,
+      storeTitle: settings?.storeTitle || "LOJA INTEGRARTE",
+      welcomeMessage: settings?.welcomeMessage ||
+        "Olá... que bom ter você aqui. Nossa loja existe exclusivamente para o bem. Todos os nossos produtos têm verba revertida para atividades artísticas ou culturais. Escolha o que você quer ver:",
+      primaryColor: settings?.primaryColor || "#1E4B9C",
+      titleFontFamily: settings?.titleFontFamily || null,
+      titleFontSize: settings?.titleFontSize || null,
+      titleColor: settings?.titleColor || null,
+      messageFontFamily: settings?.messageFontFamily || null,
+      messageFontSize: settings?.messageFontSize || null,
+      messageColor: settings?.messageColor || null,
       events: events.map(e => ({
         id: e.id, name: e.name, type: e.type, description: e.description,
         imageUrl: e.imageUrl, eventDate: e.eventDate,
@@ -316,6 +327,7 @@ export const publicStoreRouter = router({
     .input(z.object({
       customerName: z.string().min(1),
       customerPhone: z.string().min(8),
+      customerEmail: z.string().email().optional(),
       deliveryMethodId: z.number(),
       deliveryAddress: z.string().optional(),
       eventId: z.number().optional(), // presente = compra dentro de um Evento; ausente = Venda Regular
@@ -465,11 +477,11 @@ export const publicStoreRouter = router({
       let customerId: number;
       if (existingCustomer) {
         customerId = existingCustomer.id;
-        if (existingCustomer.name !== input.customerName) {
-          await db.update(customers).set({ name: input.customerName }).where(eq(customers.id, customerId));
+        if (existingCustomer.name !== input.customerName || (input.customerEmail && existingCustomer.email !== input.customerEmail)) {
+          await db.update(customers).set({ name: input.customerName, ...(input.customerEmail ? { email: input.customerEmail } : {}) }).where(eq(customers.id, customerId));
         }
       } else {
-        const result = await db.insert(customers).values({ name: input.customerName, phone: input.customerPhone });
+        const result = await db.insert(customers).values({ name: input.customerName, phone: input.customerPhone, email: input.customerEmail });
         customerId = Number((result as any)[0]?.insertId ?? (result as any).insertId);
       }
 
@@ -491,6 +503,27 @@ export const publicStoreRouter = router({
         notes: "Pedido feito pela Loja Pública (on-line)",
       });
       const orderId = Number((orderResult as any)[0]?.insertId ?? (orderResult as any).insertId);
+
+      // Manda o recibo por e-mail, se o cliente informou um — sem AWAIT de
+      // propósito, pra não travar a resposta do pedido esperando o e-mail
+      // sair (mesma lição já aprendida com o e-mail de boas-vindas de usuário).
+      if (input.customerEmail) {
+        (async () => {
+          try {
+            let isTicket = false;
+            if (input.eventId) {
+              const [ev] = await db.select({ type: storeEvents.type }).from(storeEvents).where(eq(storeEvents.id, input.eventId)).limit(1);
+              isTicket = ev?.type === "ingresso";
+            }
+            await sendReceiptEmail({
+              to: input.customerEmail!, customerName: input.customerName, ticketCode,
+              totalAmount: totalAmount.toFixed(2), isTicket,
+            });
+          } catch (err) {
+            console.error("Erro ao enviar e-mail do recibo (pedido já criado normalmente):", err);
+          }
+        })();
+      }
 
       for (const item of itemsResolved) {
         const itemResult = await db.insert(orderItems).values({
@@ -581,14 +614,68 @@ export const publicStoreRouter = router({
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Ingresso/recibo não encontrado." });
       return resolveOrderDetails(db, eq(orders.ticketCode, input.ticketCode));
     }),
+
+  // ── CHECK-IN (leitura de ingresso/comprovante na entrada do evento) ─────
+  // Sem login — liberado por um código curto por evento, pra voluntários.
+
+  /** Confere o código de acesso e devolve o nome do evento, pra mostrar na tela. */
+  checkInVerifyCode: publicProcedure
+    .input(z.object({ eventId: z.number(), code: z.string() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { valid: false, eventName: null };
+      const [ev] = await db.select({ name: storeEvents.name, checkInCode: storeEvents.checkInCode })
+        .from(storeEvents).where(eq(storeEvents.id, input.eventId)).limit(1);
+      if (!ev || !ev.checkInCode || ev.checkInCode !== input.code) return { valid: false, eventName: null };
+      return { valid: true, eventName: ev.name };
+    }),
+
+  /** Lê um ingresso/comprovante — marca como usado (ou avisa que já foi, deixando prosseguir mesmo assim). */
+  checkInTicket: publicProcedure
+    .input(z.object({ eventId: z.number(), code: z.string(), ticketCode: z.string(), forceAllow: z.boolean().optional() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [ev] = await db.select({ checkInCode: storeEvents.checkInCode }).from(storeEvents).where(eq(storeEvents.id, input.eventId)).limit(1);
+      if (!ev || !ev.checkInCode || ev.checkInCode !== input.code) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Código de acesso inválido." });
+      }
+
+      const [order] = await db.select({
+        id: orders.id, eventId: orders.eventId, checkedInAt: orders.checkedInAt, customerId: orders.customerId,
+      }).from(orders).where(eq(orders.ticketCode, input.ticketCode)).limit(1);
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Ingresso/comprovante não encontrado." });
+      if (order.eventId !== input.eventId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Esse ingresso não é desse evento." });
+      }
+
+      const [customer] = order.customerId
+        ? await db.select({ name: customers.name }).from(customers).where(eq(customers.id, order.customerId)).limit(1)
+        : [null];
+      const items = await db.select({ productName: products.name, quantity: orderItems.quantity })
+        .from(orderItems).leftJoin(products, eq(orderItems.productId, products.id)).where(eq(orderItems.orderId, order.id));
+
+      const alreadyUsed = !!order.checkedInAt;
+      if (!alreadyUsed || input.forceAllow) {
+        if (!alreadyUsed) await db.update(orders).set({ checkedInAt: new Date() }).where(eq(orders.id, order.id));
+      }
+
+      return {
+        success: true, alreadyUsed, checkedInAt: order.checkedInAt,
+        customerName: customer?.name ?? null,
+        items: items.map(i => `${i.quantity}x ${i.productName}`),
+      };
+    }),
 });
 
 async function resolveOrderDetails(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, whereClause: any) {
   const [order] = await db.select({
-    id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
+    id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus, paymentMethod: orders.paymentMethod,
     totalAmount: orders.totalAmount, createdAt: orders.createdAt,
     deliveryMethodId: orders.deliveryMethodId, eventId: orders.eventId, ticketCode: orders.ticketCode,
-    customerName: customers.name, deliveryMethodName: deliveryMethods.name, deliveryCost: deliveryMethods.cost,
+    customerName: customers.name, customerPhone: customers.phone, notes: orders.notes,
+    deliveryMethodName: deliveryMethods.name, deliveryCost: deliveryMethods.cost,
   }).from(orders)
     .leftJoin(customers, eq(orders.customerId, customers.id))
     .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))

@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ShoppingCart } from "lucide-react";
 import CategoryView from "./CategoryView";
 import StoreCheckout from "./StoreCheckout";
-import { BRAND } from "./brand";
+import { BRAND, loadStoreFonts } from "./brand";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -53,6 +53,8 @@ export default function Store() {
     hasInitializedRef.current = true;
     setView(hasAnythingOpen ? "categories" : "closed");
   }, [landing, landingLoading, hasAnythingOpen]);
+
+  useEffect(() => { loadStoreFonts(); }, []);
 
   // Evento cujas categorias estão sendo mostradas agora (tanto na tela
   // "dentro do evento" quanto quando o cliente já entrou num produto dele).
@@ -208,27 +210,39 @@ export default function Store() {
 
   return (
     <div className="min-h-screen pb-10" style={{ background: BRAND.white }}>
-      <header className="py-8 px-4 relative" style={{ background: BRAND.blue }}>
+      <header className="py-8 px-4 relative" style={{ background: landing?.primaryColor || BRAND.blue }}>
         {insideEvent && (
           <button
             onClick={backToRoot}
             className="absolute left-4 top-4 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold"
-            style={{ background: BRAND.white, color: BRAND.blue }}
+            style={{ background: BRAND.white, color: landing?.primaryColor || BRAND.blue }}
           >
             ← Voltar
           </button>
         )}
         <div className="max-w-3xl mx-auto text-center space-y-3">
           <img src="/integrarte-logo.png" alt="Integrarte" className="mx-auto h-24 w-auto object-contain bg-white rounded-2xl p-2" />
-          <h1 className="text-2xl font-bold tracking-tight text-white">
-            {insideEvent ? (eventInfo?.name ?? "").toUpperCase() : "LOJA INTEGRARTE"}
+          <h1
+            className="text-2xl font-bold tracking-tight text-white"
+            style={{
+              fontFamily: landing?.titleFontFamily || undefined,
+              fontSize: landing?.titleFontSize ? `${landing.titleFontSize}px` : undefined,
+              color: landing?.titleColor || undefined,
+            }}
+          >
+            {insideEvent ? (eventInfo?.name ?? "").toUpperCase() : (landing?.storeTitle ?? "LOJA INTEGRARTE")}
           </h1>
-          <p className="text-sm text-white/95 max-w-lg mx-auto leading-relaxed">
+          <p
+            className="text-sm text-white/95 max-w-lg mx-auto leading-relaxed"
+            style={{
+              fontFamily: landing?.messageFontFamily || undefined,
+              fontSize: landing?.messageFontSize ? `${landing.messageFontSize}px` : undefined,
+              color: landing?.messageColor || undefined,
+            }}
+          >
             {insideEvent
               ? (eventInfo?.description || "Escolha a categoria de produtos que você quer ver.")
-              : <>Olá... que bom ter você aqui. Nossa loja existe exclusivamente para o bem.
-                 Todos os nossos produtos têm verba revertida para atividades artísticas ou culturais.
-                 Escolha o que você quer ver:</>}
+              : (landing?.welcomeMessage ?? "")}
           </p>
         </div>
       </header>
