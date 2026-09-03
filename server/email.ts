@@ -47,6 +47,7 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
       subject,
       html,
     });
+    console.log(`[Email] Enviado com sucesso para ${to} — assunto: "${subject}"`);
     return true;
   } catch (err) {
     console.error("[Email] Falha ao enviar e-mail:", err);
