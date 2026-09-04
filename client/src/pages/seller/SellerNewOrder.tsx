@@ -20,6 +20,11 @@ import { Link } from "wouter";
 const fmt = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
+/** Traduz o código do cadastro (payment_methods) pro valor salvo no pedido. */
+const PAYMENT_CODE_MAP: Record<string, "cash" | "pix" | "credit_card" | "debit_card"> = {
+  dinheiro_vendedor: "cash", pix_vendedor: "pix", cartao_vendedor: "credit_card", debito_vendedor: "debit_card",
+};
+
 interface CartItem {
   type: "product";
   id: string;
@@ -49,6 +54,7 @@ export default function SellerNewOrder() {
     : (editOrderId ? `/vendedor/pedido/${editOrderId}` : "/vendedor/meus-pedidos");
 
   const { data: catalog } = trpc.seller.catalog.useQuery();
+  const { data: availablePaymentMethods = [] } = trpc.seller.paymentMethods.useQuery();
   const { data: periodoStatus } = trpc.seller.periodoVendaStatus.useQuery(undefined, { enabled: !isAdminRoute });
   const { data: estoqueDisponivel } = trpc.seller.stockAvailable.useQuery(undefined, {
     enabled: !isAdminRoute && periodoStatus?.ativo === false,
@@ -157,7 +163,7 @@ export default function SellerNewOrder() {
   const [deliveryMethodId, setDeliveryMethodId] = useState<string>("");
   const [deliveryAddressOption, setDeliveryAddressOption] = useState<"customer" | "other">("customer");
   const [deliveryAddress, setDeliveryAddress] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "pix">("pix");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "pix" | "credit_card" | "debit_card">("pix");
   const [notes, setNotes] = useState("");
 
   // Pre-populate from existing order when in edit mode
@@ -195,7 +201,7 @@ export default function SellerNewOrder() {
 
       // Load payment method
       if (existingOrder.paymentMethod) {
-        setPaymentMethod(existingOrder.paymentMethod as "cash" | "pix");
+        setPaymentMethod(existingOrder.paymentMethod as "cash" | "pix" | "credit_card" | "debit_card");
       }
 
       // Load notes
@@ -743,20 +749,20 @@ export default function SellerNewOrder() {
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground">Forma de Pagamento</Label>
             <div className="grid grid-cols-2 gap-2">
-              <Button
-                variant={paymentMethod === "pix" ? "default" : "outline"}
-                className="h-10 font-bold"
-                onClick={() => setPaymentMethod("pix")}
-              >
-                PIX
-              </Button>
-              <Button
-                variant={paymentMethod === "cash" ? "default" : "outline"}
-                className="h-10 font-bold"
-                onClick={() => setPaymentMethod("cash")}
-              >
-                Dinheiro
-              </Button>
+              {availablePaymentMethods.map(m => {
+                const value = PAYMENT_CODE_MAP[m.code];
+                if (!value) return null;
+                return (
+                  <Button
+                    key={m.code}
+                    variant={paymentMethod === value ? "default" : "outline"}
+                    className="h-10 font-bold"
+                    onClick={() => setPaymentMethod(value)}
+                  >
+                    {m.name}
+                  </Button>
+                );
+              })}
             </div>
           </div>
 

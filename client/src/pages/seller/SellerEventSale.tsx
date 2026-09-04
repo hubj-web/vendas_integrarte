@@ -13,6 +13,11 @@ import { Ticket, Plus, Minus, Copy, Check, Send } from "lucide-react";
 const fmt = (v: string | number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
 
+/** Traduz o código do cadastro (payment_methods) pro valor salvo no pedido. */
+const PAYMENT_CODE_MAP: Record<string, "cash" | "pix" | "credit_card" | "debit_card"> = {
+  dinheiro_vendedor: "cash", pix_vendedor: "pix", cartao_vendedor: "credit_card", debito_vendedor: "debit_card",
+};
+
 interface Item {
   productId: number;
   name: string;
@@ -27,7 +32,8 @@ export default function SellerEventSale() {
   const [eventId, setEventId] = useState<string>("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "pix">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "pix" | "credit_card" | "debit_card">("cash");
+  const { data: availablePaymentMethods = [] } = trpc.seller.paymentMethods.useQuery();
   const [items, setItems] = useState<Item[]>([]);
   const [receipt, setReceipt] = useState<{ ticketCode: string; url: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -219,13 +225,16 @@ export default function SellerEventSale() {
           </div>
           <div>
             <Label>Forma de pagamento (combinado com o cliente)</Label>
-            <RadioGroup value={paymentMethod} onValueChange={v => setPaymentMethod(v as any)} className="flex gap-4 mt-1">
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="cash" id="pm-cash" /><Label htmlFor="pm-cash" className="font-normal">Dinheiro</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="pix" id="pm-pix-seller" /><Label htmlFor="pm-pix-seller" className="font-normal">PIX</Label>
-              </div>
+            <RadioGroup value={paymentMethod} onValueChange={v => setPaymentMethod(v as any)} className="flex flex-wrap gap-4 mt-1">
+              {availablePaymentMethods.map(m => {
+                const value = PAYMENT_CODE_MAP[m.code];
+                if (!value) return null;
+                return (
+                  <div key={m.code} className="flex items-center space-x-2">
+                    <RadioGroupItem value={value} id={`pm-${m.code}`} /><Label htmlFor={`pm-${m.code}`} className="font-normal">{m.name}</Label>
+                  </div>
+                );
+              })}
             </RadioGroup>
           </div>
           <Button className="w-full" disabled={createOrder.isPending} onClick={submit}>
