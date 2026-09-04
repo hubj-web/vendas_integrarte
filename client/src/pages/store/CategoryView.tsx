@@ -25,6 +25,8 @@ interface StoreProduct {
   isPreOrder?: boolean;
   availableQuantity: number; flavors: { id: number; name: string }[];
   variationGroups?: VariationGroup[];
+  requiresDelivery?: boolean;
+  allowedDeliveryMethodIds?: number[];
 }
 
 interface Props {
@@ -76,7 +78,18 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
   const [zoomedImage, setZoomedImage] = useState<{ url: string; name: string } | null>(null);
   // Forma de entrega escolhida por produto — só usado dentro de Evento.
   const [deliveryDrafts, setDeliveryDrafts] = useState<Record<number, number>>({});
-  const precisaEscolherEntrega = !!isEventContext && deliveryMethods.length > 0;
+
+  /** Formas de entrega válidas pra esse produto específico (lista própria dele, ou todas as globais se não tiver nenhuma configurada). */
+  function methodsForProduct(product: StoreProduct) {
+    if (product.allowedDeliveryMethodIds && product.allowedDeliveryMethodIds.length > 0) {
+      return deliveryMethods.filter(m => product.allowedDeliveryMethodIds!.includes(m.id));
+    }
+    return deliveryMethods;
+  }
+  /** Esse produto específico precisa perguntar a forma de entrega (dentro de Evento, e ele não foi marcado como "sem entrega")? */
+  function needsDeliveryChoice(product: StoreProduct) {
+    return !!isEventContext && product.requiresDelivery !== false && methodsForProduct(product).length > 0;
+  }
 
   function setDraft(key: string, value: number, max: number) {
     const clamped = Math.max(0, Math.min(max, isNaN(value) ? 0 : value));
@@ -94,7 +107,7 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
       toast.error("Escolha uma quantidade antes de inserir.");
       return;
     }
-    if (precisaEscolherEntrega && !deliveryDrafts[product.id]) {
+    if (needsDeliveryChoice(product) && !deliveryDrafts[product.id]) {
       toast.error("Escolha a forma de entrega desse item antes de inserir.");
       return;
     }
@@ -110,6 +123,7 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
       optionIds: [], variationSelections: [],
       maxAvailable: product.availableQuantity,
       deliveryMethodId: metodo?.id, deliveryMethodName: metodo?.name,
+      requiresDelivery: product.requiresDelivery,
     });
     setDrafts(prev => ({ ...prev, [key]: 0 }));
     toast.success(`${product.name}${flavor ? ` (${flavor.name})` : ""} adicionado!`);
@@ -138,7 +152,7 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
       toast.error("Escolha uma quantidade antes de inserir.");
       return;
     }
-    if (precisaEscolherEntrega && !deliveryDrafts[product.id]) {
+    if (needsDeliveryChoice(product) && !deliveryDrafts[product.id]) {
       toast.error("Escolha a forma de entrega desse item antes de inserir.");
       return;
     }
@@ -171,6 +185,7 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
       quantity: qty, flavorIds: [], flavorNames: [], optionIds: allSelectedIds, variationSelections: selections,
       maxAvailable: product.availableQuantity,
       deliveryMethodId: metodo?.id, deliveryMethodName: metodo?.name,
+      requiresDelivery: product.requiresDelivery,
     });
     setGroupQtyDrafts(prev => ({ ...prev, [product.id]: 0 }));
     setGroupSelections(prev => {
@@ -183,17 +198,17 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
 
   const cartCount = cart.reduce((acc, i) => acc + i.quantity, 0);
 
-  /** Seletor "Como vai retirar esse item?" — só aparece dentro de Evento. */
-  function DeliveryPicker({ productId }: { productId: number }) {
-    if (!precisaEscolherEntrega) return null;
+  /** Seletor "Como vai retirar esse item?" — só aparece dentro de Evento, quando o produto precisa de entrega. */
+  function DeliveryPicker({ product }: { product: StoreProduct }) {
+    if (!needsDeliveryChoice(product)) return null;
     return (
       <div className="flex flex-wrap gap-1.5 mb-2">
-        {deliveryMethods.map(m => (
+        {methodsForProduct(product).map(m => (
           <button
             key={m.id} type="button"
-            onClick={() => setDeliveryDrafts(prev => ({ ...prev, [productId]: m.id }))}
+            onClick={() => setDeliveryDrafts(prev => ({ ...prev, [product.id]: m.id }))}
             className="px-2.5 py-1 rounded-full text-xs font-medium border transition-colors"
-            style={deliveryDrafts[productId] === m.id
+            style={deliveryDrafts[product.id] === m.id
               ? { background: BRAND.blue, color: "#fff", borderColor: BRAND.blue }
               : { background: "transparent", color: BRAND.blue, borderColor: BRAND.blue }}
           >
@@ -318,7 +333,7 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
                         </div>
                       </div>
                     ))}
-                    <DeliveryPicker productId={product.id} />
+                    <DeliveryPicker product={product} />
                     <div className="flex items-center justify-between gap-2 pt-1">
                       <span className="font-semibold" style={{ color: BRAND.blue }}>{fmt(product.price)}</span>
                       <QuantityStepper
@@ -336,7 +351,7 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                       {VARIATION_LABEL[product.variationType] ?? "Opção"}
                     </p>
-                    <DeliveryPicker productId={product.id} />
+                    <DeliveryPicker product={product} />
                     {product.flavors.map(f => {
                       const key = cartKey(product.id, f.id);
                       return (
@@ -357,7 +372,7 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
                   </div>
                 ) : (
                   <div>
-                    <DeliveryPicker productId={product.id} />
+                    <DeliveryPicker product={product} />
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-semibold" style={{ color: BRAND.blue }}>{fmt(product.price)}</span>
                       <QuantityStepper

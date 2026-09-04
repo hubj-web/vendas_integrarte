@@ -6,7 +6,7 @@ import {
   minipizzaTypes, minipizzaFlavors, minipizzaTypeFlavorMatrix,
   jellyFlavors, deliveryMethods,
   orderItems, orderMinipizzas, orderJellies,
-  productVariationGroups, productVariationOptions,
+  productVariationGroups, productVariationOptions, productDeliveryMethods,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -155,16 +155,21 @@ const productsRouter = router({
         displaySize: products.displaySize,
         allowPreOrder: products.allowPreOrder,
         preOrderUntil: products.preOrderUntil,
+        requiresDelivery: products.requiresDelivery,
       })
         .from(products)
         .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
         .orderBy(asc(productCategories.sortOrder), asc(products.name));
 
+      const deliveryLinks = await db.select().from(productDeliveryMethods);
+      const deliveryByProduct: Record<number, number[]> = {};
+      for (const l of deliveryLinks) (deliveryByProduct[l.productId] ??= []).push(l.deliveryMethodId);
+
       return rows.filter(p => {
         if (input?.categoryId && p.categoryId !== input.categoryId) return false;
         if (input?.activeOnly && !p.active) return false;
         return true;
-      });
+      }).map(p => ({ ...p, deliveryMethodIds: deliveryByProduct[p.id] ?? [] }));
     }),
 
   create: adminProcedure
@@ -179,12 +184,14 @@ const productsRouter = router({
       displaySize: z.enum(["pequeno", "medio", "grande"]).default("medio"),
       allowPreOrder: z.boolean().default(false),
       preOrderUntil: z.string().nullable().optional(), // "sob encomenda até" — vazio = sem data limite
+      requiresDelivery: z.boolean().default(true),
+      deliveryMethodIds: z.array(z.number()).optional(), // vazio/ausente = todas as formas ativas globalmente
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       // Use productTypeId=1 as default (legacy field)
-      await db.insert(products).values({
+      const result = await db.insert(products).values({
         name: input.name,
         categoryId: input.categoryId,
         productTypeId: 1, // legacy field, kept for backward compat
@@ -199,7 +206,12 @@ const productsRouter = router({
         displaySize: input.displaySize,
         allowPreOrder: input.allowPreOrder,
         preOrderUntil: input.preOrderUntil ? new Date(input.preOrderUntil) : null,
+        requiresDelivery: input.requiresDelivery,
       });
+      const productId = Number((result as any)[0]?.insertId ?? (result as any).insertId);
+      if (input.deliveryMethodIds && input.deliveryMethodIds.length > 0) {
+        await db.insert(productDeliveryMethods).values(input.deliveryMethodIds.map(deliveryMethodId => ({ productId, deliveryMethodId })));
+      }
       return { success: true };
     }),
 
@@ -215,6 +227,8 @@ const productsRouter = router({
       displaySize: z.enum(["pequeno", "medio", "grande"]).optional(),
       allowPreOrder: z.boolean().optional(),
       preOrderUntil: z.string().nullable().optional(),
+      requiresDelivery: z.boolean().optional(),
+      deliveryMethodIds: z.array(z.number()).optional(), // presente = substitui a lista inteira; ausente = não mexe
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -223,7 +237,7 @@ const productsRouter = router({
       const current = await db.select().from(products).where(eq(products.id, input.id)).limit(1);
       if (!current[0]) throw new TRPCError({ code: "NOT_FOUND" });
 
-      const { id, ...data } = input;
+      const { id, deliveryMethodIds, ...data } = input;
       if (data.preOrderUntil !== undefined) {
         (data as any).preOrderUntil = data.preOrderUntil ? new Date(data.preOrderUntil) : null;
       }
@@ -237,6 +251,13 @@ const productsRouter = router({
         }
       }
       await db.update(products).set(data as any).where(eq(products.id, id));
+
+      if (deliveryMethodIds !== undefined) {
+        await db.delete(productDeliveryMethods).where(eq(productDeliveryMethods.productId, id));
+        if (deliveryMethodIds.length > 0) {
+          await db.insert(productDeliveryMethods).values(deliveryMethodIds.map(deliveryMethodId => ({ productId: id, deliveryMethodId })));
+        }
+      }
       return { success: true };
     }),
 

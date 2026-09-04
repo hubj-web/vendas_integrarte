@@ -109,6 +109,9 @@ export const products = mysqlTable("products", {
   // fornecedor).
   allowPreOrder: boolean("allowPreOrder").default(false).notNull(),
   preOrderUntil: timestamp("preOrderUntil"),
+  // Alguns produtos não precisam de nenhuma forma de entrega (ex: ingresso) —
+  // desligado, o cliente nem vê a pergunta pra esse item dentro de evento.
+  requiresDelivery: boolean("requiresDelivery").default(true).notNull(),
   maxFlavors: int("maxFlavors").default(0), // 0 = sem sabores, >0 = quantidade máxima de sabores
   // Rótulo da variação (o que o campo "sabores" representa pra esse produto).
   // Aditivo — todo produto já existente assume 'sabor' (comportamento atual preservado).
@@ -646,6 +649,16 @@ export const productVariationOptions = mysqlTable("product_variation_options", {
   name: varchar("name", { length: 100 }).notNull(), // ex: "Talharim"
   additionalPrice: decimal("additionalPrice", { precision: 10, scale: 2 }).default("0.00").notNull(),
   sortOrder: int("sortOrder").default(0).notNull(),
+});
+
+// Quais formas de entrega valem pra cada produto específico (só relevante
+// dentro de Evento, onde a entrega é escolhida por item). Sem nenhuma linha
+// aqui pro produto = usa todas as formas ativas globalmente (padrão de
+// sempre, compatível com produtos já cadastrados antes disso existir).
+export const productDeliveryMethods = mysqlTable("product_delivery_methods", {
+  id: int("id").autoincrement().primaryKey(),
+  productId: int("productId").notNull(),
+  deliveryMethodId: int("deliveryMethodId").notNull(),
 });
 
 // Escolhas feitas pelo cliente num item de pedido (histórico, denormalizado —

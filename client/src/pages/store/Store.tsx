@@ -29,6 +29,7 @@ export interface CartItem {
   // entrega (ex: sobremesa "consumo no local" + marmitex "retirada").
   deliveryMethodId?: number;
   deliveryMethodName?: string;
+  requiresDelivery?: boolean;
 }
 
 /** Texto entre parênteses mostrando sabor + variações escolhidas (ex: "Morango, Talharim, Molho Branco") */

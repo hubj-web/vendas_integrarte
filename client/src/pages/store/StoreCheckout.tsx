@@ -32,6 +32,7 @@ interface CartItem {
   variationSelections: { groupName: string; optionName: string }[];
   deliveryMethodId?: number;
   deliveryMethodName?: string;
+  requiresDelivery?: boolean;
 }
 
 interface Props {
@@ -79,7 +80,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
   // Dentro de Evento, se todo item do carrinho já veio com sua própria forma
   // de entrega escolhida (lá na tela de categoria), não precisa perguntar de
   // novo aqui — soma o custo de cada forma distinta usada.
-  const isPerItemDelivery = !!eventId && cart.length > 0 && cart.every(i => i.deliveryMethodId != null);
+  const isPerItemDelivery = !!eventId && cart.length > 0 && cart.every(i => i.requiresDelivery === false || i.deliveryMethodId != null);
   const usedMethods = isPerItemDelivery
     ? deliveryMethods.filter(m => new Set(cart.map(i => i.deliveryMethodId)).has(m.id))
     : [];
@@ -87,6 +88,13 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
   const selectedMethod = deliveryMethods.find(m => m.id === deliveryMethodId);
   const requiresAddress = isPerItemDelivery ? usedMethods.some(m => m.requiresAddress) : !!selectedMethod?.requiresAddress;
   const deliveryCost = isPerItemDelivery ? usedMethods.reduce((acc, m) => acc + Number(m.cost), 0) : (selectedMethod ? Number(selectedMethod.cost) : 0);
+  // orders.deliveryMethodId é obrigatório no banco mesmo quando a entrega é
+  // por item — usa a primeira forma realmente escolhida como representante
+  // (ou a primeira forma disponível, no caso raro de um pedido só de itens
+  // que não precisam de entrega nenhuma, tipo só ingressos).
+  const representativeDeliveryMethodId = isPerItemDelivery
+    ? (cart.find(i => i.deliveryMethodId != null)?.deliveryMethodId ?? deliveryMethods[0]?.id)
+    : deliveryMethodId;
   const grandTotal = total + deliveryCost;
   const [customerNotes, setCustomerNotes] = useState("");
 
@@ -115,7 +123,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
     try {
       const result = await createOrder.mutateAsync({
         customerName: name, customerPhone: phone, customerEmail: email || undefined, customerNotes: customerNotes || undefined,
-        deliveryMethodId: (isPerItemDelivery ? cart[0].deliveryMethodId! : deliveryMethodId)!, deliveryAddress: requiresAddress ? address : undefined,
+        deliveryMethodId: representativeDeliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
         eventId,
         items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds, deliveryMethodId: i.deliveryMethodId })),
         paymentMethod: "pix",
@@ -200,7 +208,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                     {cart.map(item => (
                       <div key={item.key} className="flex items-center justify-between text-sm">
                         <span className="truncate">{item.name}</span>
-                        <span className="text-muted-foreground shrink-0 ml-2">{item.deliveryMethodName}</span>
+                        <span className="text-muted-foreground shrink-0 ml-2">{item.deliveryMethodName ?? "Não precisa de entrega"}</span>
                       </div>
                     ))}
                   </div>
@@ -296,7 +304,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                     try {
                       const result = await createOrder.mutateAsync({
                         customerName: name, customerPhone: phone, customerEmail: email || undefined, customerNotes: customerNotes || undefined,
-                        deliveryMethodId: (isPerItemDelivery ? cart[0].deliveryMethodId! : deliveryMethodId)!, deliveryAddress: requiresAddress ? address : undefined,
+                        deliveryMethodId: representativeDeliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
                         eventId,
                         items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds, deliveryMethodId: i.deliveryMethodId })),
                         paymentMethod: "credit_card",

@@ -18,7 +18,7 @@ import {
   productCategories, productFlavors, products, storeOrderPayments,
   storeProductVisibility, storeSettings, users, estoqueAtual, estoqueAtualFlavors,
   storeDeliveryMethodVisibility, storeEvents, storeEventCategories,
-  storeRegularCategoryVisibility, productVariationGroups, productVariationOptions,
+  storeRegularCategoryVisibility, productVariationGroups, productVariationOptions, productDeliveryMethods,
   orderItemVariationSelections,
   paymentMethods, storeRegularPaymentMethodVisibility, storeEventPaymentMethodVisibility,
 } from "../../drizzle/schema";
@@ -115,6 +115,7 @@ async function buildCatalog(
     unit: products.unit, price: products.price, description: products.description,
     maxFlavors: products.maxFlavors, variationType: products.variationType, imageUrl: products.imageUrl,
     displaySize: products.displaySize, allowPreOrder: products.allowPreOrder, preOrderUntil: products.preOrderUntil,
+    requiresDelivery: products.requiresDelivery,
   }).from(products).where(and(...prodConditions));
 
   // Produto entra no catálogo se: tem estoque de verdade, OU está na janela de sob encomenda.
@@ -163,6 +164,14 @@ async function buildCatalog(
   const groupsByProduct: Record<number, typeof groups> = {};
   for (const g of groups) (groupsByProduct[g.productId] ??= []).push(g);
 
+  // Formas de entrega específicas por produto (só relevante dentro de
+  // Evento) — sem nenhuma linha pro produto, usa todas as globais (default).
+  const deliveryLinks = prodsFinal.length > 0
+    ? await db.select().from(productDeliveryMethods).where(inArray(productDeliveryMethods.productId, prodsFinal.map(p => p.id)))
+    : [];
+  const deliveryIdsByProduct: Record<number, number[]> = {};
+  for (const l of deliveryLinks) (deliveryIdsByProduct[l.productId] ??= []).push(l.deliveryMethodId);
+
   const productsOut = prodsFinal.map(p => {
     const vis = visibilidadeMap.get(p.id);
     const isPreOrder = isProductOnPreOrder(p);
@@ -179,6 +188,8 @@ async function buildCatalog(
         id: g.id, name: g.name, required: g.required, allowMultiple: g.allowMultiple,
         options: (optionsByGroup[g.id] ?? []).map(o => ({ id: o.id, name: o.name, additionalPrice: o.additionalPrice })),
       })),
+      requiresDelivery: p.requiresDelivery,
+      allowedDeliveryMethodIds: deliveryIdsByProduct[p.id] ?? [], // vazio = todas as globais valem
     };
   }).filter(p => p.availableQuantity > 0);
 
@@ -480,7 +491,7 @@ export const publicStoreRouter = router({
         totalAmount += subtotal;
         itemsResolved.push({
           productId: item.productId, quantity: item.quantity, flavorIds: item.flavorIds ?? [], unitPrice, subtotal, nomeItem: prod.name, selections, isPreOrder,
-          deliveryMethodId: input.eventId ? (item.deliveryMethodId ?? input.deliveryMethodId) : null,
+          deliveryMethodId: (input.eventId && prod.requiresDelivery) ? (item.deliveryMethodId ?? input.deliveryMethodId) : null,
         });
       }
 
@@ -489,9 +500,11 @@ export const publicStoreRouter = router({
       // é sempre uma só pro pedido inteiro, como já era.
       let deliveryCost = 0;
       if (input.eventId) {
-        const methodIdsUsados = Array.from(new Set(input.items.map(i => i.deliveryMethodId ?? input.deliveryMethodId)));
-        const metodosUsados = await db.select({ id: deliveryMethods.id, cost: deliveryMethods.cost, requiresAddress: deliveryMethods.requiresAddress })
-          .from(deliveryMethods).where(inArray(deliveryMethods.id, methodIdsUsados));
+        const methodIdsUsados = Array.from(new Set(itemsResolved.filter(i => i.deliveryMethodId != null).map(i => i.deliveryMethodId!)));
+        const metodosUsados = methodIdsUsados.length > 0
+          ? await db.select({ id: deliveryMethods.id, cost: deliveryMethods.cost, requiresAddress: deliveryMethods.requiresAddress })
+              .from(deliveryMethods).where(inArray(deliveryMethods.id, methodIdsUsados))
+          : [];
         const precisaEndereco = metodosUsados.some(m => m.requiresAddress);
         if (precisaEndereco && !input.deliveryAddress) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Endereço é obrigatório pra pelo menos um dos itens escolhidos." });
