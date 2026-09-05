@@ -91,7 +91,7 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
   }
   /** Esse produto específico precisa perguntar a forma de entrega (e ele não foi marcado como "sem entrega")? */
   function needsDeliveryChoice(product: StoreProduct) {
-    return product.requiresDelivery !== false && methodsForProduct(product).length > 0;
+    return !!isEventContext && product.requiresDelivery !== false && methodsForProduct(product).length > 0;
   }
 
   function setDraft(key: string, value: number, max: number) {

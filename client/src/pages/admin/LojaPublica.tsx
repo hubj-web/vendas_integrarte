@@ -702,9 +702,9 @@ export default function LojaPublica() {
         <TabsContent value="entregas" className="space-y-3 pt-3">
           <p className="text-sm text-muted-foreground">
             As formas de entrega são cadastradas em <strong>Configurações → Formas de Entrega</strong>.
-            Aqui você liga/desliga quais existem no sistema como um todo. Qual delas aparece pra cada
-            <strong> produto específico</strong> (ex: só "Consumo no local" e "Retirada" pra um item, nenhuma
-            pra um ingresso) é configurado no cadastro de cada produto, em Configurações → Produtos.
+            Aqui você liga/desliga quais existem no sistema como um todo. Dentro de um <strong>Evento</strong>,
+            cada produto pode restringir a formas específicas (configurado no cadastro do produto) — na
+            <strong> Venda Regular</strong>, o cliente escolhe uma forma só, pro pedido inteiro, entre as ativas aqui.
           </p>
           <Card>
             <CardContent className="pt-4 space-y-1">

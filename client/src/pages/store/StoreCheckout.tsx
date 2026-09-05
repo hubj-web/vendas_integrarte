@@ -85,7 +85,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
   // Dentro de Evento, se todo item do carrinho já veio com sua própria forma
   // de entrega escolhida (lá na tela de categoria), não precisa perguntar de
   // novo aqui — soma o custo de cada forma distinta usada.
-  const isPerItemDelivery = cart.length > 0 && cart.every(i => i.requiresDelivery === false || i.deliveryMethodId != null);
+  const isPerItemDelivery = !!eventId && cart.length > 0 && cart.every(i => i.requiresDelivery === false || i.deliveryMethodId != null);
   const usedMethods = isPerItemDelivery
     ? deliveryMethods.filter(m => new Set(cart.map(i => i.deliveryMethodId)).has(m.id))
     : [];

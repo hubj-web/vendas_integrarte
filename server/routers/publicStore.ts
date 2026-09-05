@@ -512,35 +512,45 @@ export const publicStoreRouter = router({
         totalAmount += subtotal;
         itemsResolved.push({
           productId: item.productId, quantity: item.quantity, flavorIds: item.flavorIds ?? [], unitPrice, subtotal, nomeItem: prod.name, selections, isPreOrder,
-          deliveryMethodId: prod.requiresDelivery ? (item.deliveryMethodId ?? input.deliveryMethodId) : null,
+          deliveryMethodId: (input.eventId && prod.requiresDelivery) ? (item.deliveryMethodId ?? input.deliveryMethodId) : null,
         });
       }
 
-      // Custo de entrega: cada item pode ter sua própria forma (soma o custo
-      // de cada forma distinta usada) — vale tanto dentro de evento quanto
-      // na Venda Regular. Item sem necessidade de entrega (ex: ingresso) não
-      // entra na conta. Antes de cobrar, confere se alguma regra de frete
-      // grátis dessa forma específica já é satisfeita por esse carrinho.
+      // Custo de entrega: dentro de Evento, cada item pode ter sua própria
+      // forma (soma o custo de cada forma distinta usada); fora de evento, é
+      // sempre uma só pro pedido inteiro. Nos dois casos, confere primeiro
+      // se alguma regra de frete grátis da forma já é satisfeita por esse carrinho.
       let deliveryCost = 0;
-      const methodIdsUsados = Array.from(new Set(itemsResolved.filter(i => i.deliveryMethodId != null).map(i => i.deliveryMethodId!)));
-      const metodosUsados = methodIdsUsados.length > 0
-        ? await db.select({ id: deliveryMethods.id, cost: deliveryMethods.cost, requiresAddress: deliveryMethods.requiresAddress })
-            .from(deliveryMethods).where(inArray(deliveryMethods.id, methodIdsUsados))
-        : [];
-      const regrasUsadas = methodIdsUsados.length > 0
-        ? await db.select().from(deliveryMethodRules).where(inArray(deliveryMethodRules.deliveryMethodId, methodIdsUsados))
-        : [];
-      const regrasPorMetodo: Record<number, typeof regrasUsadas> = {};
-      for (const r of regrasUsadas) (regrasPorMetodo[r.deliveryMethodId] ??= []).push(r);
       const quantidadePorProduto: Record<number, number> = {};
       for (const i of itemsResolved) quantidadePorProduto[i.productId] = (quantidadePorProduto[i.productId] ?? 0) + i.quantity;
-      const precisaEndereco = metodosUsados.some(m => m.requiresAddress);
-      if (precisaEndereco && !input.deliveryAddress) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Endereço é obrigatório pra pelo menos um dos itens escolhidos." });
-      }
-      for (const m of metodosUsados) {
-        const ehGratis = isDeliveryFreeForCart(regrasPorMetodo[m.id] ?? [], totalAmount, quantidadePorProduto);
-        deliveryCost += ehGratis ? 0 : Number(m.cost ?? 0);
+
+      if (input.eventId) {
+        const methodIdsUsados = Array.from(new Set(itemsResolved.filter(i => i.deliveryMethodId != null).map(i => i.deliveryMethodId!)));
+        const metodosUsados = methodIdsUsados.length > 0
+          ? await db.select({ id: deliveryMethods.id, cost: deliveryMethods.cost, requiresAddress: deliveryMethods.requiresAddress })
+              .from(deliveryMethods).where(inArray(deliveryMethods.id, methodIdsUsados))
+          : [];
+        const regrasUsadas = methodIdsUsados.length > 0
+          ? await db.select().from(deliveryMethodRules).where(inArray(deliveryMethodRules.deliveryMethodId, methodIdsUsados))
+          : [];
+        const regrasPorMetodo: Record<number, typeof regrasUsadas> = {};
+        for (const r of regrasUsadas) (regrasPorMetodo[r.deliveryMethodId] ??= []).push(r);
+        const precisaEndereco = metodosUsados.some(m => m.requiresAddress);
+        if (precisaEndereco && !input.deliveryAddress) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Endereço é obrigatório pra pelo menos um dos itens escolhidos." });
+        }
+        for (const m of metodosUsados) {
+          const ehGratis = isDeliveryFreeForCart(regrasPorMetodo[m.id] ?? [], totalAmount, quantidadePorProduto);
+          deliveryCost += ehGratis ? 0 : Number(m.cost ?? 0);
+        }
+      } else {
+        const [chosenDeliveryMethod] = await db.select({ id: deliveryMethods.id, cost: deliveryMethods.cost })
+          .from(deliveryMethods).where(eq(deliveryMethods.id, input.deliveryMethodId)).limit(1);
+        if (chosenDeliveryMethod) {
+          const regrasDoMetodo = await db.select().from(deliveryMethodRules).where(eq(deliveryMethodRules.deliveryMethodId, chosenDeliveryMethod.id));
+          const ehGratis = isDeliveryFreeForCart(regrasDoMetodo, totalAmount, quantidadePorProduto);
+          deliveryCost = ehGratis ? 0 : Number(chosenDeliveryMethod.cost ?? 0);
+        }
       }
       totalAmount += deliveryCost;
 

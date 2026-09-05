@@ -494,7 +494,7 @@ export default function Products() {
                 <Switch id="requires-delivery" checked={form.requiresDelivery} onCheckedChange={v => setForm(f => ({ ...f, requiresDelivery: v }))} />
               </div>
               <p className="text-xs text-muted-foreground">
-                Desligado, este produto não pergunta forma de entrega (ex: ingresso — não faz sentido "retirar" ou "receber em casa").
+                Desligado, este produto não pergunta forma de entrega dentro de Evento (ex: ingresso — não faz sentido "retirar" ou "receber em casa").
               </p>
               {form.requiresDelivery && deliveryMethodsOptions.length > 0 && (
                 <div>
@@ -518,7 +518,7 @@ export default function Products() {
                     })}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Nenhuma marcada = todas as formas ativas valem pra esse produto (padrão). Marcando algumas, só essas aparecem como opção.
+                    Nenhuma marcada = todas as formas ativas valem pra esse produto (padrão). Marcando algumas, só essas aparecem como opção. Vale só <strong>dentro de Evento</strong> — na Venda Regular, a entrega continua sendo escolhida uma vez só, pro pedido inteiro.
                   </p>
                 </div>
               )}
