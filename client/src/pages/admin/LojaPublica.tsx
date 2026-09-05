@@ -647,7 +647,7 @@ export default function LojaPublica() {
 
         <TabsContent value="produtos" className="space-y-3 pt-3">
           <p className="text-sm text-muted-foreground">
-            Só produtos com estoque disponível aparecem aqui. Ative os que quer vender na loja — opcionalmente com um preço diferente do praticado no período de vendas.
+            Só produtos com estoque disponível aparecem aqui. Ative os que quer vender na loja — opcionalmente com um preço diferente do praticado na Venda Regular.
           </p>
           <Card>
             <CardContent className="pt-4">

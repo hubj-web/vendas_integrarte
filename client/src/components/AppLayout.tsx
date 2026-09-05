@@ -41,7 +41,6 @@ const adminNavItems: NavItem[] = [
   { label: "Formas de Entrega", href: "/admin/config/formas-entrega", icon: Truck },
   { label: "Estoque", href: "/admin/config/estoque", icon: Boxes },
   { label: "Pedidos de Estoque", href: "/admin/config/pedidos-estoque", icon: ShoppingCart },
-  { label: "Período de Vendas", href: "/admin/config/periodo-vendas", icon: CalendarRange },
   { label: "Usuários", href: "/admin/config/usuarios", icon: Users },
   { label: "Backup", href: "/admin/config/backup", icon: Database },
   { label: "Atividades", href: "/admin/config/atividades", icon: History },

@@ -55,14 +55,14 @@ export default function SellerNewOrder() {
 
   const { data: catalog } = trpc.seller.catalog.useQuery();
   const { data: availablePaymentMethods = [] } = trpc.seller.paymentMethods.useQuery();
-  const { data: periodoStatus } = trpc.seller.periodoVendaStatus.useQuery(undefined, { enabled: !isAdminRoute });
   const { data: estoqueDisponivel } = trpc.seller.stockAvailable.useQuery(undefined, {
-    enabled: !isAdminRoute && periodoStatus?.ativo === false,
+    enabled: !isAdminRoute,
   });
 
   // Soma o estoque disponível por produto (somando todas as combinações de sabor),
   // só usado pra mostrar "X em estoque" na lista antes do vendedor escolher —
-  // a validação de verdade (por sabor exato) acontece no servidor ao salvar.
+  // a validação de verdade (por sabor exato, e considerando sob encomenda por
+  // produto) acontece no servidor ao salvar.
   const estoquePorProduto = useMemo(() => {
     const map: Record<number, number> = {};
     for (const linha of estoqueDisponivel ?? []) {
@@ -70,7 +70,7 @@ export default function SellerNewOrder() {
     }
     return map;
   }, [estoqueDisponivel]);
-  const mostrarEstoque = !isAdminRoute && periodoStatus?.ativo === false;
+  const mostrarEstoque = !isAdminRoute;
 
   // Fetch order detail when in edit mode
   const { data: existingOrder, isLoading: isLoadingOrder, error: orderError } = trpc.seller.orderDetail.useQuery(
@@ -531,16 +531,6 @@ export default function SellerNewOrder() {
           {isEditMode ? `Editar Pedido #${editOrderId}` : "Novo Pedido"}
         </h2>
       </div>
-
-      {!isAdminRoute && !isEditMode && periodoStatus && !periodoStatus.ativo && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm">
-          <AlertCircle className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
-          <p className="text-orange-800">
-            <strong>Período de vendas fechado.</strong> Só é possível vender o que já está no
-            Integrarte Estoque — se pedir algo indisponível, o sistema vai avisar na hora de salvar.
-          </p>
-        </div>
-      )}
 
       {/* ── CUSTOMER ── */}
       <Card className="bg-card border-border">

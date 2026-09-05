@@ -6,7 +6,7 @@ import { catalogRouter } from "./routers/catalog";
 import { ordersRouter } from "./routers/orders";
 import { deliveryRouter } from "./routers/delivery";
 import { reportsRouter } from "./routers/reports";
-import { sellerRouter, periodosVendaRouter } from "./routers/seller";
+import { sellerRouter } from "./routers/seller";
 import { deliveryPublicRouter } from "./routers/deliveryPublic";
 import { exportsRouter } from "./routers/exports";
 import { routeOptimizationRouter } from "./routers/routeOptimization";
@@ -25,7 +25,6 @@ export const appRouter = router({
   delivery: deliveryRouter,
   reports: reportsRouter,
   seller: sellerRouter,
-  periodosVenda: periodosVendaRouter,
   deliveryPublic: deliveryPublicRouter,
   exports: exportsRouter,
   routeOptimization: routeOptimizationRouter,

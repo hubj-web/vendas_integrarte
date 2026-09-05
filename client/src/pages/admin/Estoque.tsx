@@ -128,7 +128,7 @@ export default function Estoque() {
     <div className="space-y-6">
       <PageHeader
         title="Estoque Integrarte"
-        description="Nível atual de cada produto — o que está disponível pra vender fora do período de vendas"
+        description="Nível atual de cada produto — o que está disponível pra vender (fora do que estiver marcado como sob encomenda)"
         actions={
           <div className="flex gap-2">
             <Button onClick={() => setManualOpen(true)} className="gap-1.5">

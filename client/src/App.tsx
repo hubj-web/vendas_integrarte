@@ -40,7 +40,6 @@ import ProductTypes from "./pages/admin/ProductTypes";
 import Minipizzas from "./pages/admin/Minipizzas";
 import Jellies from "./pages/admin/Jellies";
 import DeliveryMethods from "./pages/admin/DeliveryMethods";
-import PeriodosVenda from "./pages/admin/PeriodosVenda";
 import Estoque from "./pages/admin/Estoque";
 import PedidosEstoque from "./pages/admin/PedidosEstoque";
 import PedidoEstoquePrint from "./pages/admin/PedidoEstoquePrint";
@@ -196,9 +195,6 @@ function Router() {
       </Route>
       <Route path="/admin/config/pedidos-estoque">
         <AdminGuard><AppLayout><PedidosEstoque /></AppLayout></AdminGuard>
-      </Route>
-      <Route path="/admin/config/periodo-vendas">
-        <AdminGuard><AppLayout><PeriodosVenda /></AppLayout></AdminGuard>
       </Route>
       <Route path="/admin/config/usuarios">
         <AdminGuard><AppLayout><Users /></AppLayout></AdminGuard>

@@ -12,7 +12,7 @@ import {
   minipizzaTypes, minipizzaTypeFlavorMatrix, orderItems, orderItemFlavors, orderJellies,
   orderMinipizzaFlavors, orderMinipizzas, orders, orderStatusHistory,
   productCategories, productFlavors, productTypes, products, users, routeOrders, paymentRecords,
-  periodosVenda, estoqueAtual, estoqueAtualFlavors,
+  estoqueAtual, estoqueAtualFlavors,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
@@ -22,14 +22,6 @@ import { sendOrderNotification } from "../telegram";
 import { isProductOnPreOrder } from "../storeHelpers";
 
 export type DB = NonNullable<Awaited<ReturnType<typeof getDb>>>;
-
-/** Confere se hoje cai dentro de algum período de venda aberto (a data de corte foi removida — agora cada produto controla seu próprio "sob encomenda até tal data", igual já funciona na Loja Pública). */
-export async function periodoVendaAberto(db: DB): Promise<boolean> {
-  const hoje = new Date();
-  const periodos = await db.select({ id: periodosVenda.id }).from(periodosVenda)
-    .where(and(lte(periodosVenda.dataAbertura, hoje), gte(periodosVenda.dataFechamento, hoje)));
-  return periodos.length > 0;
-}
 
 /** Busca as linhas de estoque de um produto+sabor, mais antigas primeiro (FIFO). */
 export async function buscarLotesEstoque(db: DB, productId: number, flavorIds: number[]) {
@@ -255,29 +247,27 @@ export const sellerRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
-      // Se não há período de vendas aberto, exige estoque real de tudo (igual
-      // sempre foi). Com período aberto, cada item decide sozinho: se o
-      // produto está "sob encomenda" (dentro da janela configurada nele, se
-      // houver), não precisa de estoque — senão, precisa, normalmente.
+      // Cada item decide sozinho, só pelo próprio cadastro: se o produto
+      // está "sob encomenda" (dentro da janela configurada nele, se houver),
+      // não precisa de estoque — senão, precisa de estoque real, sempre.
+      // Não depende mais de nenhum "período de vendas" aberto/fechado.
       let lotesPorItem: { item: (typeof input.items)[number]; lotes: Awaited<ReturnType<typeof buscarLotesEstoque>> }[] = [];
       if (!input.viaAdmin) {
-        const aberto = await periodoVendaAberto(db);
         for (const item of input.items) {
           const [prod] = await db.select({ allowPreOrder: products.allowPreOrder, preOrderUntil: products.preOrderUntil, name: products.name })
             .from(products).where(eq(products.id, item.productId)).limit(1);
-          const emSobEncomenda = aberto && prod ? isProductOnPreOrder(prod) : false;
+          const emSobEncomenda = prod ? isProductOnPreOrder(prod) : false;
           if (emSobEncomenda) continue; // não precisa de estoque
 
           const lotes = await buscarLotesEstoque(db, item.productId, item.flavorIds ?? []);
           const disponivel = lotes.reduce((acc, l) => acc + l.quantity, 0);
           if (disponivel < item.quantity) {
             const nomeItem = prod?.name ?? "Item";
-            const motivo = aberto ? "esse item exige estoque real" : "o período de vendas está fechado";
             throw new TRPCError({
               code: "BAD_REQUEST",
               message: disponivel === 0
-                ? `"${nomeItem}" não existe — ${motivo}, só é possível vender o que já está no Integrarte Estoque.`
-                : `Só há ${disponivel} de "${nomeItem}" no Integrarte Estoque (pedido: ${item.quantity}) — ${motivo}.`,
+                ? `"${nomeItem}" não tem estoque, e não está mais liberado como sob encomenda — só é possível vender o que já está no Integrarte Estoque.`
+                : `Só há ${disponivel} de "${nomeItem}" no Integrarte Estoque (pedido: ${item.quantity}), e não está mais liberado como sob encomenda.`,
             });
           }
           lotesPorItem.push({ item, lotes });
@@ -832,91 +822,6 @@ export const sellerRouter = router({
       });
       // Ao cancelar, o pedido deixa de fazer parte de qualquer rota de entrega
       await db.delete(routeOrders).where(eq(routeOrders.orderId, input.orderId));
-      return { success: true };
-    }),
-
-  /**
-   * Diz se hoje está dentro de um período de vendas aberto — usado pra
-   * mostrar aviso na tela "Novo Pedido" quando estiver fechado.
-   */
-  periodoVendaStatus: protectedProcedure.query(async () => {
-    const db = await getDb();
-    if (!db) return { ativo: true, periodo: null };
-    const hoje = new Date();
-    const [periodo] = await db.select().from(periodosVenda)
-      .where(and(lte(periodosVenda.dataAbertura, hoje), gte(periodosVenda.dataFechamento, hoje)))
-      .limit(1);
-    return { ativo: !!periodo, periodo: periodo ?? null };
-  }),
-});
-
-/**
- * Router de administração dos Períodos de Venda — abrir/fechar o período
- * oficial de lançamento de pedidos, com histórico dos períodos anteriores.
- */
-export const periodosVendaRouter = router({
-  list: adminProcedure.query(async () => {
-    const db = await getDb();
-    if (!db) return [];
-    return db.select().from(periodosVenda).orderBy(desc(periodosVenda.dataAbertura));
-  }),
-
-  create: adminProcedure
-    .input(z.object({
-      descricao: z.string().optional(),
-      dataAbertura: z.string(), // "2026-07-30T12:00" (datetime-local)
-      dataFechamento: z.string(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-      const abertura = new Date(input.dataAbertura);
-      const fechamento = new Date(input.dataFechamento);
-      if (fechamento < abertura) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "A data/hora de fechamento não pode ser antes da abertura." });
-      }
-
-      await db.insert(periodosVenda).values({
-        descricao: input.descricao,
-        dataAbertura: abertura,
-        dataFechamento: fechamento,
-        createdBy: ctx.user.id,
-      });
-      return { success: true };
-    }),
-
-  update: adminProcedure
-    .input(z.object({
-      id: z.number(),
-      descricao: z.string().optional(),
-      dataAbertura: z.string(),
-      dataFechamento: z.string(),
-    }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-
-      const abertura = new Date(input.dataAbertura);
-      const fechamento = new Date(input.dataFechamento);
-      if (fechamento < abertura) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "A data/hora de fechamento não pode ser antes da abertura." });
-      }
-
-      await db.update(periodosVenda).set({
-        descricao: input.descricao,
-        dataAbertura: abertura,
-        dataFechamento: fechamento,
-      }).where(eq(periodosVenda.id, input.id));
-      return { success: true };
-    }),
-
-  delete: adminProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await db.delete(periodosVenda).where(eq(periodosVenda.id, input.id));
       return { success: true };
     }),
 });

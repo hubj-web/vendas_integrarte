@@ -21,7 +21,7 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
-import { buscarLotesEstoque, descontarLotesEstoque, requireLauncherRole, periodoVendaAberto } from "./seller";
+import { buscarLotesEstoque, descontarLotesEstoque, requireLauncherRole } from "./seller";
 import { isEffectivelyOpen, nextTicketNumber } from "./publicStore";
 import { isProductOnPreOrder } from "../storeHelpers";
 import { buildPixPayload, generatePixQrCodeBase64, pixConfigured } from "../pix";
@@ -245,8 +245,6 @@ export const sellerEventsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "E-mail é obrigatório pra vender ingresso — é por ele que o cliente recebe." });
       }
 
-      const aberto = hasRegularItems ? await periodoVendaAberto(db) : false;
-
       const produtosRows = await db.select().from(products).where(inArray(products.id, input.items.map(i => i.productId)));
       const produtosMap = new Map(produtosRows.map(p => [p.id, p]));
       const visRows = await db.select().from(storeProductVisibility).where(inArray(storeProductVisibility.productId, input.items.map(i => i.productId)));
@@ -269,10 +267,9 @@ export const sellerEventsRouter = router({
           }
         }
 
-        // Evento: sempre exige estoque real (sem conceito de sob encomenda,
-        // igual já era). Venda Regular: respeita sob encomenda por produto,
-        // e só exige estoque se o período estiver aberto.
-        const emSobEncomenda = !item.eventId && aberto && isProductOnPreOrder(prod);
+        // Cada produto decide sozinho pelo próprio cadastro (estoque real ou
+        // sob encomenda com data válida) — igual na Loja Pública, evento ou não.
+        const emSobEncomenda = isProductOnPreOrder(prod);
         const precisaDescontarEstoque = !emSobEncomenda;
 
         if (precisaDescontarEstoque) {
