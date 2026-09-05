@@ -33,6 +33,10 @@ interface CartItem {
   deliveryMethodId?: number;
   deliveryMethodName?: string;
   requiresDelivery?: boolean;
+  // De qual evento esse item veio (undefined = Venda Regular) — permite
+  // misturar item comum + item de evento no mesmo pedido.
+  eventId?: number;
+  eventName?: string;
 }
 
 interface Props {
@@ -70,9 +74,22 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
 
   const { data: deliveryMethods = [] } = trpc.publicStore.deliveryMethods.useQuery();
   const { data: mpConfig } = trpc.publicStore.mpPublicKey.useQuery();
-  const { data: allowedPayments } = trpc.publicStore.paymentMethods.useQuery({ eventId });
   const { data: landingData } = trpc.publicStore.landing.useQuery(undefined, { staleTime: 60_000 });
-  const isTicketEvent = !!eventId && landingData?.events.find(e => e.id === eventId)?.type === "ingresso";
+
+  // Separa o carrinho em itens de Evento (cada um já sabe de qual) e itens
+  // de Venda Regular — o mesmo pedido pode ter os dois ao mesmo tempo (ex:
+  // pão de queijo pra entregar em casa + ingresso pra retirar no evento).
+  const eventItemsInCart = cart.filter(i => i.eventId != null);
+  const regularItemsInCart = cart.filter(i => i.eventId == null);
+  const hasEventItems = eventItemsInCart.length > 0;
+  const distinctEventIds = Array.from(new Set(eventItemsInCart.map(i => i.eventId!)));
+  const isTicketEvent = distinctEventIds.some(id => landingData?.events.find(e => e.id === id)?.type === "ingresso");
+
+  // Formas de pagamento: se o carrinho é 100% de UM evento só, usa a
+  // visibilidade específica dele; se tem item comum (mesmo que misturado
+  // com evento) ou mais de um evento junto, usa a visibilidade da Venda Regular.
+  const paymentMethodsEventId = (!regularItemsInCart.length && distinctEventIds.length === 1) ? distinctEventIds[0] : undefined;
+  const { data: allowedPayments } = trpc.publicStore.paymentMethods.useQuery({ eventId: paymentMethodsEventId });
   const pixEnabled = allowedPayments?.pix ?? true;
   const cardEnabled = (allowedPayments?.creditCard ?? false) && CREDIT_CARD_ENABLED;
 
@@ -82,24 +99,25 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
     if (paymentMethod === "credit_card" && !cardEnabled && pixEnabled) setPaymentMethod("pix");
   }, [allowedPayments, pixEnabled, cardEnabled]);
 
-  // Dentro de Evento, se todo item do carrinho já veio com sua própria forma
-  // de entrega escolhida (lá na tela de categoria), não precisa perguntar de
-  // novo aqui — soma o custo de cada forma distinta usada.
-  const isPerItemDelivery = !!eventId && cart.length > 0 && cart.every(i => i.requiresDelivery === false || i.deliveryMethodId != null);
-  const usedMethods = isPerItemDelivery
-    ? deliveryMethods.filter(m => new Set(cart.map(i => i.deliveryMethodId)).has(m.id))
-    : [];
+  // Itens de evento já vêm com sua própria forma de entrega escolhida lá na
+  // tela de categoria — aqui só soma o custo de cada forma distinta usada.
+  const eventMethodsUsed = deliveryMethods.filter(m => new Set(eventItemsInCart.map(i => i.deliveryMethodId)).has(m.id));
+  // Itens de Venda Regular (se tiver) usam uma forma só, escolhida aqui —
+  // só pergunta se pelo menos um desses itens precisa mesmo de entrega.
+  const regularNeedsDelivery = regularItemsInCart.some(i => i.requiresDelivery !== false);
 
   const selectedMethod = deliveryMethods.find(m => m.id === deliveryMethodId);
-  const requiresAddress = isPerItemDelivery ? usedMethods.some(m => m.requiresAddress) : !!selectedMethod?.requiresAddress;
-  const deliveryCost = isPerItemDelivery ? usedMethods.reduce((acc, m) => acc + Number(m.cost), 0) : (selectedMethod ? Number(selectedMethod.cost) : 0);
-  // orders.deliveryMethodId é obrigatório no banco mesmo quando a entrega é
-  // por item — usa a primeira forma realmente escolhida como representante
-  // (ou a primeira forma disponível, no caso raro de um pedido só de itens
-  // que não precisam de entrega nenhuma, tipo só ingressos).
-  const representativeDeliveryMethodId = isPerItemDelivery
-    ? (cart.find(i => i.deliveryMethodId != null)?.deliveryMethodId ?? deliveryMethods[0]?.id)
-    : deliveryMethodId;
+  const requiresAddress = (regularNeedsDelivery && !!selectedMethod?.requiresAddress) || eventMethodsUsed.some(m => m.requiresAddress);
+  const deliveryCost =
+    (regularNeedsDelivery && selectedMethod ? Number(selectedMethod.cost) : 0) +
+    eventMethodsUsed.reduce((acc, m) => acc + Number(m.cost), 0);
+  // orders.deliveryMethodId é obrigatório no banco mesmo com entrega mista —
+  // usa a forma da Venda Regular se houver, senão a primeira forma de
+  // evento realmente escolhida, senão a primeira forma disponível.
+  const representativeDeliveryMethodId =
+    (regularNeedsDelivery ? deliveryMethodId : null) ??
+    eventItemsInCart.find(i => i.deliveryMethodId != null)?.deliveryMethodId ??
+    deliveryMethods[0]?.id;
   const grandTotal = total + deliveryCost;
   const [customerNotes, setCustomerNotes] = useState("");
 
@@ -120,7 +138,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
     if (!name.trim()) { toast.error("Informe seu nome."); return false; }
     if (phone.replace(/\D/g, "").length < 10) { toast.error("Informe um telefone válido."); return false; }
     if (isTicketEvent && !email.trim()) { toast.error("E-mail é obrigatório na compra de ingressos — é por ele que o ingresso é enviado."); return false; }
-    if (!isPerItemDelivery && !deliveryMethodId) { toast.error("Escolha como quer receber."); return false; }
+    if (regularNeedsDelivery && !deliveryMethodId) { toast.error("Escolha como quer receber os itens da Venda Regular."); return false; }
     if (requiresAddress) {
       if (!addressFields.cep.trim()) { toast.error("Informe o CEP."); return false; }
       if (!addressFields.logradouro.trim()) { toast.error("Informe o logradouro."); return false; }
@@ -135,8 +153,8 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
       const result = await createOrder.mutateAsync({
         customerName: name, customerPhone: phone, customerEmail: email || undefined, customerNotes: customerNotes || undefined,
         deliveryMethodId: representativeDeliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
-        eventId,
-        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds, deliveryMethodId: i.deliveryMethodId })),
+        eventId: distinctEventIds[0],
+        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds, deliveryMethodId: i.deliveryMethodId, eventId: i.eventId })),
         paymentMethod: "pix",
       });
       setOrderId(result.orderId);
@@ -214,21 +232,22 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                   {isTicketEvent ? "Obrigatório — é por ele que enviamos seu ingresso." : "Preenchendo, mandamos o comprovante por e-mail também."}
                 </p>
               </div>
-              {isPerItemDelivery ? (
+              {hasEventItems && (
                 <div className="rounded-lg border p-3 bg-muted/30">
-                  <Label className="text-xs text-muted-foreground">Forma de entrega escolhida por item</Label>
+                  <Label className="text-xs text-muted-foreground">🎪 Itens de evento — entrega escolhida por item</Label>
                   <div className="mt-1.5 space-y-1">
-                    {cart.map(item => (
+                    {eventItemsInCart.map(item => (
                       <div key={item.key} className="flex items-center justify-between text-sm">
-                        <span className="truncate">{item.name}</span>
+                        <span className="truncate">{item.name}{item.eventName ? ` (${item.eventName})` : ""}</span>
                         <span className="text-muted-foreground shrink-0 ml-2">{item.deliveryMethodName ?? "Não precisa de entrega"}</span>
                       </div>
                     ))}
                   </div>
                 </div>
-              ) : (
+              )}
+              {regularNeedsDelivery && (
                 <div>
-                  <Label>Como você quer receber?</Label>
+                  <Label>{hasEventItems ? "🛒 Itens da Venda Regular — como você quer receber?" : "Como você quer receber?"}</Label>
                   <RadioGroup value={deliveryMethodId ? String(deliveryMethodId) : ""} onValueChange={v => setDeliveryMethodId(Number(v))} className="mt-1">
                     {deliveryMethods.map(m => (
                       <div key={m.id} className="flex items-center space-x-2 border rounded-lg p-3">
@@ -353,8 +372,8 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                       const result = await createOrder.mutateAsync({
                         customerName: name, customerPhone: phone, customerEmail: email || undefined, customerNotes: customerNotes || undefined,
                         deliveryMethodId: representativeDeliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
-                        eventId,
-                        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds, deliveryMethodId: i.deliveryMethodId })),
+                        eventId: distinctEventIds[0],
+                        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds, deliveryMethodId: i.deliveryMethodId, eventId: i.eventId })),
                         paymentMethod: "credit_card",
                         cardToken: cardData.token, installments: cardData.installments,
                         paymentMethodId: cardData.paymentMethodId, issuerId: cardData.issuerId,

@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Button } from "@/components/ui/button";
-import { LogOut, Plus, List, Boxes, UserCircle, Ticket } from "lucide-react";
+import { LogOut, Plus, List, Boxes, UserCircle, Ticket, ShoppingCart } from "lucide-react";
 import { Link, useLocation } from "wouter";
 
 const LOGO_URL = "/integrarte-logo.png";
@@ -53,6 +53,18 @@ export default function SellerLayout({ children }: SellerLayoutProps) {
       {/* Nav tabs */}
       <nav className="border-b border-gray-100 bg-white/70">
         <div className="max-w-2xl mx-auto px-4 flex gap-1">
+          <Link href="/vendedor/venda">
+            <button
+              className={`flex items-center gap-1.5 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
+                location === "/vendedor/venda"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <ShoppingCart className="w-4 h-4" />
+              Venda
+            </button>
+          </Link>
           <Link href="/vendedor/novo-pedido">
             <button
               className={`flex items-center gap-1.5 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${

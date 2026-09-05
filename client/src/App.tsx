@@ -17,6 +17,7 @@ import MyOrders from "./pages/seller/MyOrders";
 import SellerOrderDetail from "./pages/seller/SellerOrderDetail";
 import Stock from "./pages/seller/Stock";
 import SellerEventSale from "./pages/seller/SellerEventSale";
+import SellerUnifiedSale from "./pages/seller/SellerUnifiedSale";
 
 // ── DELIVERER PAGES ──
 import DelivererLogin from "./pages/deliverer/DelivererLogin";
@@ -79,6 +80,7 @@ function SellerArea() {
   return (
     <SellerLayout>
       <Switch>
+        <Route path="/vendedor/venda" component={SellerUnifiedSale} />
         <Route path="/vendedor/novo-pedido" component={SellerNewOrder} />
         <Route path="/vendedor/meus-pedidos" component={MyOrders} />
         <Route path="/vendedor/estoque" component={Stock} />
@@ -260,6 +262,9 @@ function Router() {
       {/* ── SELLER ── */}
       <Route path="/vendedor">
         <SellerArea />
+      </Route>
+      <Route path="/vendedor/venda">
+        <SellerGuard><SellerLayout><SellerUnifiedSale /></SellerLayout></SellerGuard>
       </Route>
       <Route path="/vendedor/novo-pedido">
         <SellerGuard><SellerLayout><SellerNewOrder /></SellerLayout></SellerGuard>

@@ -307,6 +307,7 @@ export const storeAdminRouter = router({
         id: orderItems.id, productName: products.name, quantity: orderItems.quantity,
         unitPrice: orderItems.unitPrice, subtotal: orderItems.subtotal,
         deliveryMethodId: orderItems.deliveryMethodId, deliveryMethodName: deliveryMethods.name,
+        eventId: orderItems.eventId,
       }).from(orderItems)
         .leftJoin(products, eq(orderItems.productId, products.id))
         .leftJoin(deliveryMethods, eq(orderItems.deliveryMethodId, deliveryMethods.id))
@@ -316,8 +317,18 @@ export const storeAdminRouter = router({
       const flavorRows = itemIds.length > 0 ? await db.select().from(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId, itemIds)) : [];
       const selectionRows = itemIds.length > 0 ? await db.select().from(orderItemVariationSelections).where(inArray(orderItemVariationSelections.orderItemId, itemIds)) : [];
 
+      // Pedido pode misturar itens de Venda Regular com itens de um ou mais
+      // Eventos — busca o nome de todos os eventos envolvidos.
+      const distinctEventIds = Array.from(new Set(items.map(i => i.eventId).filter((id): id is number => id != null)));
+      const eventsInvolved = distinctEventIds.length > 0
+        ? await db.select().from(storeEvents).where(inArray(storeEvents.id, distinctEventIds))
+        : [];
+      const eventNameById: Record<number, string> = {};
+      for (const e of eventsInvolved) eventNameById[e.id] = e.name;
+
       const itemsWithExtras = items.map(item => ({
         ...item,
+        eventName: item.eventId != null ? eventNameById[item.eventId] : null,
         flavors: flavorRows.filter(f => f.orderItemId === item.id).map(f => f.flavorName),
         selections: selectionRows.filter(s => s.orderItemId === item.id).map(s => s.optionName),
       }));

@@ -152,20 +152,37 @@ export default function StoreReceipt({ ticketCode }: { ticketCode: string }) {
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>Itens do Pedido</div>
               <div style={{ display: "flex", flexDirection: "column" }}>
-                {order.items.map((item: any, idx: number) => (
-                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "7px 0", borderBottom: idx < order.items.length - 1 ? "1px solid #f3f4f6" : "none" }}>
-                    <div style={{ flex: 1, paddingRight: 8 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{item.quantity}x {item.productName}</div>
-                      {item.selections?.length > 0 && (
-                        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1 }}>{item.selections.map((s: any) => s.optionName).join(", ")}</div>
-                      )}
-                      {item.deliveryMethodName && (
-                        <div style={{ fontSize: 11, color: "#1e40af", marginTop: 1, fontWeight: 600 }}>📦 {item.deliveryMethodName}</div>
-                      )}
+                {(() => {
+                  const groupKeys = Array.from(new Set(order.items.map((i: any) => i.eventId ?? "regular")));
+                  const isMixed = groupKeys.length > 1;
+                  const renderItem = (item: any, idx: number, arr: any[]) => (
+                    <div key={item.id ?? idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "7px 0", borderBottom: idx < arr.length - 1 ? "1px solid #f3f4f6" : "none" }}>
+                      <div style={{ flex: 1, paddingRight: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{item.quantity}x {item.productName}</div>
+                        {item.selections?.length > 0 && (
+                          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1 }}>{item.selections.map((s: any) => s.optionName).join(", ")}</div>
+                        )}
+                        {item.deliveryMethodName && (
+                          <div style={{ fontSize: 11, color: "#1e40af", marginTop: 1, fontWeight: 600 }}>📦 {item.deliveryMethodName}</div>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#1a4731", whiteSpace: "nowrap" }}>{fmt(item.subtotal)}</div>
                     </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#1a4731", whiteSpace: "nowrap" }}>{fmt(item.subtotal)}</div>
-                  </div>
-                ))}
+                  );
+                  if (!isMixed) {
+                    return order.items.map((item: any, idx: number) => renderItem(item, idx, order.items));
+                  }
+                  return groupKeys.map(key => {
+                    const groupItems = order.items.filter((i: any) => (i.eventId ?? "regular") === key);
+                    const label = key === "regular" ? "🛒 Venda Regular" : `🎪 ${groupItems[0]?.eventName ?? "Evento"}`;
+                    return (
+                      <div key={String(key)} style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#1a4731", marginBottom: 4 }}>{label}</div>
+                        {groupItems.map((item: any, idx: number) => renderItem(item, idx, groupItems))}
+                      </div>
+                    );
+                  });
+                })()}
                 {Number(order.deliveryCost) > 0 && (
                   <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderTop: "1px solid #f3f4f6" }}>
                     <div style={{ fontSize: 13, color: "#374151" }}>Entrega</div>

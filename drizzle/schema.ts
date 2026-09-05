@@ -313,6 +313,10 @@ export const orderItems = mysqlTable("order_items", {
   // compras fora de evento, fica sempre null — a entrega vale pro pedido
   // inteiro, no campo orders.deliveryMethodId de sempre.
   deliveryMethodId: int("deliveryMethodId"),
+  // De qual Evento esse item veio (null = Venda Regular). Permite misturar
+  // no mesmo pedido: ex. pão de queijo (Venda Regular) + ingresso de um
+  // evento — cada item sabe de onde é, mesmo dentro do mesmo pedido.
+  eventId: int("eventId"),
 });
 
 // ─── ORDER ITEM FLAVORS (sabores escolhidos por item do pedido) ──────────────

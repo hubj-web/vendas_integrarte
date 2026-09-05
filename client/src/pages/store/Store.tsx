@@ -30,6 +30,10 @@ export interface CartItem {
   deliveryMethodId?: number;
   deliveryMethodName?: string;
   requiresDelivery?: boolean;
+  // De qual evento esse item veio (undefined = Venda Regular) — permite
+  // misturar item comum + item de evento no mesmo pedido.
+  eventId?: number;
+  eventName?: string;
 }
 
 /** Texto entre parênteses mostrando sabor + variações escolhidas (ex: "Morango, Talharim, Molho Branco") */
@@ -204,6 +208,8 @@ export default function Store() {
         onAddToCart={addToCart}
         onRemoveFromCart={removeFromCart}
         isEventContext={context.type === "event"}
+        eventId={context.type === "event" ? context.eventId : undefined}
+        eventName={context.type === "event" ? context.eventName : undefined}
         deliveryMethods={deliveryMethodsList ?? []}
         popupMessage={categoryPopup}
         onClosePopup={() => setCategoryPopup(null)}

@@ -21,8 +21,9 @@ import {
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
-import { buscarLotesEstoque, descontarLotesEstoque, requireLauncherRole } from "./seller";
+import { buscarLotesEstoque, descontarLotesEstoque, requireLauncherRole, periodoVendaAberto } from "./seller";
 import { isEffectivelyOpen, nextTicketNumber } from "./publicStore";
+import { isProductOnPreOrder } from "../storeHelpers";
 import { buildPixPayload, generatePixQrCodeBase64, pixConfigured } from "../pix";
 
 export const sellerEventsRouter = router({
@@ -183,6 +184,188 @@ export const sellerEventsRouter = router({
       // instituição (sem gateway, sem taxa) — o recibo mostra isso pro
       // vendedor repassar ao cliente. O pedido já nasce "pago" no sistema
       // (é responsabilidade do vendedor conferir o pagamento por fora).
+      if (input.paymentMethod === "pix" && pixConfigured()) {
+        const payload = buildPixPayload({ amount: totalAmount, txid: `venda${orderId}` });
+        const qrCodeBase64 = await generatePixQrCodeBase64(payload);
+        await db.insert(storeOrderPayments).values({
+          orderId, method: "pix", status: input.paymentStatus === "paid" ? "approved" : "pending",
+          qrCode: payload, qrCodeBase64,
+          amount: totalAmount.toFixed(2),
+          approvedAt: input.paymentStatus === "paid" ? new Date() : undefined,
+        });
+      }
+
+      return { success: true, orderId, ticketCode };
+    }),
+
+  /**
+   * Venda unificada: o vendedor pode misturar, no mesmo pedido, produtos da
+   * Venda Regular (período/estoque) e produtos/ingressos de um ou mais
+   * Eventos — cada item do carrinho carrega seu próprio eventId (ausente =
+   * Venda Regular). Um pagamento só pro pedido inteiro.
+   */
+  createUnifiedOrder: protectedProcedure
+    .input(z.object({
+      customerName: z.string().min(1),
+      customerPhone: z.string().min(8),
+      customerEmail: z.string().email().optional(),
+      deliveryMethodId: z.number().optional(), // usado pelos itens de Venda Regular, se houver
+      deliveryAddress: z.string().optional(),
+      items: z.array(z.object({
+        productId: z.number(), quantity: z.number().min(1), flavorIds: z.array(z.number()).optional(),
+        eventId: z.number().optional(),
+        deliveryMethodId: z.number().optional(), // usado só se o item for de Evento
+      })).min(1),
+      paymentMethod: z.enum(["cash", "pix", "credit_card", "debit_card"]),
+      paymentStatus: z.enum(["pending", "paid"]).default("paid"),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const { user } = requireLauncherRole(ctx);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const distinctEventIds = Array.from(new Set(input.items.map(i => i.eventId).filter((id): id is number => id != null)));
+      const hasRegularItems = input.items.some(i => !i.eventId);
+
+      const eventsById: Record<number, typeof storeEvents.$inferSelect> = {};
+      for (const evId of distinctEventIds) {
+        const [event] = await db.select().from(storeEvents).where(eq(storeEvents.id, evId)).limit(1);
+        if (!event || !isEffectivelyOpen(event)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Um dos eventos do carrinho não está mais aberto pra venda." });
+        }
+        eventsById[evId] = event;
+      }
+      const allowedCategoriesByEvent: Record<number, number[]> = {};
+      for (const evId of distinctEventIds) {
+        const links = await db.select({ categoryId: storeEventCategories.categoryId }).from(storeEventCategories).where(eq(storeEventCategories.eventId, evId));
+        allowedCategoriesByEvent[evId] = links.map(l => l.categoryId);
+      }
+      if (Object.values(eventsById).some(e => e.type === "ingresso") && !input.customerEmail) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "E-mail é obrigatório pra vender ingresso — é por ele que o cliente recebe." });
+      }
+
+      const aberto = hasRegularItems ? await periodoVendaAberto(db) : false;
+
+      const produtosRows = await db.select().from(products).where(inArray(products.id, input.items.map(i => i.productId)));
+      const produtosMap = new Map(produtosRows.map(p => [p.id, p]));
+      const visRows = await db.select().from(storeProductVisibility).where(inArray(storeProductVisibility.productId, input.items.map(i => i.productId)));
+      const visMap = new Map(visRows.map(v => [v.productId, v]));
+
+      let totalAmount = 0;
+      const itemsResolved: {
+        productId: number; quantity: number; flavorIds: number[]; unitPrice: number; subtotal: number; nome: string;
+        eventId: number | null; deliveryMethodId: number | null; precisaDescontarEstoque: boolean;
+      }[] = [];
+
+      for (const item of input.items) {
+        const prod = produtosMap.get(item.productId);
+        if (!prod) throw new TRPCError({ code: "BAD_REQUEST", message: "Produto inválido." });
+
+        if (item.eventId) {
+          const allowedCategoryIds = allowedCategoriesByEvent[item.eventId] ?? [];
+          if (!prod.categoryId || !allowedCategoryIds.includes(prod.categoryId)) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `"${prod.name}" não pertence a esse evento.` });
+          }
+        }
+
+        // Evento: sempre exige estoque real (sem conceito de sob encomenda,
+        // igual já era). Venda Regular: respeita sob encomenda por produto,
+        // e só exige estoque se o período estiver aberto.
+        const emSobEncomenda = !item.eventId && aberto && isProductOnPreOrder(prod);
+        const precisaDescontarEstoque = !emSobEncomenda;
+
+        if (precisaDescontarEstoque) {
+          const lotes = await buscarLotesEstoque(db, item.productId, item.flavorIds ?? []);
+          const disponivel = lotes.reduce((acc, l) => acc + l.quantity, 0);
+          if (disponivel < item.quantity) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `Só há ${disponivel} de "${prod.name}" disponível.` });
+          }
+        }
+
+        const unitPrice = Number(visMap.get(item.productId)?.storePrice ?? prod.price);
+        const subtotal = unitPrice * item.quantity;
+        totalAmount += subtotal;
+        itemsResolved.push({
+          productId: item.productId, quantity: item.quantity, flavorIds: item.flavorIds ?? [], unitPrice, subtotal, nome: prod.name,
+          eventId: item.eventId ?? null,
+          deliveryMethodId: !prod.requiresDelivery ? null : (item.eventId ? (item.deliveryMethodId ?? null) : (input.deliveryMethodId ?? null)),
+          precisaDescontarEstoque,
+        });
+      }
+
+      const [existingCustomer] = await db.select().from(customers).where(eq(customers.phone, input.customerPhone)).limit(1);
+      let customerId: number;
+      if (existingCustomer) {
+        customerId = existingCustomer.id;
+        if (input.customerEmail && !existingCustomer.email) {
+          await db.update(customers).set({ email: input.customerEmail }).where(eq(customers.id, customerId));
+        }
+      } else {
+        const result = await db.insert(customers).values({ name: input.customerName, phone: input.customerPhone, email: input.customerEmail });
+        customerId = Number((result as any)[0]?.insertId ?? (result as any).insertId);
+      }
+
+      // orders.deliveryMethodId é obrigatório — usa a forma da Venda Regular
+      // se houver, senão a primeira forma de evento escolhida, senão a
+      // primeira forma "retirada" cadastrada, senão qualquer uma.
+      let representativeDeliveryMethodId = hasRegularItems ? input.deliveryMethodId : undefined;
+      if (!representativeDeliveryMethodId) {
+        representativeDeliveryMethodId = itemsResolved.find(i => i.deliveryMethodId != null)?.deliveryMethodId ?? undefined;
+      }
+      if (!representativeDeliveryMethodId) {
+        const [pickupMethod] = await db.select().from(deliveryMethods).where(eq(deliveryMethods.requiresAddress, false)).limit(1);
+        const [anyMethod] = pickupMethod ? [] : await db.select().from(deliveryMethods).limit(1);
+        representativeDeliveryMethodId = pickupMethod?.id ?? anyMethod?.id;
+      }
+      if (!representativeDeliveryMethodId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Nenhuma forma de entrega cadastrada." });
+
+      const ticketCode = nanoid(12);
+      const ticketEventId = Object.entries(eventsById).find(([, ev]) => ev.type === "ingresso")?.[0];
+      const ticketNumber = ticketEventId ? await nextTicketNumber(db, Number(ticketEventId)) : undefined;
+      const representativeEventId = itemsResolved.find(i => i.eventId != null)?.eventId ?? null;
+
+      const orderResult = await db.insert(orders).values({
+        customerId,
+        launcherId: user.id,
+        deliveryMethodId: representativeDeliveryMethodId,
+        deliveryAddress: input.deliveryAddress,
+        paymentMethod: input.paymentMethod,
+        channel: distinctEventIds.length > 0 ? "vendedor_evento" : "periodo",
+        eventId: representativeEventId,
+        ticketCode,
+        ticketNumber,
+        status: "received",
+        paymentStatus: input.paymentStatus,
+        totalAmount: totalAmount.toFixed(2),
+        notes: input.notes ?? `Venda lançada por ${user.name}`,
+      });
+      const orderId = Number((orderResult as any)[0]?.insertId ?? (orderResult as any).insertId);
+
+      for (const item of itemsResolved) {
+        const itemResult = await db.insert(orderItems).values({
+          orderId, productId: item.productId, quantity: item.quantity,
+          unitPrice: item.unitPrice.toFixed(2), subtotal: item.subtotal.toFixed(2),
+          eventId: item.eventId, deliveryMethodId: item.deliveryMethodId,
+        });
+        const orderItemId = Number((itemResult as any)[0]?.insertId ?? (itemResult as any).insertId);
+        if (item.flavorIds.length > 0) {
+          const flavorRows = await db.select().from(productFlavors).where(inArray(productFlavors.id, item.flavorIds));
+          if (flavorRows.length > 0) {
+            await db.insert(orderItemFlavors).values(flavorRows.map(f => ({ orderItemId, productFlavorId: f.id, flavorName: f.name })));
+          }
+        }
+        if (item.precisaDescontarEstoque) {
+          const lotes = await buscarLotesEstoque(db, item.productId, item.flavorIds);
+          await descontarLotesEstoque(db, lotes, item.quantity);
+        }
+      }
+
+      await db.insert(orderStatusHistory).values({
+        orderId, userId: user.id, fromStatus: null, toStatus: "received",
+        notes: `Venda lançada por ${user.name}`,
+      });
+
       if (input.paymentMethod === "pix" && pixConfigured()) {
         const payload = buildPixPayload({ amount: totalAmount, txid: `venda${orderId}` });
         const qrCodeBase64 = await generatePixQrCodeBase64(payload);

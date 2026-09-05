@@ -40,6 +40,8 @@ interface Props {
   onContinueShopping: () => void;
   onPay: () => void;
   isEventContext?: boolean;
+  eventId?: number;
+  eventName?: string;
   deliveryMethods?: { id: number; name: string; cost: string; requiresAddress: boolean }[];
   popupMessage?: { name: string; message: string } | null;
   onClosePopup?: () => void;
@@ -76,7 +78,7 @@ function QuantityStepper({ value, onChange, max }: { value: number; onChange: (v
   );
 }
 
-export default function CategoryView({ categoryName, products, cart, cartTotal, onAddToCart, onRemoveFromCart, onContinueShopping, onPay, isEventContext, deliveryMethods = [], popupMessage, onClosePopup }: Props) {
+export default function CategoryView({ categoryName, products, cart, cartTotal, onAddToCart, onRemoveFromCart, onContinueShopping, onPay, isEventContext, eventId, eventName, deliveryMethods = [], popupMessage, onClosePopup }: Props) {
   const [drafts, setDrafts] = useState<Record<string, number>>({});
   const [zoomedImage, setZoomedImage] = useState<{ url: string; name: string } | null>(null);
   // Forma de entrega escolhida por produto — vale pra qualquer compra.
@@ -127,6 +129,7 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
       maxAvailable: product.availableQuantity,
       deliveryMethodId: metodo?.id, deliveryMethodName: metodo?.name,
       requiresDelivery: product.requiresDelivery,
+      eventId, eventName,
     });
     setDrafts(prev => ({ ...prev, [key]: 0 }));
     toast.success(`${product.name}${flavor ? ` (${flavor.name})` : ""} adicionado!`);
@@ -189,6 +192,7 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
       maxAvailable: product.availableQuantity,
       deliveryMethodId: metodo?.id, deliveryMethodName: metodo?.name,
       requiresDelivery: product.requiresDelivery,
+      eventId, eventName,
     });
     setGroupQtyDrafts(prev => ({ ...prev, [product.id]: 0 }));
     setGroupSelections(prev => {
