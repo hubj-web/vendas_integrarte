@@ -142,7 +142,7 @@ export default function StoreReceipt({ ticketCode }: { ticketCode: string }) {
               </div>
             )}
 
-            {order.deliveryMethodName && (
+            {order.deliveryMethodName && !order.items.some((i: any) => i.deliveryMethodId != null) && (
               <div style={{ background: "#f9fafb", borderRadius: 8, padding: "10px 12px" }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>Entrega</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{order.deliveryMethodName}</div>
@@ -158,6 +158,9 @@ export default function StoreReceipt({ ticketCode }: { ticketCode: string }) {
                       <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{item.quantity}x {item.productName}</div>
                       {item.selections?.length > 0 && (
                         <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1 }}>{item.selections.map((s: any) => s.optionName).join(", ")}</div>
+                      )}
+                      {item.deliveryMethodName && (
+                        <div style={{ fontSize: 11, color: "#1e40af", marginTop: 1, fontWeight: 600 }}>📦 {item.deliveryMethodName}</div>
                       )}
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#1a4731", whiteSpace: "nowrap" }}>{fmt(item.subtotal)}</div>

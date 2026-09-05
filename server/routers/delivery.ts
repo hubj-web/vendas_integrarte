@@ -163,7 +163,7 @@ const routesRouter = router({
           .leftJoin(orders, eq(routeOrders.orderId, orders.id))
           .where(eq(routeOrders.routeId, input.id));
 
-        const toUpdate = routeOrderRows.filter(o => o.status === "production" || o.status === "packaged");
+        const toUpdate = routeOrderRows.filter(o => o.status === "received" || o.status === "production" || o.status === "packaged");
         if (toUpdate.length > 0) {
           await db.update(orders).set({ status: "in_route" })
             .where(inArray(orders.id, toUpdate.map(o => o.orderId)));
@@ -650,7 +650,7 @@ const routesRouter = router({
         .from(orders)
         .leftJoin(customers, eq(orders.customerId, customers.id))
         .leftJoin(deliveryMethods, eq(orders.deliveryMethodId, deliveryMethods.id))
-        .where(and(inArray(orders.status, ["production", "packaged"]), eq(customers.isInternal, false)))
+        .where(and(inArray(orders.status, ["received", "production", "packaged"]), eq(customers.isInternal, false)))
         .orderBy(asc(orders.deliveryDate));
 
       return rows;

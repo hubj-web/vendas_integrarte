@@ -155,9 +155,12 @@ export default function Exports() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos os status</SelectItem>
+                  <SelectItem value="received">Recebido</SelectItem>
                   <SelectItem value="production">Em produção</SelectItem>
+                  <SelectItem value="packaged">Pronto</SelectItem>
                   <SelectItem value="in_route">Em rota</SelectItem>
                   <SelectItem value="delivered">Entregue</SelectItem>
+                  <SelectItem value="delivery_failed">Entrega sem sucesso</SelectItem>
                   <SelectItem value="paid">Pago</SelectItem>
                   <SelectItem value="cancelled">Cancelado</SelectItem>
                 </SelectContent>

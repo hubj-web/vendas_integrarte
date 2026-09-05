@@ -192,7 +192,7 @@ export const reportsRouter = router({
     const monthOrders = activeOrders.filter(o => o.createdAt >= monthStart);
 
     const pendingPayments = allOrders.filter(o => o.status === "delivered" && !o.isInternal && (o.paymentStatus === "pending" || o.paymentStatus === "partial"));
-    const inProduction = allOrders.filter(o => o.status === "production");
+    const inProduction = allOrders.filter(o => o.status === "production" || o.status === "received");
     const inRoute = allOrders.filter(o => o.status === "in_route");
     const packaged = allOrders.filter(o => o.status === "packaged");
 

@@ -738,7 +738,11 @@ async function resolveOrderDetails(db: NonNullable<Awaited<ReturnType<typeof get
 
   const items = await db.select({
     id: orderItems.id, productName: products.name, quantity: orderItems.quantity, subtotal: orderItems.subtotal,
-  }).from(orderItems).leftJoin(products, eq(orderItems.productId, products.id)).where(eq(orderItems.orderId, order.id));
+    deliveryMethodId: orderItems.deliveryMethodId, deliveryMethodName: deliveryMethods.name,
+  }).from(orderItems)
+    .leftJoin(products, eq(orderItems.productId, products.id))
+    .leftJoin(deliveryMethods, eq(orderItems.deliveryMethodId, deliveryMethods.id))
+    .where(eq(orderItems.orderId, order.id));
 
   const itemIds = items.map(i => i.id);
   const selections = itemIds.length > 0

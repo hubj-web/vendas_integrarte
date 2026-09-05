@@ -248,10 +248,10 @@ export const ordersRouter = router({
             if (o.paymentStatus === "paid" || o.status === "cancelled") return false;
             break;
           case "para_produzir":
-            if (o.status !== "production") return false;
+            if (o.status !== "production" && o.status !== "received") return false;
             break;
           case "para_empacotar":
-            if (o.status !== "production" && o.status !== "packaged") return false;
+            if (o.status !== "production" && o.status !== "received" && o.status !== "packaged") return false;
             break;
           case "retiradas_hoje": {
             if (!o.deliveryMethodId) return false;

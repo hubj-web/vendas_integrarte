@@ -59,7 +59,7 @@ export const packagingRouter = router({
         .map(route => {
           const relevant = orderRows.filter(o =>
             o.routeId === route.id &&
-            (o.status === "production" || o.status === "in_route" || o.status === "packaged") &&
+            (o.status === "received" || o.status === "production" || o.status === "in_route" || o.status === "packaged") &&
             (!input?.deliveryMethodId || o.deliveryMethodId === input.deliveryMethodId)
           );
           return {
@@ -105,7 +105,7 @@ export const packagingRouter = router({
         .orderBy(asc(routeOrders.position));
 
       const relevant = orderRows.filter(o =>
-        (o.status === "production" || o.status === "in_route" || o.status === "packaged") &&
+        (o.status === "received" || o.status === "production" || o.status === "in_route" || o.status === "packaged") &&
         (!input.deliveryMethodId || o.deliveryMethodId === input.deliveryMethodId)
       );
       if (relevant.length === 0) return { route, orders: [] };
@@ -201,7 +201,7 @@ export const packagingRouter = router({
       if (!current) throw new TRPCError({ code: "NOT_FOUND" });
 
       if (input.packaged) {
-        if (current.status !== "in_route" && current.status !== "production") {
+        if (current.status !== "in_route" && current.status !== "production" && current.status !== "received") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Só é possível empacotar pedidos em produção ou já em uma rota." });
         }
         await db.update(orders).set({ status: "packaged" }).where(eq(orders.id, input.orderId));
@@ -243,7 +243,7 @@ export const packagingRouter = router({
       if (!db) return [];
 
       const conditions = [
-        inArray(orders.status, ["production", "packaged"]),
+        inArray(orders.status, ["received", "production", "packaged"]),
         eq(customers.isInternal, false),
       ];
       if (input?.deliveryMethodId) conditions.push(eq(orders.deliveryMethodId, input.deliveryMethodId));

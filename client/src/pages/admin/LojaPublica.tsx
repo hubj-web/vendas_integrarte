@@ -782,7 +782,12 @@ export default function LojaPublica() {
                           onChange={() => toggleOrderSelected(o.id)}
                         />
                       </TableCell>
-                      <TableCell>{o.id}</TableCell>
+                      <TableCell>
+                        {o.id}
+                        {o.ticketNumber != null && (
+                          <span className="ml-1.5 text-xs font-semibold text-primary">🎟️ {String(o.ticketNumber).padStart(3, "0")}</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <p className="font-medium">{o.customerName}</p>
                         <p className="text-xs text-muted-foreground">{o.customerPhone}</p>
@@ -831,7 +836,14 @@ export default function LojaPublica() {
       {/* Detalhe do pedido */}
       <Dialog open={detailOrderId !== null} onOpenChange={(open) => { if (!open) { setDetailOrderId(null); setEditingOrder(false); } }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Pedido #{detailOrderId}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>
+              Pedido #{detailOrderId}
+              {orderDetail?.ticketNumber != null && (
+                <span className="ml-2 text-sm font-semibold text-primary">🎟️ Ingresso {String(orderDetail.ticketNumber).padStart(3, "0")}</span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
           {orderDetail ? editingOrder ? (
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-3">
@@ -928,6 +940,9 @@ export default function LojaPublica() {
                       <p>{item.quantity}x {item.productName}</p>
                       {(item.flavors?.length > 0 || item.selections?.length > 0) && (
                         <p className="text-xs text-muted-foreground">{[...item.flavors, ...item.selections].join(", ")}</p>
+                      )}
+                      {item.deliveryMethodName && (
+                        <p className="text-xs font-medium text-primary">📦 {item.deliveryMethodName}</p>
                       )}
                     </div>
                     <span>{fmt(item.subtotal)}</span>

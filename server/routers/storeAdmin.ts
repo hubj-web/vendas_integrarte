@@ -263,7 +263,7 @@ export const storeAdminRouter = router({
       const rows = await db.select({
         id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
         totalAmount: orders.totalAmount, paymentMethod: orders.paymentMethod, channel: orders.channel,
-        createdAt: orders.createdAt, deliveryMethodId: orders.deliveryMethodId,
+        createdAt: orders.createdAt, deliveryMethodId: orders.deliveryMethodId, ticketNumber: orders.ticketNumber,
         deliveryMethodName: deliveryMethods.name, eventId: orders.eventId, eventName: storeEvents.name,
         customerName: customers.name, customerPhone: customers.phone,
       }).from(orders)
@@ -291,6 +291,7 @@ export const storeAdminRouter = router({
         id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
         totalAmount: orders.totalAmount, paymentMethod: orders.paymentMethod, channel: orders.channel,
         createdAt: orders.createdAt, deliveryAddress: orders.deliveryAddress, notes: orders.notes,
+        ticketNumber: orders.ticketNumber,
         deliveryMethodName: deliveryMethods.name, deliveryMethodId: orders.deliveryMethodId,
         eventName: storeEvents.name, ticketCode: orders.ticketCode,
         customerName: customers.name, customerPhone: customers.phone, customerId: orders.customerId,
@@ -305,7 +306,11 @@ export const storeAdminRouter = router({
       const items = await db.select({
         id: orderItems.id, productName: products.name, quantity: orderItems.quantity,
         unitPrice: orderItems.unitPrice, subtotal: orderItems.subtotal,
-      }).from(orderItems).leftJoin(products, eq(orderItems.productId, products.id)).where(eq(orderItems.orderId, input.orderId));
+        deliveryMethodId: orderItems.deliveryMethodId, deliveryMethodName: deliveryMethods.name,
+      }).from(orderItems)
+        .leftJoin(products, eq(orderItems.productId, products.id))
+        .leftJoin(deliveryMethods, eq(orderItems.deliveryMethodId, deliveryMethods.id))
+        .where(eq(orderItems.orderId, input.orderId));
 
       const itemIds = items.map(i => i.id);
       const flavorRows = itemIds.length > 0 ? await db.select().from(orderItemFlavors).where(inArray(orderItemFlavors.orderItemId, itemIds)) : [];

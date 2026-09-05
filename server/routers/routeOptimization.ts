@@ -16,7 +16,7 @@ interface OrderWithLocation {
   totalAmount: string;
   deliveryDate: Date | null;
   deliveryAddress: string | null;
-  status: "production" | "in_route" | "packaged" | "delivered" | "paid" | "cancelled";
+  status: "received" | "production" | "in_route" | "packaged" | "delivered" | "delivery_failed" | "paid" | "cancelled";
   customerId: number;
   customerName: string;
   customerPhone: string;
@@ -746,7 +746,7 @@ export const routeOptimizationRouter = router({
       const dateToObj = new Date(input.dateTo + "T23:59:59");
 
       const whereConditions = [
-        inArray(orders.status, ["production", "packaged"]),
+        inArray(orders.status, ["received", "production", "packaged"]),
         gte(orders.createdAt, dateFromObj),
         lte(orders.createdAt, dateToObj),
         eq(customers.isInternal, false),
