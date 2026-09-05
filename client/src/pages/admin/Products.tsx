@@ -494,7 +494,7 @@ export default function Products() {
                 <Switch id="requires-delivery" checked={form.requiresDelivery} onCheckedChange={v => setForm(f => ({ ...f, requiresDelivery: v }))} />
               </div>
               <p className="text-xs text-muted-foreground">
-                Desligado, este produto não pergunta forma de entrega dentro de Evento (ex: ingresso — não faz sentido "retirar" ou "receber em casa").
+                Desligado, este produto não pergunta forma de entrega (ex: ingresso — não faz sentido "retirar" ou "receber em casa").
               </p>
               {form.requiresDelivery && deliveryMethodsOptions.length > 0 && (
                 <div>

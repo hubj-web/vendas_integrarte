@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, ShoppingCart, ImageIcon, Plus, Minus, Trash2, ZoomIn, X } from "lucide-react";
 import { toast } from "sonner";
@@ -40,6 +41,8 @@ interface Props {
   onPay: () => void;
   isEventContext?: boolean;
   deliveryMethods?: { id: number; name: string; cost: string; requiresAddress: boolean }[];
+  popupMessage?: { name: string; message: string } | null;
+  onClosePopup?: () => void;
 }
 
 function cartKey(productId: number, flavorId?: number) {
@@ -73,10 +76,10 @@ function QuantityStepper({ value, onChange, max }: { value: number; onChange: (v
   );
 }
 
-export default function CategoryView({ categoryName, products, cart, cartTotal, onAddToCart, onRemoveFromCart, onContinueShopping, onPay, isEventContext, deliveryMethods = [] }: Props) {
+export default function CategoryView({ categoryName, products, cart, cartTotal, onAddToCart, onRemoveFromCart, onContinueShopping, onPay, isEventContext, deliveryMethods = [], popupMessage, onClosePopup }: Props) {
   const [drafts, setDrafts] = useState<Record<string, number>>({});
   const [zoomedImage, setZoomedImage] = useState<{ url: string; name: string } | null>(null);
-  // Forma de entrega escolhida por produto — só usado dentro de Evento.
+  // Forma de entrega escolhida por produto — vale pra qualquer compra.
   const [deliveryDrafts, setDeliveryDrafts] = useState<Record<number, number>>({});
 
   /** Formas de entrega válidas pra esse produto específico (lista própria dele, ou todas as globais se não tiver nenhuma configurada). */
@@ -86,9 +89,9 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
     }
     return deliveryMethods;
   }
-  /** Esse produto específico precisa perguntar a forma de entrega (dentro de Evento, e ele não foi marcado como "sem entrega")? */
+  /** Esse produto específico precisa perguntar a forma de entrega (e ele não foi marcado como "sem entrega")? */
   function needsDeliveryChoice(product: StoreProduct) {
-    return !!isEventContext && product.requiresDelivery !== false && methodsForProduct(product).length > 0;
+    return product.requiresDelivery !== false && methodsForProduct(product).length > 0;
   }
 
   function setDraft(key: string, value: number, max: number) {
@@ -198,7 +201,7 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
 
   const cartCount = cart.reduce((acc, i) => acc + i.quantity, 0);
 
-  /** Seletor "Como vai retirar esse item?" — só aparece dentro de Evento, quando o produto precisa de entrega. */
+  /** Seletor "Como vai retirar esse item?" — aparece quando o produto precisa de entrega. */
   function DeliveryPicker({ product }: { product: StoreProduct }) {
     if (!needsDeliveryChoice(product)) return null;
     return (
@@ -431,6 +434,16 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
           </div>
         </div>
       )}
+
+      <Dialog open={!!popupMessage} onOpenChange={(open) => !open && onClosePopup?.()}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{popupMessage?.name}</DialogTitle></DialogHeader>
+          <p className="text-sm whitespace-pre-line">{popupMessage?.message}</p>
+          <DialogFooter>
+            <Button className="w-full" onClick={() => onClosePopup?.()}>Entendi</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

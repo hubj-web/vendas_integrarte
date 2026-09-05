@@ -4,7 +4,7 @@ import { z } from "zod";
 import {
   productCategories, productTypes, products, productChangeHistory, productFlavors,
   minipizzaTypes, minipizzaFlavors, minipizzaTypeFlavorMatrix,
-  jellyFlavors, deliveryMethods,
+  jellyFlavors, deliveryMethods, deliveryMethodRules,
   orderItems, orderMinipizzas, orderJellies,
   productVariationGroups, productVariationOptions, productDeliveryMethods,
 } from "../../drizzle/schema";
@@ -407,7 +407,11 @@ const deliveryMethodsRouter = router({
   list: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];
-    return db.select().from(deliveryMethods).orderBy(asc(deliveryMethods.name));
+    const methods = await db.select().from(deliveryMethods).orderBy(asc(deliveryMethods.name));
+    const rules = await db.select().from(deliveryMethodRules);
+    const rulesByMethod: Record<number, typeof rules> = {};
+    for (const r of rules) (rulesByMethod[r.deliveryMethodId] ??= []).push(r);
+    return methods.map(m => ({ ...m, rules: rulesByMethod[m.id] ?? [] }));
   }),
   create: adminProcedure
     .input(z.object({ name: z.string().min(2), description: z.string().optional(), requiresAddress: z.boolean().default(false), cost: z.string().default("0.00") }))
@@ -434,6 +438,45 @@ const deliveryMethodsRouter = router({
       await db.update(deliveryMethods).set({ active: false }).where(eq(deliveryMethods.id, input.id));
       return { success: true };
     }),
+
+  rules: router({
+    create: adminProcedure
+      .input(z.object({
+        deliveryMethodId: z.number(),
+        ruleType: z.enum(["valor_minimo", "quantidade_produto"]),
+        minOrderValue: z.string().optional(),
+        productId: z.number().optional(),
+        minQuantity: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        if (input.ruleType === "valor_minimo" && !input.minOrderValue) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o valor mínimo do pedido." });
+        }
+        if (input.ruleType === "quantidade_produto" && (!input.productId || !input.minQuantity)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Informe o produto e a quantidade mínima." });
+        }
+        await db.insert(deliveryMethodRules).values(input);
+        return { success: true };
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await db.delete(deliveryMethodRules).where(eq(deliveryMethodRules.id, input.id));
+        return { success: true };
+      }),
+    setActive: adminProcedure
+      .input(z.object({ id: z.number(), active: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await db.update(deliveryMethodRules).set({ active: input.active }).where(eq(deliveryMethodRules.id, input.id));
+        return { success: true };
+      }),
+  }),
 });
 
 const productVariationGroupsRouter = router({

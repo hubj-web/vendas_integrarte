@@ -17,7 +17,7 @@ import {
   customers, deliveryMethods, orderItems, orderItemFlavors, orders, orderStatusHistory,
   productCategories, productFlavors, products, storeOrderPayments,
   storeProductVisibility, storeSettings, users, estoqueAtual, estoqueAtualFlavors,
-  storeDeliveryMethodVisibility, storeEvents, storeEventCategories,
+  storeDeliveryMethodVisibility, deliveryMethodRules, storeEvents, storeEventCategories,
   storeRegularCategoryVisibility, productVariationGroups, productVariationOptions, productDeliveryMethods,
   orderItemVariationSelections,
   paymentMethods, storeRegularPaymentMethodVisibility, storeEventPaymentMethodVisibility,
@@ -25,7 +25,7 @@ import {
 import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
 import { buscarLotesEstoque, descontarLotesEstoque } from "./seller";
-import { isProductOnPreOrder } from "../storeHelpers";
+import { isProductOnPreOrder, isDeliveryFreeForCart } from "../storeHelpers";
 import { sendReceiptEmail } from "../email";
 import { createMercadoPagoPayment, mercadoPagoConfigured } from "../mercadopago";
 import { generateQrCodeBase64 } from "../qr";
@@ -150,6 +150,18 @@ async function buildCatalog(
     if (flavors.length > 0) {
       const m = (flavorsByProduct[l.productId] ??= new Map());
       for (const f of flavors) m.set(f.id, f.name);
+    }
+  }
+
+  // Reforço: os sabores cadastrados diretamente no produto (tela "Sabores")
+  // também contam, independente de já terem lote de estoque vinculado a eles
+  // — essencial pra produto "sob encomenda", que nem tem estoque de verdade.
+  if (prodsFinal.length > 0) {
+    const cadastroFlavors = await db.select().from(productFlavors)
+      .where(and(inArray(productFlavors.productId, prodsFinal.map(p => p.id)), eq(productFlavors.active, true)));
+    for (const f of cadastroFlavors) {
+      const m = (flavorsByProduct[f.productId] ??= new Map());
+      m.set(f.id, f.name);
     }
   }
 
@@ -299,7 +311,13 @@ export const publicStoreRouter = router({
     const hiddenRows = await db.select({ deliveryMethodId: storeDeliveryMethodVisibility.deliveryMethodId })
       .from(storeDeliveryMethodVisibility).where(eq(storeDeliveryMethodVisibility.visible, false));
     const hiddenIds = new Set(hiddenRows.map(h => h.deliveryMethodId));
-    return all.filter(m => !hiddenIds.has(m.id));
+    const visibleMethods = all.filter(m => !hiddenIds.has(m.id));
+    const rules = visibleMethods.length > 0
+      ? await db.select().from(deliveryMethodRules).where(and(inArray(deliveryMethodRules.deliveryMethodId, visibleMethods.map(m => m.id)), eq(deliveryMethodRules.active, true)))
+      : [];
+    const rulesByMethod: Record<number, typeof rules> = {};
+    for (const r of rules) (rulesByMethod[r.deliveryMethodId] ??= []).push(r);
+    return visibleMethods.map(m => ({ ...m, rules: rulesByMethod[m.id] ?? [] }));
   }),
 
   /**
@@ -381,6 +399,9 @@ export const publicStoreRouter = router({
         const [event] = await db.select().from(storeEvents).where(eq(storeEvents.id, input.eventId)).limit(1);
         if (!event || !isEffectivelyOpen(event)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Este evento não está mais disponível." });
+        }
+        if (event.type === "ingresso" && !input.customerEmail) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "E-mail é obrigatório na compra de ingressos — é por ele que o ingresso é enviado." });
         }
         const links = await db.select({ categoryId: storeEventCategories.categoryId }).from(storeEventCategories).where(eq(storeEventCategories.eventId, input.eventId));
         allowedCategoryIds = links.map(l => l.categoryId);
@@ -491,29 +512,35 @@ export const publicStoreRouter = router({
         totalAmount += subtotal;
         itemsResolved.push({
           productId: item.productId, quantity: item.quantity, flavorIds: item.flavorIds ?? [], unitPrice, subtotal, nomeItem: prod.name, selections, isPreOrder,
-          deliveryMethodId: (input.eventId && prod.requiresDelivery) ? (item.deliveryMethodId ?? input.deliveryMethodId) : null,
+          deliveryMethodId: prod.requiresDelivery ? (item.deliveryMethodId ?? input.deliveryMethodId) : null,
         });
       }
 
-      // Custo de entrega: dentro de Evento, cada item pode ter sua própria
-      // forma (soma o custo de cada forma distinta usada); fora de evento,
-      // é sempre uma só pro pedido inteiro, como já era.
+      // Custo de entrega: cada item pode ter sua própria forma (soma o custo
+      // de cada forma distinta usada) — vale tanto dentro de evento quanto
+      // na Venda Regular. Item sem necessidade de entrega (ex: ingresso) não
+      // entra na conta. Antes de cobrar, confere se alguma regra de frete
+      // grátis dessa forma específica já é satisfeita por esse carrinho.
       let deliveryCost = 0;
-      if (input.eventId) {
-        const methodIdsUsados = Array.from(new Set(itemsResolved.filter(i => i.deliveryMethodId != null).map(i => i.deliveryMethodId!)));
-        const metodosUsados = methodIdsUsados.length > 0
-          ? await db.select({ id: deliveryMethods.id, cost: deliveryMethods.cost, requiresAddress: deliveryMethods.requiresAddress })
-              .from(deliveryMethods).where(inArray(deliveryMethods.id, methodIdsUsados))
-          : [];
-        const precisaEndereco = metodosUsados.some(m => m.requiresAddress);
-        if (precisaEndereco && !input.deliveryAddress) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Endereço é obrigatório pra pelo menos um dos itens escolhidos." });
-        }
-        for (const m of metodosUsados) deliveryCost += Number(m.cost ?? 0);
-      } else {
-        const [chosenDeliveryMethod] = await db.select({ cost: deliveryMethods.cost })
-          .from(deliveryMethods).where(eq(deliveryMethods.id, input.deliveryMethodId)).limit(1);
-        deliveryCost = Number(chosenDeliveryMethod?.cost ?? 0);
+      const methodIdsUsados = Array.from(new Set(itemsResolved.filter(i => i.deliveryMethodId != null).map(i => i.deliveryMethodId!)));
+      const metodosUsados = methodIdsUsados.length > 0
+        ? await db.select({ id: deliveryMethods.id, cost: deliveryMethods.cost, requiresAddress: deliveryMethods.requiresAddress })
+            .from(deliveryMethods).where(inArray(deliveryMethods.id, methodIdsUsados))
+        : [];
+      const regrasUsadas = methodIdsUsados.length > 0
+        ? await db.select().from(deliveryMethodRules).where(inArray(deliveryMethodRules.deliveryMethodId, methodIdsUsados))
+        : [];
+      const regrasPorMetodo: Record<number, typeof regrasUsadas> = {};
+      for (const r of regrasUsadas) (regrasPorMetodo[r.deliveryMethodId] ??= []).push(r);
+      const quantidadePorProduto: Record<number, number> = {};
+      for (const i of itemsResolved) quantidadePorProduto[i.productId] = (quantidadePorProduto[i.productId] ?? 0) + i.quantity;
+      const precisaEndereco = metodosUsados.some(m => m.requiresAddress);
+      if (precisaEndereco && !input.deliveryAddress) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Endereço é obrigatório pra pelo menos um dos itens escolhidos." });
+      }
+      for (const m of metodosUsados) {
+        const ehGratis = isDeliveryFreeForCart(regrasPorMetodo[m.id] ?? [], totalAmount, quantidadePorProduto);
+        deliveryCost += ehGratis ? 0 : Number(m.cost ?? 0);
       }
       totalAmount += deliveryCost;
 

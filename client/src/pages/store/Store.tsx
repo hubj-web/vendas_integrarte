@@ -205,6 +205,8 @@ export default function Store() {
         onRemoveFromCart={removeFromCart}
         isEventContext={context.type === "event"}
         deliveryMethods={deliveryMethodsList ?? []}
+        popupMessage={categoryPopup}
+        onClosePopup={() => setCategoryPopup(null)}
         onContinueShopping={() => {
           // Se veio de um evento com só uma categoria (pulo automático),
           // "voltar" pra tela de categorias desse evento seria inútil (o
@@ -351,16 +353,6 @@ export default function Store() {
       <StoreSocialFooter />
       <HubJFooter />
       <WhatsAppFloatButton />
-
-      <Dialog open={categoryPopup !== null} onOpenChange={(open) => !open && setCategoryPopup(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{categoryPopup?.name}</DialogTitle></DialogHeader>
-          <p className="text-sm whitespace-pre-line">{categoryPopup?.message}</p>
-          <DialogFooter>
-            <Button className="w-full" onClick={() => setCategoryPopup(null)}>Entendi</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

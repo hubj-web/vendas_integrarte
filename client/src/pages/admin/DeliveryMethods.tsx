@@ -14,13 +14,37 @@ import { Plus, Pencil, Truck } from "lucide-react";
 export default function DeliveryMethods() {
   const utils = trpc.useUtils();
   const { data: methods = [], isLoading } = trpc.catalog.deliveryMethods.list.useQuery();
+  const { data: products = [] } = trpc.catalog.products.list.useQuery();
   const createMutation = trpc.catalog.deliveryMethods.create.useMutation({ onSuccess: () => { utils.catalog.deliveryMethods.list.invalidate(); toast.success("Forma de entrega criada!"); setOpen(false); } });
   const updateMutation = trpc.catalog.deliveryMethods.update.useMutation({ onSuccess: () => { utils.catalog.deliveryMethods.list.invalidate(); toast.success("Atualizado!"); setOpen(false); } });
   const deleteMutation = trpc.catalog.deliveryMethods.delete.useMutation({ onSuccess: () => { utils.catalog.deliveryMethods.list.invalidate(); toast.success("Desativado!"); } });
 
+  const createRule = trpc.catalog.deliveryMethods.rules.create.useMutation({
+    onSuccess: () => { utils.catalog.deliveryMethods.list.invalidate(); toast.success("Regra criada!"); setRuleForm({ deliveryMethodId: null, ruleType: "valor_minimo", minOrderValue: "", productId: "", minQuantity: "" }); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteRule = trpc.catalog.deliveryMethods.rules.delete.useMutation({
+    onSuccess: () => { utils.catalog.deliveryMethods.list.invalidate(); toast.success("Regra removida."); },
+  });
+  const [ruleForm, setRuleForm] = useState<{ deliveryMethodId: number | null; ruleType: "valor_minimo" | "quantidade_produto"; minOrderValue: string; productId: string; minQuantity: string }>({
+    deliveryMethodId: null, ruleType: "valor_minimo", minOrderValue: "", productId: "", minQuantity: "",
+  });
+
+  function submitRule(deliveryMethodId: number) {
+    if (ruleForm.ruleType === "valor_minimo" && !ruleForm.minOrderValue) { toast.error("Informe o valor mínimo."); return; }
+    if (ruleForm.ruleType === "quantidade_produto" && (!ruleForm.productId || !ruleForm.minQuantity)) { toast.error("Informe o produto e a quantidade."); return; }
+    createRule.mutate({
+      deliveryMethodId, ruleType: ruleForm.ruleType,
+      minOrderValue: ruleForm.ruleType === "valor_minimo" ? ruleForm.minOrderValue : undefined,
+      productId: ruleForm.ruleType === "quantidade_produto" ? Number(ruleForm.productId) : undefined,
+      minQuantity: ruleForm.ruleType === "quantidade_produto" ? Number(ruleForm.minQuantity) : undefined,
+    });
+  }
+
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [form, setForm] = useState({ name: "", description: "", requiresAddress: false, active: true, cost: "0.00" });
+  const [expandedRulesFor, setExpandedRulesFor] = useState<number | null>(null);
 
   return (
     <div>
@@ -49,6 +73,52 @@ export default function DeliveryMethods() {
               <Button variant="ghost" size="sm" className="mt-3 h-7 text-xs hover:text-primary gap-1" onClick={() => { setEditing(m); setForm({ name: m.name, description: m.description ?? "", requiresAddress: m.requiresAddress, active: m.active, cost: m.cost ?? "0.00" }); setOpen(true); }}>
                 <Pencil className="w-3 h-3" />Editar
               </Button>
+              <Button variant="ghost" size="sm" className="mt-1 h-7 text-xs hover:text-primary gap-1 w-full justify-start" onClick={() => setExpandedRulesFor(expandedRulesFor === m.id ? null : m.id)}>
+                🚚 Regras de frete grátis {m.rules?.length > 0 ? `(${m.rules.length})` : ""}
+              </Button>
+              {expandedRulesFor === m.id && (
+                <div className="mt-2 space-y-2 border-t pt-2">
+                  {(m.rules ?? []).map((r: any) => (
+                    <div key={r.id} className="flex items-center justify-between text-xs bg-muted/40 rounded px-2 py-1.5">
+                      <span>
+                        {r.ruleType === "valor_minimo"
+                          ? `Grátis acima de R$ ${Number(r.minOrderValue).toFixed(2)}`
+                          : `Grátis levando ${r.minQuantity}+ de "${products.find((p: any) => p.id === r.productId)?.name ?? `#${r.productId}`}"`}
+                      </span>
+                      <button onClick={() => deleteRule.mutate({ id: r.id })} className="text-destructive hover:underline shrink-0 ml-2">remover</button>
+                    </div>
+                  ))}
+                  <div className="space-y-1.5 bg-muted/20 rounded p-2">
+                    <div className="flex gap-1.5">
+                      <Button size="sm" variant={ruleForm.ruleType === "valor_minimo" ? "default" : "outline"} className="h-6 text-[10px] flex-1" onClick={() => setRuleForm(f => ({ ...f, ruleType: "valor_minimo" }))}>Valor mínimo</Button>
+                      <Button size="sm" variant={ruleForm.ruleType === "quantidade_produto" ? "default" : "outline"} className="h-6 text-[10px] flex-1" onClick={() => setRuleForm(f => ({ ...f, ruleType: "quantidade_produto" }))}>Qtd. de produto</Button>
+                    </div>
+                    {ruleForm.ruleType === "valor_minimo" ? (
+                      <Input
+                        type="number" step="0.01" min="0" placeholder="Valor mínimo do pedido (R$)" className="h-7 text-xs"
+                        value={ruleForm.minOrderValue} onChange={e => setRuleForm(f => ({ ...f, minOrderValue: e.target.value }))}
+                      />
+                    ) : (
+                      <div className="flex gap-1.5">
+                        <select
+                          className="h-7 text-xs flex-1 rounded border bg-background px-1"
+                          value={ruleForm.productId} onChange={e => setRuleForm(f => ({ ...f, productId: e.target.value }))}
+                        >
+                          <option value="">Produto...</option>
+                          {products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                        <Input
+                          type="number" min="1" placeholder="Qtd." className="h-7 text-xs w-16"
+                          value={ruleForm.minQuantity} onChange={e => setRuleForm(f => ({ ...f, minQuantity: e.target.value }))}
+                        />
+                      </div>
+                    )}
+                    <Button size="sm" className="h-6 text-[10px] w-full" onClick={() => submitRule(m.id)} disabled={createRule.isPending}>
+                      + Adicionar regra
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         ))}

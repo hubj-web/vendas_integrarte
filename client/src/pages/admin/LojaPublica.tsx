@@ -81,6 +81,13 @@ export default function LojaPublica() {
   const { data: allCategories = [] } = trpc.catalog.categories.list.useQuery();
   const { data: regularCategories = [] } = trpc.storeAdmin.listRegularCategories.useQuery();
   const { data: paymentMethodsList = [] } = trpc.storeAdmin.paymentMethods.list.useQuery();
+  const restoreDefaultPaymentMethods = trpc.storeAdmin.paymentMethods.restoreDefaults.useMutation({
+    onSuccess: (data) => {
+      utils.storeAdmin.paymentMethods.list.invalidate();
+      toast.success(data.restored > 0 ? `${data.restored} forma(s) de pagamento restaurada(s)!` : "Já estava tudo cadastrado.");
+    },
+    onError: (err) => toast.error(err.message || "Não foi possível restaurar."),
+  });
 
   const updateSettings = trpc.storeAdmin.updateSettings.useMutation({
     onSuccess: () => { utils.storeAdmin.getSettings.invalidate(); toast.success("Configuração salva!"); },
@@ -395,6 +402,18 @@ export default function LojaPublica() {
         </TabsContent>
 
         <TabsContent value="pagamento" className="space-y-4 pt-3">
+          {paymentMethodsList.length < 6 && (
+            <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+              <p className="text-sm text-amber-800">
+                {paymentMethodsList.length === 0
+                  ? "Nenhuma forma de pagamento cadastrada — é por isso que a loja não mostra opção de pagar."
+                  : "Faltam formas de pagamento padrão do sistema."}
+              </p>
+              <Button size="sm" onClick={() => restoreDefaultPaymentMethods.mutate()} disabled={restoreDefaultPaymentMethods.isPending}>
+                Restaurar padrão
+              </Button>
+            </div>
+          )}
           <div>
             <h3 className="text-sm font-semibold mb-1">🛒 Loja Pública</h3>
             <p className="text-xs text-muted-foreground mb-2">
@@ -683,8 +702,9 @@ export default function LojaPublica() {
         <TabsContent value="entregas" className="space-y-3 pt-3">
           <p className="text-sm text-muted-foreground">
             As formas de entrega são cadastradas em <strong>Configurações → Formas de Entrega</strong>.
-            Aqui você só liga/desliga quais delas aparecem pro cliente na Loja Pública — útil pra
-            esconder uma opção que não estiver configurada no momento, sem precisar desativá-la no cadastro geral.
+            Aqui você liga/desliga quais existem no sistema como um todo. Qual delas aparece pra cada
+            <strong> produto específico</strong> (ex: só "Consumo no local" e "Retirada" pra um item, nenhuma
+            pra um ingresso) é configurado no cadastro de cada produto, em Configurações → Produtos.
           </p>
           <Card>
             <CardContent className="pt-4 space-y-1">

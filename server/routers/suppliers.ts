@@ -21,7 +21,15 @@ export const suppliersRouter = router({
       name: z.string().min(2), 
       contactName: z.string().optional(),
       phone: z.string().optional(),
-      email: z.string().optional()
+      email: z.string().optional(),
+      address: z.string().optional(),
+      cnpj: z.string().optional(),
+      paymentType: z.enum(["pix", "conta_corrente", "boleto"]).optional(),
+      pixKey: z.string().optional(),
+      bankName: z.string().optional(),
+      bankAgency: z.string().optional(),
+      bankAccount: z.string().optional(),
+      notes: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -36,6 +44,14 @@ export const suppliersRouter = router({
       contactName: z.string().optional(),
       phone: z.string().optional(),
       email: z.string().optional(),
+      address: z.string().optional(),
+      cnpj: z.string().optional(),
+      paymentType: z.enum(["pix", "conta_corrente", "boleto"]).nullable().optional(),
+      pixKey: z.string().optional(),
+      bankName: z.string().optional(),
+      bankAgency: z.string().optional(),
+      bankAccount: z.string().optional(),
+      notes: z.string().optional(),
       active: z.boolean().optional()
     }))
     .mutation(async ({ input }) => {

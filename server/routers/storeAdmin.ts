@@ -532,6 +532,35 @@ export const storeAdminRouter = router({
       return methods.map(m => ({ ...m, visibleInRegular: regularVisMap.get(m.id) ?? true }));
     }),
 
+    /**
+     * Recria as formas de pagamento padrão do sistema que estiverem faltando
+     * (ex: depois de um reset de banco) — não duplica as que já existem.
+     */
+    restoreDefaults: adminProcedure.mutation(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const DEFAULTS = [
+        { code: "pix_loja" as const, name: "PIX (Loja Pública)", description: "QR code estático direto pro CNPJ da instituição — confirmação manual" },
+        { code: "cartao_loja" as const, name: "Cartão de Crédito (Loja Pública)", description: "Via Mercado Pago (Payment Brick)" },
+        { code: "dinheiro_vendedor" as const, name: "Dinheiro (Vendedor)", description: "Pagamento combinado direto com o cliente, lançado pelo vendedor" },
+        { code: "pix_vendedor" as const, name: "PIX (Vendedor)", description: "Pagamento combinado direto com o cliente, lançado pelo vendedor" },
+        { code: "cartao_vendedor" as const, name: "Cartão de Crédito (Vendedor)", description: "Pago na maquininha do vendedor por fora do sistema — só registra qual foi usada" },
+        { code: "debito_vendedor" as const, name: "Cartão de Débito (Vendedor)", description: "Pago na maquininha do vendedor por fora do sistema — só registra qual foi usada" },
+      ];
+      const existing = await db.select({ code: paymentMethods.code }).from(paymentMethods);
+      const existingCodes = new Set(existing.map(e => e.code));
+      const toInsert = DEFAULTS.filter(d => !existingCodes.has(d.code));
+      if (toInsert.length > 0) {
+        await db.insert(paymentMethods).values(toInsert.map(d => ({ ...d, active: true })));
+        await logActivity({
+          userId: ctx.user.id, userName: ctx.user.name, action: "store.paymentMethods.restoreDefaults",
+          entityType: "payment_method",
+          description: `${ctx.user.name} restaurou ${toInsert.length} forma(s) de pagamento padrão`,
+        });
+      }
+      return { success: true, restored: toInsert.length };
+    }),
+
     /** Liga/desliga uma forma de pagamento em todo o sistema (some de todo lugar) */
     setActive: adminProcedure
       .input(z.object({ id: z.number(), active: z.boolean() }))

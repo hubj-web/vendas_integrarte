@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
@@ -15,6 +17,14 @@ type Supplier = {
   contactName: string | null;
   phone: string | null;
   email: string | null;
+  address: string | null;
+  cnpj: string | null;
+  paymentType: "pix" | "conta_corrente" | "boleto" | null;
+  pixKey: string | null;
+  bankName: string | null;
+  bankAgency: string | null;
+  bankAccount: string | null;
+  notes: string | null;
   active: boolean;
 };
 
@@ -23,6 +33,14 @@ type FormData = {
   contactName: string;
   phone: string;
   email: string;
+  address: string;
+  cnpj: string;
+  paymentType: "" | "pix" | "conta_corrente" | "boleto";
+  pixKey: string;
+  bankName: string;
+  bankAgency: string;
+  bankAccount: string;
+  notes: string;
 };
 
 export default function Suppliers() {
@@ -33,7 +51,10 @@ export default function Suppliers() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [form, setForm] = useState<FormData>({ name: "", contactName: "", phone: "", email: "" });
+  const [form, setForm] = useState<FormData>({
+    name: "", contactName: "", phone: "", email: "", address: "", cnpj: "",
+    paymentType: "", pixKey: "", bankName: "", bankAgency: "", bankAccount: "", notes: "",
+  });
 
   const createMutation = trpc.suppliers.create.useMutation({
     onSuccess: () => { utils.suppliers.list.invalidate(); toast.success("Fornecedor criado!"); setDialogOpen(false); },
@@ -57,7 +78,7 @@ export default function Suppliers() {
 
   function openCreate() {
     setEditingSupplier(null);
-    setForm({ name: "", contactName: "", phone: "", email: "" });
+    setForm({ name: "", contactName: "", phone: "", email: "", address: "", cnpj: "", paymentType: "", pixKey: "", bankName: "", bankAgency: "", bankAccount: "", notes: "" });
     setDialogOpen(true);
   }
 
@@ -67,7 +88,15 @@ export default function Suppliers() {
       name: sup.name, 
       contactName: sup.contactName ?? "", 
       phone: sup.phone ?? "", 
-      email: sup.email ?? "" 
+      email: sup.email ?? "",
+      address: sup.address ?? "",
+      cnpj: sup.cnpj ?? "",
+      paymentType: sup.paymentType ?? "",
+      pixKey: sup.pixKey ?? "",
+      bankName: sup.bankName ?? "",
+      bankAgency: sup.bankAgency ?? "",
+      bankAccount: sup.bankAccount ?? "",
+      notes: sup.notes ?? "",
     });
     setDialogOpen(true);
   }
@@ -84,6 +113,14 @@ export default function Suppliers() {
       contactName: form.contactName || undefined,
       phone: form.phone || undefined,
       email: form.email || undefined,
+      address: form.address || undefined,
+      cnpj: form.cnpj || undefined,
+      paymentType: form.paymentType || undefined,
+      pixKey: form.pixKey || undefined,
+      bankName: form.bankName || undefined,
+      bankAgency: form.bankAgency || undefined,
+      bankAccount: form.bankAccount || undefined,
+      notes: form.notes || undefined,
     };
 
     if (editingSupplier) {
@@ -221,6 +258,70 @@ export default function Suppliers() {
                   className="mt-1"
                 />
               </div>
+            </div>
+            <div>
+              <Label htmlFor="sup-address">Endereço</Label>
+              <Input
+                id="sup-address"
+                value={form.address}
+                onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+                placeholder="Rua, número, bairro, cidade"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="sup-cnpj">CNPJ (opcional)</Label>
+              <Input
+                id="sup-cnpj"
+                value={form.cnpj}
+                onChange={e => setForm(f => ({ ...f, cnpj: e.target.value }))}
+                placeholder="00.000.000/0000-00"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Forma de pagamento</Label>
+              <Select value={form.paymentType || "none"} onValueChange={v => setForm(f => ({ ...f, paymentType: v === "none" ? "" : v as FormData["paymentType"] }))}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Não informado</SelectItem>
+                  <SelectItem value="pix">Via Pix</SelectItem>
+                  <SelectItem value="conta_corrente">Via Conta Corrente</SelectItem>
+                  <SelectItem value="boleto">Boleto</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {form.paymentType === "pix" && (
+              <div>
+                <Label htmlFor="sup-pix">Chave Pix</Label>
+                <Input id="sup-pix" value={form.pixKey} onChange={e => setForm(f => ({ ...f, pixKey: e.target.value }))} placeholder="CPF, CNPJ, e-mail, telefone ou chave aleatória" className="mt-1" />
+              </div>
+            )}
+            {form.paymentType === "conta_corrente" && (
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <Label htmlFor="sup-bank">Banco</Label>
+                  <Input id="sup-bank" value={form.bankName} onChange={e => setForm(f => ({ ...f, bankName: e.target.value }))} placeholder="Ex: Banco do Brasil" className="mt-1" />
+                </div>
+                <div>
+                  <Label htmlFor="sup-agency">Agência</Label>
+                  <Input id="sup-agency" value={form.bankAgency} onChange={e => setForm(f => ({ ...f, bankAgency: e.target.value }))} className="mt-1" />
+                </div>
+                <div>
+                  <Label htmlFor="sup-account">Conta</Label>
+                  <Input id="sup-account" value={form.bankAccount} onChange={e => setForm(f => ({ ...f, bankAccount: e.target.value }))} className="mt-1" />
+                </div>
+              </div>
+            )}
+            <div>
+              <Label htmlFor="sup-notes">Observação</Label>
+              <Textarea
+                id="sup-notes"
+                value={form.notes}
+                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Alguma informação adicional sobre esse fornecedor"
+                className="mt-1"
+              />
             </div>
           </div>
           <DialogFooter>

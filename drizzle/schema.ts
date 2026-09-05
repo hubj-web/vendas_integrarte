@@ -80,6 +80,16 @@ export const suppliers = mysqlTable("suppliers", {
   contactName: varchar("contactName", { length: 150 }),
   phone: varchar("phone", { length: 50 }),
   email: varchar("email", { length: 150 }).default(''),
+  address: varchar("address", { length: 255 }),
+  cnpj: varchar("cnpj", { length: 20 }), // opcional — nem todo fornecedor tem CNPJ (pode ser pessoa física)
+  // Forma de recebimento do fornecedor — cada uma usa campos diferentes:
+  // pix (chave), conta_corrente (banco/agência/conta), boleto (nenhum campo extra).
+  paymentType: mysqlEnum("paymentType", ["pix", "conta_corrente", "boleto"]),
+  pixKey: varchar("pixKey", { length: 150 }),
+  bankName: varchar("bankName", { length: 100 }),
+  bankAgency: varchar("bankAgency", { length: 20 }),
+  bankAccount: varchar("bankAccount", { length: 30 }),
+  notes: text("notes"),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -210,6 +220,23 @@ export const deliveryMethods = mysqlTable("delivery_methods", {
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/**
+ * Regras de frete grátis por forma de entrega — várias por forma, qualquer
+ * uma satisfeita já libera o frete grátis pra ela (lógica "OU"). Dois tipos:
+ * - valor_minimo: grátis se o total do carrinho for >= minOrderValue.
+ * - quantidade_produto: grátis se o cliente levar >= minQuantity de um produto específico.
+ */
+export const deliveryMethodRules = mysqlTable("delivery_method_rules", {
+  id: int("id").autoincrement().primaryKey(),
+  deliveryMethodId: int("deliveryMethodId").notNull(),
+  ruleType: mysqlEnum("ruleType", ["valor_minimo", "quantidade_produto"]).notNull(),
+  minOrderValue: decimal("minOrderValue", { precision: 10, scale: 2 }),
+  productId: int("productId"),
+  minQuantity: int("minQuantity"),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export type DeliveryMethod = typeof deliveryMethods.$inferSelect;

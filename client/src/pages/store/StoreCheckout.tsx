@@ -58,7 +58,10 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [deliveryMethodId, setDeliveryMethodId] = useState<number | null>(null);
-  const [address, setAddress] = useState("");
+  const [addressFields, setAddressFields] = useState({ cep: "", logradouro: "", numero: "", bairro: "", complemento: "" });
+  const address = addressFields.logradouro
+    ? `${addressFields.logradouro}, ${addressFields.numero} - ${addressFields.bairro}${addressFields.complemento ? ` (${addressFields.complemento})` : ""} - CEP ${addressFields.cep}`
+    : "";
   const [paymentMethod, setPaymentMethod] = useState<"pix" | "credit_card">("pix");
   const [orderId, setOrderId] = useState<number | null>(null);
   const [ticketCode, setTicketCode] = useState<string | null>(null);
@@ -68,6 +71,8 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
   const { data: deliveryMethods = [] } = trpc.publicStore.deliveryMethods.useQuery();
   const { data: mpConfig } = trpc.publicStore.mpPublicKey.useQuery();
   const { data: allowedPayments } = trpc.publicStore.paymentMethods.useQuery({ eventId });
+  const { data: landingData } = trpc.publicStore.landing.useQuery(undefined, { staleTime: 60_000 });
+  const isTicketEvent = !!eventId && landingData?.events.find(e => e.id === eventId)?.type === "ingresso";
   const pixEnabled = allowedPayments?.pix ?? true;
   const cardEnabled = (allowedPayments?.creditCard ?? false) && CREDIT_CARD_ENABLED;
 
@@ -80,7 +85,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
   // Dentro de Evento, se todo item do carrinho já veio com sua própria forma
   // de entrega escolhida (lá na tela de categoria), não precisa perguntar de
   // novo aqui — soma o custo de cada forma distinta usada.
-  const isPerItemDelivery = !!eventId && cart.length > 0 && cart.every(i => i.requiresDelivery === false || i.deliveryMethodId != null);
+  const isPerItemDelivery = cart.length > 0 && cart.every(i => i.requiresDelivery === false || i.deliveryMethodId != null);
   const usedMethods = isPerItemDelivery
     ? deliveryMethods.filter(m => new Set(cart.map(i => i.deliveryMethodId)).has(m.id))
     : [];
@@ -114,8 +119,14 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
   function validateDados() {
     if (!name.trim()) { toast.error("Informe seu nome."); return false; }
     if (phone.replace(/\D/g, "").length < 10) { toast.error("Informe um telefone válido."); return false; }
+    if (isTicketEvent && !email.trim()) { toast.error("E-mail é obrigatório na compra de ingressos — é por ele que o ingresso é enviado."); return false; }
     if (!isPerItemDelivery && !deliveryMethodId) { toast.error("Escolha como quer receber."); return false; }
-    if (requiresAddress && !address.trim()) { toast.error("Informe o endereço de entrega."); return false; }
+    if (requiresAddress) {
+      if (!addressFields.cep.trim()) { toast.error("Informe o CEP."); return false; }
+      if (!addressFields.logradouro.trim()) { toast.error("Informe o logradouro."); return false; }
+      if (!addressFields.numero.trim()) { toast.error("Informe o número."); return false; }
+      if (!addressFields.bairro.trim()) { toast.error("Informe o bairro."); return false; }
+    }
     return true;
   }
 
@@ -197,9 +208,11 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                 <p className="text-xs text-muted-foreground mt-1">Usado como identificação — sem necessidade de senha.</p>
               </div>
               <div>
-                <Label>E-mail (opcional)</Label>
-                <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seuemail@exemplo.com" />
-                <p className="text-xs text-muted-foreground mt-1">Preenchendo, mandamos o comprovante por e-mail também.</p>
+                <Label>{isTicketEvent ? "E-mail *" : "E-mail (opcional)"}</Label>
+                <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seuemail@exemplo.com" required={isTicketEvent} />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {isTicketEvent ? "Obrigatório — é por ele que enviamos seu ingresso." : "Preenchendo, mandamos o comprovante por e-mail também."}
+                </p>
               </div>
               {isPerItemDelivery ? (
                 <div className="rounded-lg border p-3 bg-muted/30">
@@ -233,9 +246,44 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                 </div>
               )}
               {requiresAddress && (
-                <div>
-                  <Label>Endereço completo</Label>
-                  <Textarea value={address} onChange={e => setAddress(e.target.value)} placeholder="Rua, número, bairro, referência" />
+                <div className="space-y-3 border rounded-lg p-3">
+                  <Label className="text-sm font-semibold">Endereço de entrega</Label>
+                  <div className="flex gap-2 items-end">
+                    <div className="flex-1">
+                      <Label className="text-xs">CEP *</Label>
+                      <Input
+                        value={addressFields.cep}
+                        onChange={e => setAddressFields(f => ({ ...f, cep: e.target.value }))}
+                        placeholder="00000-000"
+                      />
+                    </div>
+                    <Button
+                      type="button" variant="outline"
+                      onClick={() => window.open("https://buscacepinter.correios.com.br/app/endereco/index.php", "buscaCep", "width=800,height=600")}
+                    >
+                      Ver CEP
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <Label className="text-xs">Logradouro *</Label>
+                      <Input value={addressFields.logradouro} onChange={e => setAddressFields(f => ({ ...f, logradouro: e.target.value }))} placeholder="Rua, Avenida..." />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Número *</Label>
+                      <Input value={addressFields.numero} onChange={e => setAddressFields(f => ({ ...f, numero: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">Bairro *</Label>
+                      <Input value={addressFields.bairro} onChange={e => setAddressFields(f => ({ ...f, bairro: e.target.value }))} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Complemento (opcional)</Label>
+                      <Input value={addressFields.complemento} onChange={e => setAddressFields(f => ({ ...f, complemento: e.target.value }))} placeholder="Apto, bloco, referência..." />
+                    </div>
+                  </div>
                 </div>
               )}
               <div>
