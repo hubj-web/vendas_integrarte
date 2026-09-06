@@ -384,11 +384,19 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                       if (result.paymentStatus === "approved") {
                         onSuccess();
                         navigate(`/loja/r/${result.ticketCode}`);
-                      } else {
-                        toast.error("Pagamento não aprovado. Verifique os dados do cartão.");
+                        return;
                       }
+                      // Precisa REJEITAR (não só avisar) — é assim que o
+                      // formulário do Mercado Pago entende que falhou e
+                      // libera pra tentar de novo com outro cartão, sem
+                      // precisar sair da tela.
+                      toast.error("Pagamento não aprovado. Você pode tentar com outro cartão.");
+                      throw new Error("Pagamento não aprovado");
                     } catch (err: any) {
-                      toast.error(err?.message || "Não foi possível processar o pagamento.");
+                      if (err?.message !== "Pagamento não aprovado") {
+                        toast.error(err?.message || "Não foi possível processar o pagamento. Você pode tentar de novo.");
+                      }
+                      throw err; // relança sempre — o Brick precisa saber que falhou
                     }
                   }}
                 />
