@@ -35,6 +35,13 @@ interface CartItem {
   productId: number;
   flavorIds?: number[];
   flavorNames?: string[];
+  // De qual evento esse item veio (ausente = Venda Regular) — permite
+  // misturar no mesmo pedido.
+  eventId?: number;
+  eventName?: string;
+  deliveryMethodId?: number;
+  deliveryMethodName?: string;
+  requiresDelivery?: boolean;
 }
 
 export default function SellerNewOrder() {
@@ -54,6 +61,27 @@ export default function SellerNewOrder() {
     : (editOrderId ? `/vendedor/pedido/${editOrderId}` : "/vendedor/meus-pedidos");
 
   const { data: catalog } = trpc.seller.catalog.useQuery();
+  // "regular" = catálogo comum; um número = catálogo desse Evento — o
+  // carrinho é único, dá pra misturar item comum + item de evento.
+  const [saleMode, setSaleMode] = useState<"regular" | number>("regular");
+  const { data: openEvents = [] } = trpc.sellerEvents.listOpenEvents.useQuery(undefined, { enabled: !isEditMode });
+  const { data: eventCatalog } = trpc.sellerEvents.eventCatalog.useQuery(
+    { eventId: typeof saleMode === "number" ? saleMode : -1 },
+    { enabled: typeof saleMode === "number" }
+  );
+  const { data: publicDeliveryMethods = [] } = trpc.publicStore.deliveryMethods.useQuery();
+  const currentEvent = typeof saleMode === "number" ? openEvents.find((e: any) => e.id === saleMode) : null;
+  const [eventDeliveryDrafts, setEventDeliveryDrafts] = useState<Record<number, number>>({});
+
+  function methodsForProduct(product: any) {
+    if (product.allowedDeliveryMethodIds && product.allowedDeliveryMethodIds.length > 0) {
+      return publicDeliveryMethods.filter(m => product.allowedDeliveryMethodIds.includes(m.id));
+    }
+    return publicDeliveryMethods;
+  }
+  function needsDeliveryChoice(product: any) {
+    return typeof saleMode === "number" && product.requiresDelivery !== false && methodsForProduct(product).length > 0;
+  }
   const { data: availablePaymentMethods = [] } = trpc.seller.paymentMethods.useQuery();
   const { data: estoqueDisponivel } = trpc.seller.stockAvailable.useQuery(undefined, {
     enabled: !isAdminRoute,
@@ -255,14 +283,16 @@ export default function SellerNewOrder() {
 
   const totalAmount = useMemo(() => cart.reduce((s, i) => s + i.subtotal, 0), [cart]);
 
-  // Build category list dynamically from the catalog
+  // Build category list dynamically from the catalog (comum, ou do evento se estiver nesse modo)
   const categoryList = useMemo(() => {
+    if (typeof saleMode === "number") return eventCatalog?.categories ?? [];
     if (!catalog) return [];
     return catalog.categories || [];
-  }, [catalog]);
+  }, [catalog, eventCatalog, saleMode]);
 
   // Get products for a specific category (directly via categoryId)
   const getProductsForCategory = (categoryId: number) => {
+    if (typeof saleMode === "number") return (eventCatalog?.products ?? []).filter((p: any) => p.categoryId === categoryId);
     if (!catalog) return [];
     return catalog.products.filter(p => p.categoryId === categoryId);
   };
@@ -330,7 +360,13 @@ export default function SellerNewOrder() {
     const selectedFlavors = catalog?.productFlavors?.filter(f => selectedFlavorIds.includes(f.id)) || [];
     const flavorNames = selectedFlavors.map(f => f.name);
     const flavorSuffix = flavorNames.length > 0 ? ` (${flavorNames.join(", ")})` : "";
-    
+
+    if (needsDeliveryChoice(flavorProduct) && !eventDeliveryDrafts[flavorProduct.id]) {
+      toast.error("Escolha a forma de entrega desse item antes de adicionar.");
+      return;
+    }
+    const metodo = publicDeliveryMethods.find(m => m.id === eventDeliveryDrafts[flavorProduct.id]);
+
     // Adiciona apenas UM item com o preço do produto principal, independente de quantos sabores
     setCart(prev => [...prev, {
       type: "product",
@@ -342,6 +378,10 @@ export default function SellerNewOrder() {
       productId: flavorProduct.id,
       flavorIds: selectedFlavorIds,
       flavorNames: flavorNames,
+      eventId: typeof saleMode === "number" ? saleMode : undefined,
+      eventName: currentEvent?.name,
+      deliveryMethodId: typeof saleMode === "number" ? metodo?.id : undefined,
+      deliveryMethodName: typeof saleMode === "number" ? metodo?.name : undefined,
     }]);
 
     setFlavorProduct(null);
@@ -367,6 +407,11 @@ export default function SellerNewOrder() {
     for (const p of noFlavorProducts) {
       const qty = productQtys[p.id] ?? 0;
       if (qty > 0) {
+        if (needsDeliveryChoice(p) && !eventDeliveryDrafts[p.id]) {
+          toast.error(`Escolha a forma de entrega de "${p.name}" antes de adicionar.`);
+          return;
+        }
+        const metodo = publicDeliveryMethods.find(m => m.id === eventDeliveryDrafts[p.id]);
         additions.push({
           type: "product",
           id: `p-${p.id}`,
@@ -375,6 +420,10 @@ export default function SellerNewOrder() {
           unitPrice: Number(p.price),
           subtotal: qty * Number(p.price),
           productId: p.id,
+          eventId: typeof saleMode === "number" ? saleMode : undefined,
+          eventName: currentEvent?.name,
+          deliveryMethodId: typeof saleMode === "number" ? metodo?.id : undefined,
+          deliveryMethodName: typeof saleMode === "number" ? metodo?.name : undefined,
         });
       }
     }
@@ -414,10 +463,20 @@ export default function SellerNewOrder() {
     onError: (e) => toast.error(e.message),
   });
 
+  const createUnifiedOrderMutation = trpc.sellerEvents.createUnifiedOrder.useMutation({
+    onSuccess: (data) => {
+      toast.success("Pedido lançado com sucesso!");
+      navigate(`/vendedor/pedido/${data.orderId}`);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const submitOrder = () => {
     if (!selectedCustomer) { toast.error("Selecione um cliente."); return; }
     if (cart.length === 0) { toast.error("Adicione pelo menos um item."); return; }
-    if (!deliveryMethodId) { toast.error("Selecione a forma de entrega."); return; }
+
+    const hasEventItems = cart.some(c => c.eventId != null);
+    const isTicketPurchase = cart.some(c => c.eventId != null && openEvents.find((e: any) => e.id === c.eventId)?.type === "ingresso");
 
     let finalAddress = deliveryAddress;
     if (deliveryAddressOption === "customer" && selectedCustomer) {
@@ -425,6 +484,31 @@ export default function SellerNewOrder() {
       // Apenas rua, número, bairro e cidade para o Google Maps
       finalAddress = [c.street, c.number, c.neighborhood, c.city].filter(Boolean).join(", ");
     }
+
+    // Pedido misto (tem item de evento junto) — usa a rota unificada, que
+    // sabe lidar com entrega por item e numeração de ingresso.
+    if (hasEventItems) {
+      const regularNeedsDelivery = cart.some(c => c.eventId == null && c.requiresDelivery !== false);
+      if (regularNeedsDelivery && !deliveryMethodId) { toast.error("Selecione a forma de entrega dos itens da Venda Regular."); return; }
+      if (isTicketPurchase && !(selectedCustomer as any).email) { toast.error("Esse cliente precisa ter e-mail cadastrado pra comprar ingresso."); return; }
+      createUnifiedOrderMutation.mutate({
+        customerName: (selectedCustomer as any).name,
+        customerPhone: (selectedCustomer as any).phone,
+        customerEmail: (selectedCustomer as any).email || undefined,
+        deliveryMethodId: deliveryMethodId ? Number(deliveryMethodId) : undefined,
+        deliveryAddress: finalAddress || undefined,
+        items: cart.map(c => ({
+          productId: c.productId, quantity: c.quantity, flavorIds: c.flavorIds || [],
+          eventId: c.eventId, deliveryMethodId: c.deliveryMethodId,
+        })),
+        paymentMethod,
+        paymentStatus: "paid",
+        notes: notes || undefined,
+      });
+      return;
+    }
+
+    if (!deliveryMethodId) { toast.error("Selecione a forma de entrega."); return; }
 
     const payload = {
       customerId: selectedCustomer.id,
@@ -609,6 +693,20 @@ export default function SellerNewOrder() {
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0 space-y-3">
+          {!isEditMode && openEvents.length > 0 && (
+            <div>
+              <Label className="text-xs text-muted-foreground">O que vai vender agora?</Label>
+              <Select value={String(saleMode)} onValueChange={v => setSaleMode(v === "regular" ? "regular" : Number(v))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="regular">🛒 Venda Regular</SelectItem>
+                  {openEvents.map((ev: any) => (
+                    <SelectItem key={ev.id} value={String(ev.id)}>🎪 {ev.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {/* Category Buttons - Generated dynamically from database */}
           <div className="grid grid-cols-1 gap-2">
             {categoryList.map((cat) => {
@@ -647,6 +745,8 @@ export default function SellerNewOrder() {
                     <div className="flex-1">
                       <p className="text-sm font-medium text-foreground">{item.label}</p>
                       <p className="text-xs text-muted-foreground">{fmt(item.unitPrice)} cada</p>
+                      {item.eventName && <p className="text-[10px] text-primary font-medium mt-0.5">🎪 {item.eventName}</p>}
+                      {item.deliveryMethodName && <p className="text-[10px] text-blue-600 mt-0.5">📦 {item.deliveryMethodName}</p>}
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       <div className="flex items-center gap-2 bg-accent/50 rounded-lg p-1">
@@ -780,10 +880,10 @@ export default function SellerNewOrder() {
           )}
           <Button
             className="flex-1 h-12 text-lg font-bold shadow-lg shadow-primary/20"
-            disabled={cart.length === 0 || createOrderMutation.isPending || updateOrderMutation.isPending}
+            disabled={cart.length === 0 || createOrderMutation.isPending || updateOrderMutation.isPending || createUnifiedOrderMutation.isPending}
             onClick={submitOrder}
           >
-            {createOrderMutation.isPending || updateOrderMutation.isPending
+            {createOrderMutation.isPending || updateOrderMutation.isPending || createUnifiedOrderMutation.isPending
               ? "Processando..."
               : isEditMode
                 ? `Atualizar — ${fmt(totalAmount)}`
@@ -815,12 +915,29 @@ export default function SellerNewOrder() {
                       {hasFlavors && (
                         <p className="text-[10px] text-purple-400 mt-0.5">Até {p.maxFlavors} sabor(es)</p>
                       )}
-                      {mostrarEstoque && (
-                        emEstoque > 0 ? (
+                      {mostrarEstoque && (() => {
+                        const emSobEncomenda = p.allowPreOrder && (!p.preOrderUntil || new Date() <= new Date(p.preOrderUntil));
+                        if (emSobEncomenda) {
+                          return <p className="text-[10px] text-blue-600 font-semibold mt-0.5">Sob encomenda</p>;
+                        }
+                        return emEstoque > 0 ? (
                           <p className="text-[10px] text-emerald-600 font-semibold mt-0.5">{emEstoque} em estoque</p>
                         ) : (
-                          <p className="text-[10px] text-red-500 font-semibold mt-0.5">Sem estoque — período fechado</p>
-                        )
+                          <p className="text-[10px] text-red-500 font-semibold mt-0.5">Sem estoque</p>
+                        );
+                      })()}
+                      {needsDeliveryChoice(p) && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {methodsForProduct(p).map((m: any) => (
+                            <button
+                              key={m.id} type="button"
+                              onClick={() => setEventDeliveryDrafts(prev => ({ ...prev, [p.id]: m.id }))}
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${eventDeliveryDrafts[p.id] === m.id ? "bg-primary text-primary-foreground border-primary" : "text-muted-foreground"}`}
+                            >
+                              {m.name}
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
                     {hasFlavors ? (
@@ -864,7 +981,7 @@ export default function SellerNewOrder() {
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {mostrarEstoque && (
               <div className="rounded-lg border border-orange-200 bg-orange-50 p-2.5 text-xs text-orange-800">
-                <p className="font-semibold mb-1">Período fechado — combinações disponíveis no estoque:</p>
+                <p className="font-semibold mb-1">Combinações disponíveis no estoque agora:</p>
                 {(estoqueDisponivel ?? []).filter(l => l.productId === flavorProduct?.id).length > 0 ? (
                   <ul className="space-y-0.5">
                     {(estoqueDisponivel ?? []).filter(l => l.productId === flavorProduct?.id).map((l, i) => (
@@ -872,8 +989,24 @@ export default function SellerNewOrder() {
                     ))}
                   </ul>
                 ) : (
-                  <p>Nenhuma combinação deste produto está disponível no estoque.</p>
+                  <p>Nenhuma combinação deste produto está disponível no estoque no momento (só sob encomenda, se estiver ligado no produto).</p>
                 )}
+              </div>
+            )}
+            {flavorProduct && needsDeliveryChoice(flavorProduct as any) && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Forma de entrega</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {methodsForProduct(flavorProduct as any).map((m: any) => (
+                    <button
+                      key={m.id} type="button"
+                      onClick={() => setEventDeliveryDrafts(prev => ({ ...prev, [flavorProduct.id]: m.id }))}
+                      className={`px-2.5 py-1 rounded-full text-xs font-medium border ${eventDeliveryDrafts[flavorProduct.id] === m.id ? "bg-primary text-primary-foreground border-primary" : "text-muted-foreground"}`}
+                    >
+                      {m.name}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             <div className="flex items-center justify-between">

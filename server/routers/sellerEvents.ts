@@ -17,7 +17,7 @@ import {
   customers, orderItems, orderItemFlavors, orders, orderStatusHistory,
   productCategories, productFlavors, products, storeEvents, storeEventCategories,
   storeProductVisibility, estoqueAtual, estoqueAtualFlavors, deliveryMethods,
-  storeOrderPayments,
+  storeOrderPayments, productDeliveryMethods,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -68,12 +68,24 @@ export const sellerEventsRouter = router({
       const prods = await db.select().from(products).where(inArray(products.categoryId, categoryIds));
       const cats = await db.select().from(productCategories).where(inArray(productCategories.id, categoryIds));
 
+      const deliveryLinks = prods.length > 0
+        ? await db.select().from(productDeliveryMethods).where(inArray(productDeliveryMethods.productId, prods.map(p => p.id)))
+        : [];
+      const deliveryIdsByProduct: Record<number, number[]> = {};
+      for (const l of deliveryLinks) (deliveryIdsByProduct[l.productId] ??= []).push(l.deliveryMethodId);
+
       return {
         categories: cats,
-        products: prods.filter(p => p.active).map(p => ({
-          ...p, availableQuantity: qtyByProduct[p.id] ?? 0,
-          flavors: Array.from((flavorsByProduct[p.id] ?? new Map()).entries()).map(([id, name]) => ({ id, name })),
-        })).filter(p => p.availableQuantity > 0),
+        products: prods.filter(p => p.active).map(p => {
+          const isPreOrder = isProductOnPreOrder(p);
+          return {
+            ...p,
+            isPreOrder,
+            availableQuantity: isPreOrder ? Number.MAX_SAFE_INTEGER : (qtyByProduct[p.id] ?? 0),
+            flavors: Array.from((flavorsByProduct[p.id] ?? new Map()).entries()).map(([id, name]) => ({ id, name })),
+            allowedDeliveryMethodIds: deliveryIdsByProduct[p.id] ?? [],
+          };
+        }).filter(p => p.availableQuantity > 0),
       };
     }),
 

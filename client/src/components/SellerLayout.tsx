@@ -53,18 +53,6 @@ export default function SellerLayout({ children }: SellerLayoutProps) {
       {/* Nav tabs */}
       <nav className="border-b border-gray-100 bg-white/70">
         <div className="max-w-2xl mx-auto px-4 flex gap-1">
-          <Link href="/vendedor/venda">
-            <button
-              className={`flex items-center gap-1.5 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
-                location === "/vendedor/venda"
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <ShoppingCart className="w-4 h-4" />
-              Venda
-            </button>
-          </Link>
           <Link href="/vendedor/novo-pedido">
             <button
               className={`flex items-center gap-1.5 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${

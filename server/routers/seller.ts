@@ -114,6 +114,9 @@ export const sellerRouter = router({
     const db = await getDb();
     if (!db) return { categories: [], productTypes: [], products: [], productFlavors: [], minipizzaTypes: [], minipizzaFlavors: [], compatibility: [], jellyFlavors: [], deliveryMethods: [] };
     const { asc } = await import("drizzle-orm");
+    const { storeEventCategories } = await import("../../drizzle/schema");
+    const eventLinks = await db.select({ categoryId: storeEventCategories.categoryId }).from(storeEventCategories);
+    const eventLinkedCategoryIds = new Set(eventLinks.map(l => l.categoryId));
     const [cats, ptypes, prods, pflav, mptypes, mpflavors, compat, jflavors, dmethods] = await Promise.all([
       db.select().from(productCategories)
         .where(eq(productCategories.active, true))
@@ -138,6 +141,8 @@ export const sellerRouter = router({
         active: products.active,
         createdAt: products.createdAt,
         updatedAt: products.updatedAt,
+        allowPreOrder: products.allowPreOrder,
+        preOrderUntil: products.preOrderUntil,
       }).from(products).where(eq(products.active, true)),
       db.select().from(productFlavors).where(eq(productFlavors.active, true)),
       db.select().from(minipizzaTypes).where(eq(minipizzaTypes.active, true)),
@@ -146,7 +151,11 @@ export const sellerRouter = router({
       db.select().from(jellyFlavors).where(eq(jellyFlavors.active, true)),
       db.select().from(deliveryMethods).where(eq(deliveryMethods.active, true)),
     ]);
-    return { categories: cats, productTypes: ptypes, products: prods, productFlavors: pflav, minipizzaTypes: mptypes, minipizzaFlavors: mpflavors, compatibility: compat, jellyFlavors: jflavors, deliveryMethods: dmethods };
+    return {
+      categories: cats.filter(c => !eventLinkedCategoryIds.has(c.id)),
+      productTypes: ptypes, products: prods.filter(p => !p.categoryId || !eventLinkedCategoryIds.has(p.categoryId)),
+      productFlavors: pflav, minipizzaTypes: mptypes, minipizzaFlavors: mpflavors, compatibility: compat, jellyFlavors: jflavors, deliveryMethods: dmethods,
+    };
   }),
 
   /** Busca clientes por nome ou telefone */
