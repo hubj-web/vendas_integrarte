@@ -218,8 +218,25 @@ export const deliveryMethods = mysqlTable("delivery_methods", {
   // default 0.00 preserva o comportamento de sempre (sem cobrança extra).
   cost: decimal("cost", { precision: 10, scale: 2 }).default("0.00").notNull(),
   active: boolean("active").default(true).notNull(),
+  // Cada forma de entrega liga/desliga independente pra Venda Regular e pra
+  // Eventos — uma pode servir só num dos dois, nos dois, ou em nenhum.
+  activeRegular: boolean("activeRegular").default(true).notNull(),
+  activeEvents: boolean("activeEvents").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/**
+ * Quais formas de entrega valem pra um produto específico, DENTRO de um
+ * evento específico (o mesmo produto pode estar em vários eventos, cada um
+ * com entregas diferentes permitidas). Sem nenhuma linha aqui pro par
+ * evento+produto = usa todas as formas com activeEvents=true (padrão).
+ */
+export const eventProductDeliveryMethods = mysqlTable("event_product_delivery_methods", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  productId: int("productId").notNull(),
+  deliveryMethodId: int("deliveryMethodId").notNull(),
 });
 
 /**

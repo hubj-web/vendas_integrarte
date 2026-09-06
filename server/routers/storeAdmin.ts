@@ -9,7 +9,7 @@ import { z } from "zod";
 import {
   customers, deliveryMethods, orders, orderItems, orderItemFlavors, products, productCategories,
   storeOrderPayments, storeProductVisibility, storeSettings, estoqueAtual,
-  storeDeliveryMethodVisibility, storeEvents, storeEventCategories,
+  storeDeliveryMethodVisibility, storeEvents, storeEventCategories, eventProductDeliveryMethods,
   storeRegularCategoryVisibility, orderItemVariationSelections, activityLog,
   paymentMethods, storeRegularPaymentMethodVisibility, storeEventPaymentMethodVisibility,
 } from "../../drizzle/schema";
@@ -477,6 +477,36 @@ export const storeAdminRouter = router({
         await db.delete(storeEventCategories).where(eq(storeEventCategories.eventId, input.eventId));
         if (input.categoryIds.length > 0) {
           await db.insert(storeEventCategories).values(input.categoryIds.map((categoryId, i) => ({ eventId: input.eventId, categoryId, sortOrder: i })));
+        }
+        return { success: true };
+      }),
+
+    /** Lista os produtos desse evento (via categorias vinculadas), com quais formas de entrega estão liberadas pra cada um NESSE evento específico. */
+    productDeliveryMethods: adminProcedure
+      .input(z.object({ eventId: z.number() }))
+      .query(async ({ input }) => {
+        const db = await getDb();
+        if (!db) return { products: [] };
+        const links = await db.select({ categoryId: storeEventCategories.categoryId }).from(storeEventCategories).where(eq(storeEventCategories.eventId, input.eventId));
+        const categoryIds = links.map(l => l.categoryId);
+        if (categoryIds.length === 0) return { products: [] };
+        const prods = await db.select({ id: products.id, name: products.name, categoryId: products.categoryId })
+          .from(products).where(and(inArray(products.categoryId, categoryIds), eq(products.active, true)));
+        const configRows = await db.select().from(eventProductDeliveryMethods).where(eq(eventProductDeliveryMethods.eventId, input.eventId));
+        const configByProduct: Record<number, number[]> = {};
+        for (const r of configRows) (configByProduct[r.productId] ??= []).push(r.deliveryMethodId);
+        return { products: prods.map(p => ({ ...p, allowedDeliveryMethodIds: configByProduct[p.id] ?? [] })) };
+      }),
+
+    /** Define quais formas de entrega valem pra um produto, dentro desse evento específico (substitui a lista inteira; vazia = usa todas as ativas em evento). */
+    setProductDeliveryMethods: adminProcedure
+      .input(z.object({ eventId: z.number(), productId: z.number(), deliveryMethodIds: z.array(z.number()) }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await db.delete(eventProductDeliveryMethods).where(and(eq(eventProductDeliveryMethods.eventId, input.eventId), eq(eventProductDeliveryMethods.productId, input.productId)));
+        if (input.deliveryMethodIds.length > 0) {
+          await db.insert(eventProductDeliveryMethods).values(input.deliveryMethodIds.map(deliveryMethodId => ({ eventId: input.eventId, productId: input.productId, deliveryMethodId })));
         }
         return { success: true };
       }),

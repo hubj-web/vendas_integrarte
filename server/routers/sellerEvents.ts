@@ -10,14 +10,14 @@
  * já nasce com o status de pagamento que o vendedor informar — sem gateway.
  */
 import { TRPCError } from "@trpc/server";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, and } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import {
   customers, orderItems, orderItemFlavors, orders, orderStatusHistory,
   productCategories, productFlavors, products, storeEvents, storeEventCategories,
   storeProductVisibility, estoqueAtual, estoqueAtualFlavors, deliveryMethods,
-  storeOrderPayments, productDeliveryMethods,
+  storeOrderPayments, eventProductDeliveryMethods,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -69,7 +69,7 @@ export const sellerEventsRouter = router({
       const cats = await db.select().from(productCategories).where(inArray(productCategories.id, categoryIds));
 
       const deliveryLinks = prods.length > 0
-        ? await db.select().from(productDeliveryMethods).where(inArray(productDeliveryMethods.productId, prods.map(p => p.id)))
+        ? await db.select().from(eventProductDeliveryMethods).where(and(eq(eventProductDeliveryMethods.eventId, input.eventId), inArray(eventProductDeliveryMethods.productId, prods.map(p => p.id))))
         : [];
       const deliveryIdsByProduct: Record<number, number[]> = {};
       for (const l of deliveryLinks) (deliveryIdsByProduct[l.productId] ??= []).push(l.deliveryMethodId);

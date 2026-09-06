@@ -72,7 +72,8 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
   const [pixData, setPixData] = useState<{ qrCode?: string; qrCodeBase64?: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const { data: deliveryMethods = [] } = trpc.publicStore.deliveryMethods.useQuery();
+  const { data: deliveryMethods = [] } = trpc.publicStore.deliveryMethods.useQuery({}); // Venda Regular — pro seletor único
+  const { data: allDeliveryMethods = [] } = trpc.publicStore.deliveryMethods.useQuery({ allContexts: true }); // pra calcular custo/endereço dos itens de evento já escolhidos
   const { data: mpConfig } = trpc.publicStore.mpPublicKey.useQuery();
   const { data: landingData } = trpc.publicStore.landing.useQuery(undefined, { staleTime: 60_000 });
 
@@ -101,7 +102,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
 
   // Itens de evento já vêm com sua própria forma de entrega escolhida lá na
   // tela de categoria — aqui só soma o custo de cada forma distinta usada.
-  const eventMethodsUsed = deliveryMethods.filter(m => new Set(eventItemsInCart.map(i => i.deliveryMethodId)).has(m.id));
+  const eventMethodsUsed = allDeliveryMethods.filter(m => new Set(eventItemsInCart.map(i => i.deliveryMethodId)).has(m.id));
   // Itens de Venda Regular (se tiver) usam uma forma só, escolhida aqui —
   // só pergunta se pelo menos um desses itens precisa mesmo de entrega.
   const regularNeedsDelivery = regularItemsInCart.some(i => i.requiresDelivery !== false);

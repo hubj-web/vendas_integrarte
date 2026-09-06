@@ -17,8 +17,8 @@ import {
   customers, deliveryMethods, orderItems, orderItemFlavors, orders, orderStatusHistory,
   productCategories, productFlavors, products, storeOrderPayments,
   storeProductVisibility, storeSettings, users, estoqueAtual, estoqueAtualFlavors,
-  storeDeliveryMethodVisibility, deliveryMethodRules, storeEvents, storeEventCategories,
-  storeRegularCategoryVisibility, productVariationGroups, productVariationOptions, productDeliveryMethods,
+  deliveryMethodRules, storeEvents, storeEventCategories,
+  storeRegularCategoryVisibility, productVariationGroups, productVariationOptions, eventProductDeliveryMethods,
   orderItemVariationSelections,
   paymentMethods, storeRegularPaymentMethodVisibility, storeEventPaymentMethodVisibility,
 } from "../../drizzle/schema";
@@ -81,6 +81,7 @@ async function buildCatalog(
   db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
   categoryIdFilter?: number[],
   excludeCategoryIds?: number[],
+  eventId?: number,
 ) {
   const now = new Date();
 
@@ -176,10 +177,11 @@ async function buildCatalog(
   const groupsByProduct: Record<number, typeof groups> = {};
   for (const g of groups) (groupsByProduct[g.productId] ??= []).push(g);
 
-  // Formas de entrega específicas por produto (só relevante dentro de
-  // Evento) — sem nenhuma linha pro produto, usa todas as globais (default).
-  const deliveryLinks = prodsFinal.length > 0
-    ? await db.select().from(productDeliveryMethods).where(inArray(productDeliveryMethods.productId, prodsFinal.map(p => p.id)))
+  // Formas de entrega específicas por produto, DENTRO desse evento (se
+  // houver) — sem nenhuma linha pro par evento+produto, usa todas as ativas
+  // em evento (default). Fora de evento, não existe restrição por produto.
+  const deliveryLinks = (eventId && prodsFinal.length > 0)
+    ? await db.select().from(eventProductDeliveryMethods).where(and(eq(eventProductDeliveryMethods.eventId, eventId), inArray(eventProductDeliveryMethods.productId, prodsFinal.map(p => p.id))))
     : [];
   const deliveryIdsByProduct: Record<number, number[]> = {};
   for (const l of deliveryLinks) (deliveryIdsByProduct[l.productId] ??= []).push(l.deliveryMethodId);
@@ -295,7 +297,7 @@ export const publicStoreRouter = router({
       const categoryIds = links.map(l => l.categoryId);
       if (categoryIds.length === 0) return { open: true, event, categories: [], products: [] };
 
-      const { categories, products: productsOut } = await buildCatalog(db, categoryIds);
+      const { categories, products: productsOut } = await buildCatalog(db, categoryIds, undefined, input.eventId);
       return { open: true, event, categories, products: productsOut };
     }),
 
@@ -304,21 +306,24 @@ export const publicStoreRouter = router({
    * mas respeita o "desligar na loja" configurado no painel — por padrão toda
    * forma ativa aparece, a menos que tenha sido explicitamente ocultada).
    */
-  deliveryMethods: publicProcedure.query(async () => {
-    const db = await getDb();
-    if (!db) return [];
-    const all = await db.select().from(deliveryMethods).where(eq(deliveryMethods.active, true));
-    const hiddenRows = await db.select({ deliveryMethodId: storeDeliveryMethodVisibility.deliveryMethodId })
-      .from(storeDeliveryMethodVisibility).where(eq(storeDeliveryMethodVisibility.visible, false));
-    const hiddenIds = new Set(hiddenRows.map(h => h.deliveryMethodId));
-    const visibleMethods = all.filter(m => !hiddenIds.has(m.id));
-    const rules = visibleMethods.length > 0
-      ? await db.select().from(deliveryMethodRules).where(and(inArray(deliveryMethodRules.deliveryMethodId, visibleMethods.map(m => m.id)), eq(deliveryMethodRules.active, true)))
-      : [];
-    const rulesByMethod: Record<number, typeof rules> = {};
-    for (const r of rules) (rulesByMethod[r.deliveryMethodId] ??= []).push(r);
-    return visibleMethods.map(m => ({ ...m, rules: rulesByMethod[m.id] ?? [] }));
-  }),
+  deliveryMethods: publicProcedure
+    .input(z.object({ eventId: z.number().optional(), allContexts: z.boolean().optional() }).optional())
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const isEventContext = !!input?.eventId;
+      const contextFilter = input?.allContexts
+        ? undefined
+        : eq(isEventContext ? deliveryMethods.activeEvents : deliveryMethods.activeRegular, true);
+      const all = await db.select().from(deliveryMethods)
+        .where(contextFilter ? and(eq(deliveryMethods.active, true), contextFilter) : eq(deliveryMethods.active, true));
+      const rules = all.length > 0
+        ? await db.select().from(deliveryMethodRules).where(and(inArray(deliveryMethodRules.deliveryMethodId, all.map(m => m.id)), eq(deliveryMethodRules.active, true)))
+        : [];
+      const rulesByMethod: Record<number, typeof rules> = {};
+      for (const r of rules) (rulesByMethod[r.deliveryMethodId] ??= []).push(r);
+      return all.map(m => ({ ...m, rules: rulesByMethod[m.id] ?? [] }));
+    }),
 
   /**
    * Formas de pagamento disponíveis (PIX e/ou Cartão) — na Venda Regular ou

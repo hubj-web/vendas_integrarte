@@ -69,7 +69,7 @@ export default function SellerNewOrder() {
     { eventId: typeof saleMode === "number" ? saleMode : -1 },
     { enabled: typeof saleMode === "number" }
   );
-  const { data: publicDeliveryMethods = [] } = trpc.publicStore.deliveryMethods.useQuery();
+  const { data: publicDeliveryMethods = [] } = trpc.publicStore.deliveryMethods.useQuery({ eventId: typeof saleMode === "number" ? saleMode : undefined });
   const currentEvent = typeof saleMode === "number" ? openEvents.find((e: any) => e.id === saleMode) : null;
   const [eventDeliveryDrafts, setEventDeliveryDrafts] = useState<Record<number, number>>({});
 

@@ -28,7 +28,6 @@ type Product = {
   allowPreOrder: boolean | null;
   preOrderUntil: string | Date | null;
   requiresDelivery: boolean | null;
-  deliveryMethodIds: number[] | null;
 };
 
 const VARIATION_LABELS: Record<string, string> = { sabor: "Sabor", tamanho: "Tamanho", cor: "Cor" };
@@ -52,7 +51,6 @@ export default function Products() {
   const { data: categories = [] } = trpc.catalog.categories.list.useQuery();
   const { data: suppliers = [] } = trpc.suppliers.list.useQuery();
   const { data: products = [], isLoading } = trpc.catalog.products.list.useQuery();
-  const { data: deliveryMethodsOptions = [] } = trpc.catalog.deliveryMethods.list.useQuery();
   const createMutation = trpc.catalog.products.create.useMutation({
     onSuccess: () => { utils.catalog.products.list.invalidate(); toast.success("Produto criado!"); setOpen(false); },
     onError: (e) => toast.error(e.message),
@@ -105,7 +103,7 @@ export default function Products() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
 
-  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "", allowPreOrder: false, preOrderUntil: "", requiresDelivery: true, deliveryMethodIds: [] as number[] });
+  const [form, setForm] = useState({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "", allowPreOrder: false, preOrderUntil: "", requiresDelivery: true });
 
   // Flavor management dialog
   const [showFlavors, setShowFlavors] = useState(false);
@@ -147,7 +145,7 @@ export default function Products() {
   function openCreate() {
     setEditing(null);
     setImagePreview(null);
-    setForm({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "", allowPreOrder: false, preOrderUntil: "", requiresDelivery: true, deliveryMethodIds: [] as number[] });
+    setForm({ name: "", categoryId: "", unit: "unidade", price: "", cost: "0.00", description: "", active: true, maxFlavors: "0", variationType: "sabor", displaySize: "medio", supplierId: "", allowPreOrder: false, preOrderUntil: "", requiresDelivery: true });
     setOpen(true);
   }
 
@@ -168,7 +166,6 @@ export default function Products() {
       supplierId: p.supplierId ? String(p.supplierId) : "",
       allowPreOrder: p.allowPreOrder ?? false,
       requiresDelivery: p.requiresDelivery ?? true,
-      deliveryMethodIds: p.deliveryMethodIds ?? [],
       preOrderUntil: p.preOrderUntil ? new Date(p.preOrderUntil).toISOString().slice(0, 10) : "",
     });
     setOpen(true);
@@ -206,7 +203,6 @@ export default function Products() {
         allowPreOrder: form.allowPreOrder,
         preOrderUntil: form.preOrderUntil || null,
         requiresDelivery: form.requiresDelivery,
-        deliveryMethodIds: form.deliveryMethodIds,
       });
     } else {
       createMutation.mutate({
@@ -224,7 +220,6 @@ export default function Products() {
         allowPreOrder: form.allowPreOrder,
         preOrderUntil: form.preOrderUntil || null,
         requiresDelivery: form.requiresDelivery,
-        deliveryMethodIds: form.deliveryMethodIds,
       });
     }
   }
@@ -495,34 +490,8 @@ export default function Products() {
                   <Switch id="requires-delivery" checked={form.requiresDelivery} onCheckedChange={v => setForm(f => ({ ...f, requiresDelivery: v }))} />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Essa categoria está vinculada a um Evento — desligado, este produto não pergunta forma de entrega ali (ex: ingresso — não faz sentido "retirar" ou "receber em casa").
+                  Essa categoria está vinculada a um Evento — desligado, este produto não pergunta forma de entrega ali (ex: ingresso — não faz sentido "retirar" ou "receber em casa"). Quais formas específicas valem pra esse produto dentro de cada evento é configurado na tela do Evento (Loja Pública → Eventos → Entregas).
                 </p>
-                {form.requiresDelivery && deliveryMethodsOptions.length > 0 && (
-                  <div>
-                  <Label className="text-xs">Restringir a formas específicas (opcional)</Label>
-                  <div className="flex flex-wrap gap-2 mt-1.5">
-                    {deliveryMethodsOptions.map(m => {
-                      const checked = form.deliveryMethodIds.includes(m.id);
-                      return (
-                        <button
-                          key={m.id} type="button"
-                          onClick={() => setForm(f => ({
-                            ...f,
-                            deliveryMethodIds: checked ? f.deliveryMethodIds.filter(id => id !== m.id) : [...f.deliveryMethodIds, m.id],
-                          }))}
-                          className="px-2.5 py-1 rounded-full text-xs font-medium border transition-colors"
-                          style={checked ? { background: "#1E4B9C", color: "#fff", borderColor: "#1E4B9C" } : {}}
-                        >
-                          {m.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Nenhuma marcada = todas as formas ativas valem pra esse produto (padrão). Marcando algumas, só essas aparecem como opção. Vale só <strong>dentro de Evento</strong> — na Venda Regular, a entrega continua sendo escolhida uma vez só, pro pedido inteiro.
-                  </p>
-                </div>
-              )}
               </div>
             )}
             <div className="space-y-2">

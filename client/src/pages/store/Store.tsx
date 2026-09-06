@@ -50,8 +50,8 @@ type LandingScope = "root" | number;
 
 export default function Store() {
   const { data: landing, isLoading: landingLoading } = trpc.publicStore.landing.useQuery(undefined, { refetchInterval: 30000 });
-  const { data: deliveryMethodsList } = trpc.publicStore.deliveryMethods.useQuery();
   const [context, setContext] = useState<Context>({ type: "regular" });
+  const { data: deliveryMethodsList } = trpc.publicStore.deliveryMethods.useQuery({ eventId: context.type === "event" ? context.eventId : undefined });
   const [view, setView] = useState<View>("loading");
   const [landingScope, setLandingScope] = useState<LandingScope>("root");
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);

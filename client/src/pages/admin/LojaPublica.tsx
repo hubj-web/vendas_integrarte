@@ -77,6 +77,7 @@ export default function LojaPublica() {
     setEditingOrder(true);
   }
   const { data: deliveryMethodsList = [] } = trpc.storeAdmin.listDeliveryMethods.useQuery();
+  const { data: allDeliveryMethodsFull = [] } = trpc.catalog.deliveryMethods.list.useQuery();
   const { data: events = [] } = trpc.storeAdmin.events.list.useQuery();
   const { data: allCategories = [] } = trpc.catalog.categories.list.useQuery();
   const { data: regularCategories = [] } = trpc.storeAdmin.listRegularCategories.useQuery();
@@ -220,6 +221,19 @@ export default function LojaPublica() {
     setCategoriesDraft(event.categories.map((c: any) => c.id));
   }
 
+  const [deliveryDialogEventId, setDeliveryDialogEventId] = useState<number | null>(null);
+  const { data: eventDeliveryData } = trpc.storeAdmin.events.productDeliveryMethods.useQuery(
+    { eventId: deliveryDialogEventId ?? -1 },
+    { enabled: deliveryDialogEventId !== null }
+  );
+  const setEventProductDelivery = trpc.storeAdmin.events.setProductDeliveryMethods.useMutation({
+    onSuccess: () => { utils.storeAdmin.events.productDeliveryMethods.invalidate(); toast.success("Salvo!"); },
+    onError: (err) => toast.error(err.message || "Não foi possível salvar."),
+  });
+  function openEventDeliveryDialog(event: (typeof events)[number]) {
+    setDeliveryDialogEventId(event.id);
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -353,6 +367,7 @@ export default function LojaPublica() {
                       <Button size="sm" variant="outline" onClick={() => openSaleWindowDialog(ev)}>Janela de venda</Button>
                       <Button size="sm" variant="outline" onClick={() => openPaymentDialog(ev)}>Pagamento</Button>
                       <Button size="sm" variant="outline" onClick={() => openCheckInDialog(ev)}>Check-in</Button>
+                      <Button size="sm" variant="outline" onClick={() => openEventDeliveryDialog(ev)}>Entregas</Button>
                       <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm(`Excluir o evento "${ev.name}"?`)) deleteEvent.mutate({ id: ev.id }); }}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -701,27 +716,26 @@ export default function LojaPublica() {
 
         <TabsContent value="entregas" className="space-y-3 pt-3">
           <p className="text-sm text-muted-foreground">
-            As formas de entrega são cadastradas em <strong>Configurações → Formas de Entrega</strong>.
-            Aqui você liga/desliga quais existem no sistema como um todo. Dentro de um <strong>Evento</strong>,
-            cada produto pode restringir a formas específicas (configurado no cadastro do produto) — na
-            <strong> Venda Regular</strong>, o cliente escolhe uma forma só, pro pedido inteiro, entre as ativas aqui.
+            Cada forma de entrega liga/desliga independente pra <strong>Venda Regular</strong> e pra <strong>Eventos</strong> —
+            edite isso em <strong>Configurações → Formas de Entrega</strong>. Dentro de um evento específico, você ainda pode
+            restringir quais formas valem pra cada produto (botão "Entregas" no card do evento, abaixo).
           </p>
           <Card>
             <CardContent className="pt-4 space-y-1">
-              {deliveryMethodsList.map(m => (
+              {allDeliveryMethodsFull.map((m: any) => (
                 <div key={m.id} className="flex items-center justify-between py-2 border-b last:border-0">
                   <div>
                     <p className="font-medium">{m.name}</p>
                     {m.description && <p className="text-xs text-muted-foreground">{m.description}</p>}
                   </div>
-                  <Switch
-                    checked={m.visibleInStore}
-                    onCheckedChange={(checked) => setDeliveryVisibility.mutate({ deliveryMethodId: m.id, visible: checked })}
-                  />
+                  <div className="flex gap-1.5">
+                    <Badge variant={m.activeRegular ? "default" : "outline"} className="text-xs">🛒 {m.activeRegular ? "Ativo" : "Inativo"}</Badge>
+                    <Badge variant={m.activeEvents ? "default" : "outline"} className="text-xs">🎪 {m.activeEvents ? "Ativo" : "Inativo"}</Badge>
+                  </div>
                 </div>
               ))}
-              {deliveryMethodsList.length === 0 && (
-                <p className="text-center text-muted-foreground py-8">Nenhuma forma de entrega ativa cadastrada.</p>
+              {allDeliveryMethodsFull.length === 0 && (
+                <p className="text-center text-muted-foreground py-8">Nenhuma forma de entrega cadastrada.</p>
               )}
             </CardContent>
           </Card>
@@ -1075,6 +1089,54 @@ export default function LojaPublica() {
             >
               Salvar
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deliveryDialogEventId !== null} onOpenChange={(open) => !open && setDeliveryDialogEventId(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto max-w-lg">
+          <DialogHeader><DialogTitle>Formas de Entrega — por produto nesse Evento</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Pra cada produto, marque quais formas valem <strong>só dentro desse evento</strong> (o mesmo produto pode
+            ter formas diferentes em outro evento, ou na Venda Regular). Nenhuma marcada = todas as formas com
+            "🎪 Ativo em Eventos" valem automaticamente.
+          </p>
+          <div className="space-y-3 max-h-96 overflow-y-auto">
+            {(eventDeliveryData?.products ?? []).map((p: any) => (
+              <div key={p.id} className="border rounded-lg p-3">
+                <p className="font-medium text-sm mb-1.5">{p.name}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {allDeliveryMethodsFull.filter((m: any) => m.activeEvents).map((m: any) => {
+                    const checked = p.allowedDeliveryMethodIds.includes(m.id);
+                    return (
+                      <button
+                        key={m.id} type="button"
+                        onClick={() => {
+                          if (deliveryDialogEventId == null) return;
+                          const next = checked
+                            ? p.allowedDeliveryMethodIds.filter((id: number) => id !== m.id)
+                            : [...p.allowedDeliveryMethodIds, m.id];
+                          setEventProductDelivery.mutate({ eventId: deliveryDialogEventId, productId: p.id, deliveryMethodIds: next });
+                        }}
+                        className="px-2.5 py-1 rounded-full text-xs font-medium border transition-colors"
+                        style={checked ? { background: "#1E4B9C", color: "#fff", borderColor: "#1E4B9C" } : {}}
+                      >
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                  {allDeliveryMethodsFull.filter((m: any) => m.activeEvents).length === 0 && (
+                    <p className="text-xs text-muted-foreground">Nenhuma forma de entrega ativa em Eventos — ative em Configurações → Formas de Entrega.</p>
+                  )}
+                </div>
+              </div>
+            ))}
+            {(eventDeliveryData?.products ?? []).length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-6">Nenhum produto disponível nesse evento ainda (vincule categorias primeiro).</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setDeliveryDialogEventId(null)}>Fechar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
