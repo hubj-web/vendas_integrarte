@@ -135,7 +135,7 @@ export default function DeliveryMethods() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="bg-card border-border max-w-sm">
           <DialogHeader><DialogTitle>{editing ? "Editar Forma de Entrega" : "Nova Forma de Entrega"}</DialogTitle></DialogHeader>
-          <form onSubmit={e => { e.preventDefault(); editing ? updateMutation.mutate({ id: editing.id, name: form.name, description: form.description || undefined, requiresAddress: form.requiresAddress, active: form.active, cost: form.cost }) : createMutation.mutate({ name: form.name, description: form.description || undefined, requiresAddress: form.requiresAddress, cost: form.cost }); }} className="space-y-4">
+          <form onSubmit={e => { e.preventDefault(); editing ? updateMutation.mutate({ id: editing.id, name: form.name, description: form.description || undefined, requiresAddress: form.requiresAddress, active: form.active, cost: form.cost }) : createMutation.mutate({ name: form.name, description: form.description || undefined, requiresAddress: form.requiresAddress, cost: form.cost, active: form.active }); }} className="space-y-4">
             <div className="space-y-2"><Label>Nome *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required className="bg-input" /></div>
             <div className="space-y-2"><Label>Descrição</Label><Input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="bg-input" /></div>
             <div className="space-y-2">
@@ -144,7 +144,7 @@ export default function DeliveryMethods() {
               <p className="text-xs text-muted-foreground">Quando maior que zero, soma automaticamente no total do pedido da Loja Pública.</p>
             </div>
             <div className="flex items-center gap-2"><Switch checked={form.requiresAddress} onCheckedChange={v => setForm(f => ({ ...f, requiresAddress: v }))} /><Label>Requer endereço de entrega</Label></div>
-            {editing && <div className="flex items-center gap-2"><Switch checked={form.active} onCheckedChange={v => setForm(f => ({ ...f, active: v }))} /><Label>Ativo</Label></div>}
+            <div className="flex items-center gap-2"><Switch checked={form.active} onCheckedChange={v => setForm(f => ({ ...f, active: v }))} /><Label>Ativo</Label></div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
               <Button type="submit" className="bg-primary text-primary-foreground">Salvar</Button>

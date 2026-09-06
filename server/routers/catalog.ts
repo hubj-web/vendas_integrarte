@@ -21,7 +21,11 @@ const categoriesRouter = router({
   list: protectedProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];
-    return db.select().from(productCategories).orderBy(asc(productCategories.sortOrder), asc(productCategories.name));
+    const { storeEventCategories } = await import("../../drizzle/schema");
+    const cats = await db.select().from(productCategories).orderBy(asc(productCategories.sortOrder), asc(productCategories.name));
+    const eventLinks = await db.select({ categoryId: storeEventCategories.categoryId }).from(storeEventCategories);
+    const linkedIds = new Set(eventLinks.map(l => l.categoryId));
+    return cats.map(c => ({ ...c, linkedToEvent: linkedIds.has(c.id) }));
   }),
   create: adminProcedure
     .input(z.object({
@@ -414,7 +418,7 @@ const deliveryMethodsRouter = router({
     return methods.map(m => ({ ...m, rules: rulesByMethod[m.id] ?? [] }));
   }),
   create: adminProcedure
-    .input(z.object({ name: z.string().min(2), description: z.string().optional(), requiresAddress: z.boolean().default(false), cost: z.string().default("0.00") }))
+    .input(z.object({ name: z.string().min(2), description: z.string().optional(), requiresAddress: z.boolean().default(false), cost: z.string().default("0.00"), active: z.boolean().default(true) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });

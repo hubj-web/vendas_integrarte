@@ -488,16 +488,17 @@ export default function Products() {
                 </div>
               )}
             </div>
-            <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
-              <div className="flex items-center justify-between">
-                <Label className="cursor-pointer" htmlFor="requires-delivery">Precisa de forma de entrega?</Label>
-                <Switch id="requires-delivery" checked={form.requiresDelivery} onCheckedChange={v => setForm(f => ({ ...f, requiresDelivery: v }))} />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Desligado, este produto não pergunta forma de entrega dentro de Evento (ex: ingresso — não faz sentido "retirar" ou "receber em casa").
-              </p>
-              {form.requiresDelivery && deliveryMethodsOptions.length > 0 && (
-                <div>
+            {categories.find((c: any) => c.id === Number(form.categoryId))?.linkedToEvent && (
+              <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
+                <div className="flex items-center justify-between">
+                  <Label className="cursor-pointer" htmlFor="requires-delivery">Precisa de forma de entrega?</Label>
+                  <Switch id="requires-delivery" checked={form.requiresDelivery} onCheckedChange={v => setForm(f => ({ ...f, requiresDelivery: v }))} />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Essa categoria está vinculada a um Evento — desligado, este produto não pergunta forma de entrega ali (ex: ingresso — não faz sentido "retirar" ou "receber em casa").
+                </p>
+                {form.requiresDelivery && deliveryMethodsOptions.length > 0 && (
+                  <div>
                   <Label className="text-xs">Restringir a formas específicas (opcional)</Label>
                   <div className="flex flex-wrap gap-2 mt-1.5">
                     {deliveryMethodsOptions.map(m => {
@@ -522,7 +523,8 @@ export default function Products() {
                   </p>
                 </div>
               )}
-            </div>
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Fornecedor</Label>
               <Select value={form.supplierId} onValueChange={v => setForm(f => ({ ...f, supplierId: v }))}>
