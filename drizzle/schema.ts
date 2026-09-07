@@ -305,7 +305,7 @@ export const orders = mysqlTable("orders", {
   // preenchida em pedidos de evento do tipo "ingresso".
   ticketNumber: int("ticketNumber"),
   status: mysqlEnum("status", ["received", "production", "in_route", "packaged", "delivered", "delivery_failed", "paid", "cancelled"]).default("production").notNull(),
-  paymentStatus: mysqlEnum("paymentStatus", ["pending", "paid", "partial", "cancelled"]).default("pending").notNull(),
+  paymentStatus: mysqlEnum("paymentStatus", ["pending", "paid", "partial", "rejected", "cancelled"]).default("pending").notNull(),
   totalAmount: decimal("totalAmount", { precision: 10, scale: 2 }).notNull(),
   notes: text("notes"),
   cancelReason: text("cancelReason"),

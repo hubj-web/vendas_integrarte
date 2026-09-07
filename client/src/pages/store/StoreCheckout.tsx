@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, QrCode, CreditCard, Copy, Check } from "lucide-react";
+import { ArrowLeft, Loader2, QrCode, CreditCard, Copy, Check, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BRAND, CREDIT_CARD_ENABLED } from "./brand";
 import WhatsAppFloatButton from "./WhatsAppFloatButton";
@@ -45,6 +45,7 @@ interface Props {
   eventId?: number;
   onBack: () => void;
   onSuccess: () => void;
+  onRemoveFromCart?: (key: string) => void;
 }
 
 declare global {
@@ -55,7 +56,7 @@ declare global {
 
 type Step = "dados" | "pagamento" | "pix_aguardando" | "concluido";
 
-export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess }: Props) {
+export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess, onRemoveFromCart }: Props) {
   const [, navigate] = useLocation();
   const [step, setStep] = useState<Step>("dados");
   const [name, setName] = useState("");
@@ -68,6 +69,12 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
     : "";
   const [paymentMethod, setPaymentMethod] = useState<"pix" | "credit_card">("pix");
   const [orderId, setOrderId] = useState<number | null>(null);
+  // Se o cliente mexer no carrinho (adicionar/remover item) depois de já ter
+  // tentado pagar uma vez, não dá pra reaproveitar aquele pedido — ele ficaria
+  // com itens/valor desatualizados. Volta a criar um novo do zero nesse caso.
+  useEffect(() => {
+    setOrderId(null);
+  }, [cart]);
   const [ticketCode, setTicketCode] = useState<string | null>(null);
   const [pixData, setPixData] = useState<{ qrCode?: string; qrCodeBase64?: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -123,6 +130,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
   const [customerNotes, setCustomerNotes] = useState("");
 
   const createOrder = trpc.publicStore.createOrder.useMutation();
+  const retryPayment = trpc.publicStore.retryPayment.useMutation();
   const { data: orderStatus } = trpc.publicStore.orderStatus.useQuery(
     { orderId: orderId! },
     { enabled: !!orderId && step === "pix_aguardando", refetchInterval: 4000 }
@@ -151,13 +159,15 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
 
   async function submitPix() {
     try {
-      const result = await createOrder.mutateAsync({
-        customerName: name, customerPhone: phone, customerEmail: email || undefined, customerNotes: customerNotes || undefined,
-        deliveryMethodId: representativeDeliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
-        eventId: distinctEventIds[0],
-        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds, deliveryMethodId: i.deliveryMethodId, eventId: i.eventId })),
-        paymentMethod: "pix",
-      });
+      const result = orderId
+        ? await retryPayment.mutateAsync({ orderId, paymentMethod: "pix" })
+        : await createOrder.mutateAsync({
+            customerName: name, customerPhone: phone, customerEmail: email || undefined, customerNotes: customerNotes || undefined,
+            deliveryMethodId: representativeDeliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
+            eventId: distinctEventIds[0],
+            items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds, deliveryMethodId: i.deliveryMethodId, eventId: i.eventId })),
+            paymentMethod: "pix",
+          });
       setOrderId(result.orderId);
       setTicketCode(result.ticketCode);
       if (result.paymentStatus === "approved") {
@@ -194,9 +204,18 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
         <Card>
           <CardContent className="pt-4 space-y-2 text-sm">
             {cart.map(item => (
-              <div key={item.key} className="flex justify-between">
-                <span>{item.quantity}x {item.name}{cartItemVariationLabel(item)}</span>
-                <span>{fmt(item.unitPrice * item.quantity)}</span>
+              <div key={item.key} className="flex items-center justify-between gap-2">
+                <span className="flex-1">{item.quantity}x {item.name}{cartItemVariationLabel(item)}</span>
+                <span className="shrink-0">{fmt(item.unitPrice * item.quantity)}</span>
+                {onRemoveFromCart && (
+                  <button
+                    onClick={() => onRemoveFromCart(item.key)}
+                    aria-label={`Remover ${item.name}`}
+                    className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
             ))}
             {deliveryCost > 0 && (
@@ -370,15 +389,21 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
                   configured={!!mpConfig?.configured}
                   onSubmit={async (cardData) => {
                     try {
-                      const result = await createOrder.mutateAsync({
-                        customerName: name, customerPhone: phone, customerEmail: email || undefined, customerNotes: customerNotes || undefined,
-                        deliveryMethodId: representativeDeliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
-                        eventId: distinctEventIds[0],
-                        items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds, deliveryMethodId: i.deliveryMethodId, eventId: i.eventId })),
-                        paymentMethod: "credit_card",
-                        cardToken: cardData.token, installments: cardData.installments,
-                        paymentMethodId: cardData.paymentMethodId, issuerId: cardData.issuerId,
-                      });
+                      const result = orderId
+                        ? await retryPayment.mutateAsync({
+                            orderId, paymentMethod: "credit_card",
+                            cardToken: cardData.token, installments: cardData.installments,
+                            paymentMethodId: cardData.paymentMethodId, issuerId: cardData.issuerId,
+                          })
+                        : await createOrder.mutateAsync({
+                            customerName: name, customerPhone: phone, customerEmail: email || undefined, customerNotes: customerNotes || undefined,
+                            deliveryMethodId: representativeDeliveryMethodId!, deliveryAddress: requiresAddress ? address : undefined,
+                            eventId: distinctEventIds[0],
+                            items: cart.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds, optionIds: i.optionIds, deliveryMethodId: i.deliveryMethodId, eventId: i.eventId })),
+                            paymentMethod: "credit_card",
+                            cardToken: cardData.token, installments: cardData.installments,
+                            paymentMethodId: cardData.paymentMethodId, issuerId: cardData.issuerId,
+                          });
                       setOrderId(result.orderId);
                       setTicketCode(result.ticketCode);
                       if (result.paymentStatus === "approved") {
@@ -434,6 +459,9 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess 
             <p className="text-xs text-muted-foreground">
               Assim que o pagamento cair, esta tela atualiza sozinha e mostra seu recibo. Costuma ser na hora.
             </p>
+            <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={() => setStep("pagamento")}>
+              ← Voltar (o QR code continua valendo se eu quiser pagar depois)
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

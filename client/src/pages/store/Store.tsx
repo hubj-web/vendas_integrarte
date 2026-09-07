@@ -192,6 +192,7 @@ export default function Store() {
         eventId={context.type === "event" ? context.eventId : undefined}
         onBack={() => setView("categories")}
         onSuccess={() => setCart([])}
+        onRemoveFromCart={removeFromCart}
       />
     );
   }

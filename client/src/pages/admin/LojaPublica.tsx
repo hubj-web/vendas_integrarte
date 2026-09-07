@@ -22,7 +22,7 @@ const fmt = (v: number | string) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
 
 const PAYMENT_STATUS_LABEL: Record<string, string> = {
-  pending: "Pendente", paid: "Pago", partial: "Parcial", cancelled: "Cancelado",
+  pending: "Pendente", paid: "Pago", partial: "Parcial", rejected: "Recusado", cancelled: "Cancelado",
 };
 const ORDER_STATUS_LABEL: Record<string, string> = {
   received: "Recebido", production: "Em produção", packaged: "Pronto",
@@ -830,7 +830,7 @@ export default function LojaPublica() {
                       <TableCell>{o.deliveryMethodName}</TableCell>
                       <TableCell>{o.paymentMethod === "pix" ? "PIX" : o.paymentMethod === "credit_card" ? "Cartão" : o.paymentMethod === "cash" ? "Dinheiro" : o.paymentMethod}</TableCell>
                       <TableCell>
-                        <Badge variant={o.paymentStatus === "paid" ? "default" : "secondary"}>
+                        <Badge variant={o.paymentStatus === "paid" ? "default" : o.paymentStatus === "rejected" ? "destructive" : "secondary"}>
                           {PAYMENT_STATUS_LABEL[o.paymentStatus] ?? o.paymentStatus}
                         </Badge>
                       </TableCell>

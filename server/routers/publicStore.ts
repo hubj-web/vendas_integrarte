@@ -681,7 +681,7 @@ export const publicStoreRouter = router({
 
         await db.insert(storeOrderPayments).values({
           orderId, method: input.paymentMethod,
-          status: mpResult.status === "approved" ? "approved" : "pending",
+          status: mpResult.status === "approved" ? "approved" : mpResult.status === "rejected" ? "rejected" : "pending",
           mpPaymentId: mpResult.mpPaymentId,
           qrCode: mpResult.qrCode, qrCodeBase64: mpResult.qrCodeBase64,
           amount: totalAmount.toFixed(2),
@@ -695,6 +695,10 @@ export const publicStoreRouter = router({
             const lotes = await buscarLotesEstoque(db, item.productId, item.flavorIds);
             await descontarLotesEstoque(db, lotes, item.quantity);
           }
+        } else if (mpResult.status === "rejected") {
+          // Cartão recusado — marca claramente como "Recusado" no pedido,
+          // pra não parecer um pagamento pendente (tipo PIX ainda não pago).
+          await db.update(orders).set({ paymentStatus: "rejected" }).where(eq(orders.id, orderId));
         }
 
         return {
@@ -704,6 +708,83 @@ export const publicStoreRouter = router({
         };
       } catch (err: any) {
         console.error("Erro ao criar pagamento no Mercado Pago:", err);
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Não foi possível processar o pagamento. Verifique os dados e tente novamente." });
+      }
+    }),
+
+  /**
+   * Tenta pagar de novo um pedido que já existe (ex: cartão recusado, ou
+   * cliente voltou da tela de PIX e quer gerar outro código) — sem criar um
+   * pedido duplicado. Só funciona se o pedido ainda não estiver pago.
+   */
+  retryPayment: publicProcedure
+    .input(z.object({
+      orderId: z.number(),
+      paymentMethod: z.enum(["pix", "credit_card"]),
+      cardToken: z.string().optional(),
+      installments: z.number().optional(),
+      paymentMethodId: z.string().optional(),
+      issuerId: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
+      if (order.paymentStatus === "paid") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Esse pedido já está pago." });
+      }
+      if (!order.ticketCode) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [customer] = await db.select().from(customers).where(eq(customers.id, order.customerId!)).limit(1);
+      const totalAmount = Number(order.totalAmount);
+
+      try {
+        const mpResult = await createMercadoPagoPayment({
+          orderId: order.id, amount: totalAmount, method: input.paymentMethod,
+          customerName: customer?.name ?? "Cliente", customerEmail: `${(customer?.phone ?? "").replace(/\D/g, "")}@loja.integrarte.app.br`,
+          cardToken: input.cardToken, installments: input.installments,
+          paymentMethodId: input.paymentMethodId, issuerId: input.issuerId,
+        });
+
+        // Substitui o registro de pagamento anterior (recusado/abandonado)
+        // por esse novo — um pedido só tem uma tentativa "ativa" por vez.
+        await db.delete(storeOrderPayments).where(eq(storeOrderPayments.orderId, order.id));
+        await db.insert(storeOrderPayments).values({
+          orderId: order.id, method: input.paymentMethod,
+          status: mpResult.status === "approved" ? "approved" : mpResult.status === "rejected" ? "rejected" : "pending",
+          mpPaymentId: mpResult.mpPaymentId,
+          qrCode: mpResult.qrCode, qrCodeBase64: mpResult.qrCodeBase64,
+          amount: totalAmount.toFixed(2),
+          approvedAt: mpResult.status === "approved" ? new Date() : undefined,
+        });
+
+        await db.update(orders).set({ paymentMethod: input.paymentMethod }).where(eq(orders.id, order.id));
+
+        if (mpResult.status === "approved") {
+          await db.update(orders).set({ paymentStatus: "paid" }).where(eq(orders.id, order.id));
+          const orderItemsRows = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+          for (const item of orderItemsRows) {
+            const [prod] = await db.select({ allowPreOrder: products.allowPreOrder, preOrderUntil: products.preOrderUntil }).from(products).where(eq(products.id, item.productId)).limit(1);
+            if (prod && isProductOnPreOrder(prod)) continue; // sob encomenda: não desconta estoque
+            const flavorRows = await db.select({ productFlavorId: orderItemFlavors.productFlavorId }).from(orderItemFlavors).where(eq(orderItemFlavors.orderItemId, item.id));
+            const lotes = await buscarLotesEstoque(db, item.productId, flavorRows.map(f => f.productFlavorId));
+            await descontarLotesEstoque(db, lotes, item.quantity);
+          }
+        } else if (mpResult.status === "rejected") {
+          await db.update(orders).set({ paymentStatus: "rejected" }).where(eq(orders.id, order.id));
+        } else {
+          await db.update(orders).set({ paymentStatus: "pending" }).where(eq(orders.id, order.id));
+        }
+
+        return {
+          success: true, orderId: order.id, ticketCode: order.ticketCode,
+          paymentStatus: mpResult.status,
+          qrCode: mpResult.qrCode, qrCodeBase64: mpResult.qrCodeBase64,
+        };
+      } catch (err: any) {
+        console.error("Erro ao tentar pagar de novo no Mercado Pago:", err);
         throw new TRPCError({ code: "BAD_REQUEST", message: "Não foi possível processar o pagamento. Verifique os dados e tente novamente." });
       }
     }),
