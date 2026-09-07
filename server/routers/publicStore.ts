@@ -26,7 +26,7 @@ import { getDb } from "../db";
 import { publicProcedure, router } from "../_core/trpc";
 import { buscarLotesEstoque, descontarLotesEstoque } from "./seller";
 import { isProductOnPreOrder, isDeliveryFreeForCart } from "../storeHelpers";
-import { sendReceiptEmail } from "../email";
+import { sendReceiptEmail, sendTicketEmail } from "../email";
 import { createMercadoPagoPayment, mercadoPagoConfigured } from "../mercadopago";
 import { generateQrCodeBase64 } from "../qr";
 import { ENV } from "../_core/env";
@@ -636,6 +636,14 @@ export const publicStoreRouter = router({
               to: input.customerEmail!, customerName: input.customerName, ticketCode,
               totalAmount: totalAmount.toFixed(2), isTicket, ticketNumber,
             });
+            if (isTicket && ticketEventId) {
+              const receiptUrl = `${ENV.appUrl}/loja/r/${ticketCode}`;
+              const qrCodeBase64 = await generateQrCodeBase64(receiptUrl);
+              await sendTicketEmail({
+                to: input.customerEmail!, customerName: input.customerName, ticketCode,
+                eventName: eventsById[Number(ticketEventId)]?.name ?? "Evento", ticketNumber, qrCodeBase64,
+              });
+            }
           } catch (err) {
             console.error("Erro ao enviar e-mail do recibo (pedido já criado normalmente):", err);
           }
@@ -841,9 +849,17 @@ export const publicStoreRouter = router({
         throw new TRPCError({ code: "UNAUTHORIZED", message: "Código de acesso inválido." });
       }
 
-      const [order] = await db.select({
-        id: orders.id, eventId: orders.eventId, checkedInAt: orders.checkedInAt, customerId: orders.customerId,
-      }).from(orders).where(eq(orders.ticketCode, input.ticketCode)).limit(1);
+      // Aceita tanto o código do QR (ticketCode) quanto o número do ingresso
+      // (mais curto, o que dá pra digitar na mão — ex: "007"), procurando
+      // dentro desse evento específico.
+      const digitadoComoNumero = /^\d+$/.test(input.ticketCode.trim());
+      const [order] = digitadoComoNumero
+        ? await db.select({
+            id: orders.id, eventId: orders.eventId, checkedInAt: orders.checkedInAt, customerId: orders.customerId,
+          }).from(orders).where(and(eq(orders.eventId, input.eventId), eq(orders.ticketNumber, Number(input.ticketCode)))).limit(1)
+        : await db.select({
+            id: orders.id, eventId: orders.eventId, checkedInAt: orders.checkedInAt, customerId: orders.customerId,
+          }).from(orders).where(eq(orders.ticketCode, input.ticketCode)).limit(1);
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Ingresso/comprovante não encontrado." });
       if (order.eventId !== input.eventId) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Esse ingresso não é desse evento." });

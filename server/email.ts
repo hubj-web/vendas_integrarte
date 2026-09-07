@@ -148,26 +148,24 @@ export async function sendReceiptEmail(params: {
 }): Promise<boolean> {
   const receiptUrl = `${ENV.appUrl}/loja/r/${params.ticketCode}`;
   const fmt = (v: string) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
-  const ticketNumberLabel = params.ticketNumber !== undefined ? String(params.ticketNumber).padStart(3, "0") : null;
 
   const html = EMAIL_WRAPPER(
-    params.isTicket ? "Seu ingresso está confirmado!" : "Recebemos seu pedido!",
+    "Recebemos seu pedido!",
     `
       <p style="font-size: 14px; color: #374151; line-height: 1.6;">
         Olá, ${params.customerName}. Obrigado por comprar na Loja Integrarte — todo produto tem verba revertida
         pra atividades artísticas e culturais.
       </p>
-      ${ticketNumberLabel ? `
-      <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 16px; margin: 16px 0; text-align: center;">
-        <p style="font-size: 11px; color: #1e40af; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">Ingresso Nº</p>
-        <p style="font-size: 28px; color: #1e40af; margin: 4px 0 0; font-weight: 800;">${ticketNumberLabel}</p>
-      </div>
-      ` : ""}
       <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 16px 0;">
         <p style="font-size: 13px; color: #374151; margin: 0;"><strong>Total:</strong> ${fmt(params.totalAmount)}</p>
       </div>
+      ${params.isTicket ? `
+      <p style="font-size: 13px; color: #6b7280; line-height: 1.6;">
+        Seu ingresso foi enviado num e-mail separado — é ele que você deve levar na portaria, não este.
+      </p>
+      ` : ""}
       <p style="font-size: 14px; color: #374151; line-height: 1.6;">
-        Guarde o link abaixo — é o seu comprovante${params.isTicket ? " de ingresso" : ""}, com QR code pra apresentar.
+        Guarde o link abaixo — é o seu comprovante de compra.
       </p>
       <div style="text-align: center; margin: 24px 0 8px 0;">
         <a href="${receiptUrl}" style="background: #059669; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-size: 14px; font-weight: bold; display: inline-block;">
@@ -178,5 +176,52 @@ export async function sendReceiptEmail(params: {
     `
   );
 
-  return sendEmail(params.to, params.isTicket ? "Seu ingresso — Loja Integrarte" : "Seu pedido — Loja Integrarte", html);
+  return sendEmail(params.to, "Seu pedido — Loja Integrarte", html);
+}
+
+/**
+ * E-mail separado, dedicado só ao ingresso — com o QR code já embutido na
+ * própria mensagem (não precisa clicar em link nenhum pra mostrar na
+ * portaria, funciona até sem internet no momento da entrada).
+ */
+export async function sendTicketEmail(params: {
+  to: string;
+  customerName: string;
+  ticketCode: string;
+  eventName: string;
+  ticketNumber?: number;
+  qrCodeBase64: string | null;
+}): Promise<boolean> {
+  const receiptUrl = `${ENV.appUrl}/loja/r/${params.ticketCode}`;
+  const ticketNumberLabel = params.ticketNumber !== undefined ? String(params.ticketNumber).padStart(3, "0") : null;
+
+  const html = EMAIL_WRAPPER(
+    "Seu ingresso está confirmado!",
+    `
+      <p style="font-size: 14px; color: #374151; line-height: 1.6;">
+        Olá, ${params.customerName}. Esse é o seu ingresso pro <strong>${params.eventName}</strong> —
+        salve ou imprima este e-mail e apresente na portaria.
+      </p>
+      ${ticketNumberLabel ? `
+      <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 16px; margin: 16px 0; text-align: center;">
+        <p style="font-size: 11px; color: #1e40af; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">Ingresso Nº</p>
+        <p style="font-size: 28px; color: #1e40af; margin: 4px 0 0; font-weight: 800;">${ticketNumberLabel}</p>
+      </div>
+      ` : ""}
+      ${params.qrCodeBase64 ? `
+      <div style="text-align: center; margin: 20px 0;">
+        <img src="data:image/png;base64,${params.qrCodeBase64}" alt="QR code do ingresso" style="width: 200px; height: 200px; border-radius: 8px; border: 1px solid #e5e7eb;" />
+        <p style="font-size: 11px; color: #9ca3af; margin-top: 8px;">Apresente este QR code na entrada do evento.</p>
+      </div>
+      ` : ""}
+      <div style="text-align: center; margin: 16px 0 8px 0;">
+        <a href="${receiptUrl}" style="background: #1e40af; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-size: 14px; font-weight: bold; display: inline-block;">
+          Ver ingresso completo
+        </a>
+      </div>
+      <p style="font-size: 11px; color: #9ca3af; text-align: center;">${receiptUrl}</p>
+    `
+  );
+
+  return sendEmail(params.to, `Seu ingresso — ${params.eventName}`, html);
 }

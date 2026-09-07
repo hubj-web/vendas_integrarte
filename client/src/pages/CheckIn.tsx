@@ -90,6 +90,7 @@ export default function CheckIn() {
       setScanning(true);
       tick();
     } catch (err) {
+      console.error("[CheckIn] Erro ao acessar câmera:", err);
       toast.error("Não foi possível acessar a câmera. Use a digitação manual abaixo.");
     }
   }
@@ -226,7 +227,7 @@ export default function CheckIn() {
               <CardContent className="pt-4 space-y-2">
                 <p className="text-xs text-muted-foreground">Ou digite o código do comprovante na mão:</p>
                 <div className="flex gap-2">
-                  <Input value={manualCode} onChange={e => setManualCode(e.target.value)} placeholder="Código do comprovante" />
+                  <Input value={manualCode} onChange={e => setManualCode(e.target.value)} placeholder="Número do ingresso (ex: 007)" />
                   <Button onClick={submitManual} disabled={checkInMutation.isPending}>Verificar</Button>
                 </div>
               </CardContent>

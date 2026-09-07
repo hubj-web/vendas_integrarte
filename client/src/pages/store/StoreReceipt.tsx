@@ -96,8 +96,15 @@ export default function StoreReceipt({ ticketCode }: { ticketCode: string }) {
   const isPixPending = order.paymentMethod === "pix" && order.paymentStatus === "pending";
 
   return (
-    <div className="min-h-screen bg-muted/20 flex items-center justify-center p-4">
-      <div className="max-w-[420px] w-full space-y-3">
+    <>
+      <style>{`
+        @media print {
+          @page { size: auto; margin: 8mm; }
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+      `}</style>
+      <div className="min-h-screen print:min-h-0 bg-muted/20 flex items-center justify-center p-4 print:p-0 print:block">
+      <div className="max-w-[420px] w-full space-y-3 print:max-w-full print:space-y-0">
         <div ref={receiptRef} style={{ width: "100%", background: "#ffffff", fontFamily: "'Segoe UI', Arial, sans-serif", color: "#1a1a1a", borderRadius: 16, overflow: "hidden", boxShadow: "0 4px 24px rgba(0,0,0,0.12)" }}>
           {/* Header */}
           <div style={{ background: "#1a4731", padding: "20px 24px 16px", textAlign: "center" }}>
@@ -260,9 +267,12 @@ export default function StoreReceipt({ ticketCode }: { ticketCode: string }) {
           </Button>
         </div>
       </div>
-      <StoreSocialFooter />
-      <HubJFooter />
-      <WhatsAppFloatButton />
+      <div className="print:hidden">
+        <StoreSocialFooter />
+        <HubJFooter />
+        <WhatsAppFloatButton />
+      </div>
     </div>
+    </>
   );
 }
