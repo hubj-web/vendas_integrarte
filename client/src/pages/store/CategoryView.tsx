@@ -80,6 +80,23 @@ function QuantityStepper({ value, onChange, max }: { value: number; onChange: (v
 
 export default function CategoryView({ categoryName, products, cart, cartTotal, onAddToCart, onRemoveFromCart, onContinueShopping, onPay, isEventContext, eventId, eventName, deliveryMethods = [], popupMessage, onClosePopup }: Props) {
   const [drafts, setDrafts] = useState<Record<string, number>>({});
+  // Pra produtos "pacote" (maxFlavors > 1, ex: 10 minipizzas por R$ 80) — os
+  // sabores marcados pra compor UMA embalagem, sem cobrar por sabor extra.
+  const [packageFlavors, setPackageFlavors] = useState<Record<number, number[]>>({});
+
+  function togglePackageFlavor(productId: number, flavorId: number, maxFlavors: number) {
+    setPackageFlavors(prev => {
+      const current = prev[productId] ?? [];
+      if (current.includes(flavorId)) {
+        return { ...prev, [productId]: current.filter(id => id !== flavorId) };
+      }
+      if (current.length >= maxFlavors) {
+        toast.error(`Escolha no máximo ${maxFlavors} sabor${maxFlavors > 1 ? "es" : ""} pra esse produto.`);
+        return prev;
+      }
+      return { ...prev, [productId]: [...current, flavorId] };
+    });
+  }
   const [zoomedImage, setZoomedImage] = useState<{ url: string; name: string } | null>(null);
   // Forma de entrega escolhida por produto — vale pra qualquer compra.
   const [deliveryDrafts, setDeliveryDrafts] = useState<Record<number, number>>({});
@@ -133,6 +150,46 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
     });
     setDrafts(prev => ({ ...prev, [key]: 0 }));
     toast.success(`${product.name}${flavor ? ` (${flavor.name})` : ""} adicionado!`);
+  }
+
+  /** Produto "pacote" (maxFlavors > 1, ex: 10 minipizzas por R$ 80) — uma
+   * compra só, com até maxFlavors sabores diferentes escolhidos pra compor
+   * a embalagem, sem cobrar a mais por sabor extra. */
+  function handleInsertPackage(product: StoreProduct) {
+    const key = cartKey(product.id);
+    const draftQty = drafts[key] ?? 0;
+    if (draftQty <= 0) {
+      toast.error("Escolha uma quantidade antes de inserir.");
+      return;
+    }
+    const selectedIds = packageFlavors[product.id] ?? [];
+    if (selectedIds.length === 0) {
+      toast.error("Escolha pelo menos um sabor pra essa embalagem.");
+      return;
+    }
+    if (needsDeliveryChoice(product) && !deliveryDrafts[product.id]) {
+      toast.error("Escolha a forma de entrega desse item antes de inserir.");
+      return;
+    }
+    const jaNoCarrinho = alreadyInCart(key);
+    if (jaNoCarrinho + draftQty > product.availableQuantity) {
+      toast.error(`Só há ${product.availableQuantity} em estoque.`);
+      return;
+    }
+    const selectedNames = product.flavors.filter(f => selectedIds.includes(f.id)).map(f => f.name);
+    const metodo = deliveryMethods.find(m => m.id === deliveryDrafts[product.id]);
+    onAddToCart({
+      key, productId: product.id, name: product.name, unitPrice: Number(product.price),
+      quantity: draftQty, flavorIds: selectedIds, flavorNames: selectedNames,
+      optionIds: [], variationSelections: [],
+      maxAvailable: product.availableQuantity,
+      deliveryMethodId: metodo?.id, deliveryMethodName: metodo?.name,
+      requiresDelivery: product.requiresDelivery,
+      eventId, eventName,
+    });
+    setDrafts(prev => ({ ...prev, [key]: 0 }));
+    setPackageFlavors(prev => ({ ...prev, [product.id]: [] }));
+    toast.success(`${product.name} (${selectedNames.join(", ")}) adicionado!`);
   }
 
   // Seleções de grupo de variação (produto com múltiplas escolhas, ex: marmitex)
@@ -349,6 +406,39 @@ export default function CategoryView({ categoryName, products, cart, cartTotal, 
                         max={product.availableQuantity}
                       />
                       <Button className="gap-1.5 text-white" style={{ background: BRAND.green }} onClick={() => handleInsertWithGroups(product)}>
+                        <Plus className="h-4 w-4" /> Inserir
+                      </Button>
+                    </div>
+                  </div>
+                ) : product.flavors.length > 0 && product.maxFlavors > 1 ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      Escolha até {product.maxFlavors} sabores pra essa embalagem
+                    </p>
+                    <DeliveryPicker product={product} />
+                    <div className="flex flex-wrap gap-1.5">
+                      {product.flavors.map(f => {
+                        const checked = (packageFlavors[product.id] ?? []).includes(f.id);
+                        return (
+                          <button
+                            key={f.id} type="button"
+                            onClick={() => togglePackageFlavor(product.id, f.id, product.maxFlavors)}
+                            className="px-2.5 py-1 rounded-full text-xs font-medium border transition-colors"
+                            style={checked ? { background: BRAND.blue, color: "#fff", borderColor: BRAND.blue } : {}}
+                          >
+                            {f.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <span className="font-semibold" style={{ color: BRAND.blue }}>{fmt(product.price)}</span>
+                      <QuantityStepper
+                        value={drafts[cartKey(product.id)] ?? 0}
+                        onChange={v => setDraft(cartKey(product.id), v, product.availableQuantity)}
+                        max={product.availableQuantity}
+                      />
+                      <Button className="gap-1.5 text-white" style={{ background: BRAND.green }} onClick={() => handleInsertPackage(product)}>
                         <Plus className="h-4 w-4" /> Inserir
                       </Button>
                     </div>
