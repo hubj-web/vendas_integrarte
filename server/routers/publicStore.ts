@@ -685,6 +685,7 @@ export const publicStoreRouter = router({
           customerName: input.customerName, customerEmail: `${input.customerPhone.replace(/\D/g, "")}@loja.integrarte.app.br`,
           cardToken: input.cardToken, installments: input.installments,
           paymentMethodId: input.paymentMethodId, issuerId: input.issuerId,
+          items: itemsResolved.map(i => ({ title: i.nomeItem, description: i.nomeItem, quantity: i.quantity, unitPrice: i.unitPrice })),
         });
 
         await db.insert(storeOrderPayments).values({
@@ -747,6 +748,9 @@ export const publicStoreRouter = router({
 
       const [customer] = await db.select().from(customers).where(eq(customers.id, order.customerId!)).limit(1);
       const totalAmount = Number(order.totalAmount);
+      const orderItemsForMp = await db.select({
+        name: products.name, quantity: orderItems.quantity, unitPrice: orderItems.unitPrice,
+      }).from(orderItems).leftJoin(products, eq(orderItems.productId, products.id)).where(eq(orderItems.orderId, order.id));
 
       try {
         const mpResult = await createMercadoPagoPayment({
@@ -754,6 +758,7 @@ export const publicStoreRouter = router({
           customerName: customer?.name ?? "Cliente", customerEmail: `${(customer?.phone ?? "").replace(/\D/g, "")}@loja.integrarte.app.br`,
           cardToken: input.cardToken, installments: input.installments,
           paymentMethodId: input.paymentMethodId, issuerId: input.issuerId,
+          items: orderItemsForMp.map(i => ({ title: i.name ?? "Item", description: i.name ?? "Item", quantity: i.quantity, unitPrice: Number(i.unitPrice) })),
         });
 
         // Substitui o registro de pagamento anterior (recusado/abandonado)

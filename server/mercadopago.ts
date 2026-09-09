@@ -37,6 +37,9 @@ export interface CreatePaymentParams {
   installments?: number;
   paymentMethodId?: string; // ex: "master", "visa" — devolvido pelo brick
   issuerId?: string;
+  // Itens do pedido — o Mercado Pago pede isso (additional_info.items) pra
+  // melhorar a análise antifraude e reduzir recusas indevidas.
+  items?: { title: string; description: string; quantity: number; unitPrice: number }[];
 }
 
 export interface CreatePaymentResult {
@@ -59,6 +62,18 @@ export async function createMercadoPagoPayment(params: CreatePaymentParams): Pro
     notification_url: `${ENV.appUrl}/api/webhooks/mercadopago`,
     external_reference: String(params.orderId),
   };
+
+  if (params.items && params.items.length > 0) {
+    body.additional_info = {
+      items: params.items.map((item, i) => ({
+        id: String(i + 1),
+        title: item.title.slice(0, 256),
+        description: item.description.slice(0, 256),
+        quantity: item.quantity,
+        unit_price: Number(item.unitPrice.toFixed(2)),
+      })),
+    };
+  }
 
   if (params.method === "pix") {
     body.payment_method_id = "pix";
