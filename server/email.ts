@@ -34,7 +34,7 @@ function getTransport() {
   } as any);
 }
 
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+async function sendEmail(to: string, subject: string, html: string, fromName = "ERP Integrarte"): Promise<boolean> {
   if (!isConfigured()) {
     console.warn("[Email] GMAIL_USER/GMAIL_APP_PASSWORD não configurados — e-mail não enviado.");
     return false;
@@ -42,7 +42,7 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
   try {
     const transport = getTransport();
     await transport.sendMail({
-      from: `"ERP Integrarte" <${ENV.gmailUser}>`,
+      from: `"${fromName}" <${ENV.gmailUser}>`,
       to,
       subject,
       html,
@@ -55,10 +55,10 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
   }
 }
 
-const EMAIL_WRAPPER = (title: string, bodyHtml: string) => `
+const EMAIL_WRAPPER = (title: string, bodyHtml: string, brandTitle = "ERP Integrarte") => `
 <div style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
   <div style="background: linear-gradient(135deg, #059669, #047857); border-radius: 12px 12px 0 0; padding: 24px; text-align: center;">
-    <h1 style="color: #ffffff; font-size: 18px; margin: 0;">ERP Integrarte</h1>
+    <h1 style="color: #ffffff; font-size: 18px; margin: 0;">${brandTitle}</h1>
   </div>
   <div style="background: #ffffff; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; padding: 24px;">
     <h2 style="font-size: 16px; color: #111827; margin-top: 0;">${title}</h2>
@@ -173,10 +173,11 @@ export async function sendReceiptEmail(params: {
         </a>
       </div>
       <p style="font-size: 11px; color: #9ca3af; text-align: center;">${receiptUrl}</p>
-    `
+    `,
+    "Loja Integrarte"
   );
 
-  return sendEmail(params.to, "Seu pedido — Loja Integrarte", html);
+  return sendEmail(params.to, "Seu pedido — Loja Integrarte", html, "Loja Integrarte");
 }
 
 /**
@@ -220,8 +221,9 @@ export async function sendTicketEmail(params: {
         </a>
       </div>
       <p style="font-size: 11px; color: #9ca3af; text-align: center;">${receiptUrl}</p>
-    `
+    `,
+    "Loja Integrarte"
   );
 
-  return sendEmail(params.to, `Seu ingresso — ${params.eventName}`, html);
+  return sendEmail(params.to, `Seu ingresso — ${params.eventName}`, html, "Loja Integrarte");
 }

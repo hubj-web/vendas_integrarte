@@ -432,7 +432,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess,
       </div>
 
       <Dialog open={step === "pix_aguardando" && !!pixData} onOpenChange={() => {}}>
-        <DialogContent className="max-w-sm [&>button]:hidden">
+        <DialogContent className="sm:max-w-sm [&>button]:hidden">
           <DialogHeader className="text-center items-center">
             <QrCode className="h-8 w-8 text-primary mb-1" />
             <DialogTitle>Escaneie para pagar</DialogTitle>
@@ -467,7 +467,7 @@ export default function StoreCheckout({ cart, total, eventId, onBack, onSuccess,
       </Dialog>
 
       <Dialog open={createOrder.isPending && paymentMethod === "credit_card"} onOpenChange={() => {}}>
-        <DialogContent className="max-w-sm [&>button]:hidden">
+        <DialogContent className="sm:max-w-sm [&>button]:hidden">
           <div className="flex flex-col items-center gap-3 py-4 text-center">
             <Loader2 className="h-8 w-8 animate-spin" style={{ color: BRAND.blue }} />
             <p className="font-semibold" style={{ color: BRAND.blue }}>Pagamento em andamento</p>
