@@ -79,6 +79,14 @@ export default function CheckIn() {
 
   async function startScanning() {
     setResult(null);
+    if (!window.isSecureContext) {
+      toast.error("A câmera só funciona em conexão segura (https://). Verifique o link acessado.");
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      toast.error("Esse navegador não permite acesso à câmera. Tente abrir o link direto no Chrome ou Safari (fora de apps como WhatsApp).");
+      return;
+    }
     try {
       await loadJsQR();
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
@@ -89,9 +97,15 @@ export default function CheckIn() {
       }
       setScanning(true);
       tick();
-    } catch (err) {
+    } catch (err: any) {
       console.error("[CheckIn] Erro ao acessar câmera:", err);
-      toast.error("Não foi possível acessar a câmera. Use a digitação manual abaixo.");
+      if (err?.name === "NotAllowedError") {
+        toast.error("Permissão da câmera negada. Vá nas configurações do navegador e permita o acesso pra esse site.");
+      } else if (err?.name === "NotFoundError") {
+        toast.error("Nenhuma câmera encontrada nesse aparelho. Use a digitação manual abaixo.");
+      } else {
+        toast.error("Não foi possível acessar a câmera. Se abriu esse link pelo WhatsApp ou outro app, tente abrir direto no navegador (Chrome/Safari). Use a digitação manual abaixo.");
+      }
     }
   }
 
@@ -191,7 +205,7 @@ export default function CheckIn() {
               <p className="font-semibold text-lg">
                 {result.alreadyUsed ? "Já utilizado antes!" : "Entrada liberada"}
               </p>
-              {result.customerName && <p className="text-sm">{result.customerName}</p>}
+              {result.customerName && <p className="text-base font-semibold">{result.customerName}</p>}
               {result.items.length > 0 && (
                 <p className="text-xs text-muted-foreground">{result.items.join(", ")}</p>
               )}

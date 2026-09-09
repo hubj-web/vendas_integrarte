@@ -636,12 +636,10 @@ export const publicStoreRouter = router({
               to: input.customerEmail!, customerName: input.customerName, ticketCode,
               totalAmount: totalAmount.toFixed(2), isTicket, ticketNumber,
             });
-            if (isTicket && ticketEventId) {
-              const receiptUrl = `${ENV.appUrl}/loja/r/${ticketCode}`;
-              const qrCodeBase64 = await generateQrCodeBase64(receiptUrl);
+            if (representativeEventId) {
               await sendTicketEmail({
                 to: input.customerEmail!, customerName: input.customerName, ticketCode,
-                eventName: eventsById[Number(ticketEventId)]?.name ?? "Evento", ticketNumber, qrCodeBase64,
+                eventName: eventsById[representativeEventId]?.name ?? "Evento", ticketNumber,
               });
             }
           } catch (err) {

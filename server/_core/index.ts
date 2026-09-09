@@ -19,6 +19,7 @@ import { overduePaymentsHandler } from "../routers/notifications";
 import { registerDbSetupRoute } from "../dbSetup";
 import { testTelegramConnection } from "../telegram";
 import { registerMercadoPagoWebhook } from "../mercadopagoWebhook";
+import { registerQrImageRoute } from "../qrImage";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -65,6 +66,7 @@ async function startServer() {
   app.post("/api/scheduled/overdue-payments", overduePaymentsHandler);
   // Webhook do Mercado Pago — confirma pagamentos da Loja Pública
   registerMercadoPagoWebhook(app);
+  registerQrImageRoute(app);
   // tRPC API
   app.use("/api/trpc", (_req, res, next) => {
     // Impede que navegador/proxy guarde em cache as respostas da API — sem

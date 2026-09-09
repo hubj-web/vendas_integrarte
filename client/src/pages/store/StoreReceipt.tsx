@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
-import { Loader2, Download, Share2, Printer } from "lucide-react";
+import { Loader2, Download, Share2, Printer, Home } from "lucide-react";
 import { toast } from "sonner";
 import WhatsAppFloatButton from "./WhatsAppFloatButton";
 import HubJFooter from "@/components/HubJFooter";
@@ -266,6 +266,9 @@ export default function StoreReceipt({ ticketCode }: { ticketCode: string }) {
             <Printer className="h-3.5 w-3.5" /> Imprimir
           </Button>
         </div>
+        <Button variant="ghost" size="sm" className="w-full gap-1.5 print:hidden" onClick={() => { window.location.href = "/loja"; }}>
+          <Home className="h-3.5 w-3.5" /> Voltar ao início
+        </Button>
       </div>
       <div className="print:hidden">
         <StoreSocialFooter />
