@@ -560,9 +560,10 @@ export const sellerRouter = router({
         .limit(1);
       if (!current[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
       
-      // Admins podem editar mesmo fora de produção; vendedor só enquanto em produção.
-      if (!isAdmin && current[0].status !== "production") {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas pedidos em produção podem ser editados." });
+      // Admins podem editar em qualquer status; vendedor só enquanto o
+      // pedido não tiver sido entregue nem cancelado.
+      if (!isAdmin && (current[0].status === "delivered" || current[0].status === "cancelled")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Pedidos entregues ou cancelados não podem mais ser editados." });
       }
 
       const updateData: Record<string, any> = {};

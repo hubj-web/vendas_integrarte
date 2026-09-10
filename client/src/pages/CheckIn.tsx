@@ -7,21 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { CheckCircle2, AlertTriangle, Camera, KeyRound } from "lucide-react";
 import { BRAND } from "./store/brand";
-
-declare global {
-  interface Window { jsQR?: any; }
-}
-
-function loadJsQR(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (window.jsQR) return resolve();
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js";
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Falha ao carregar o leitor de QR code."));
-    document.head.appendChild(script);
-  });
-}
+import jsQR from "jsqr";
 
 type Result = {
   alreadyUsed: boolean;
@@ -88,7 +74,6 @@ export default function CheckIn() {
       return;
     }
     try {
-      await loadJsQR();
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
       streamRef.current = stream;
       if (videoRef.current) {
@@ -110,7 +95,7 @@ export default function CheckIn() {
   }
 
   function tick() {
-    if (!videoRef.current || !canvasRef.current || !window.jsQR) {
+    if (!videoRef.current || !canvasRef.current) {
       rafRef.current = requestAnimationFrame(tick);
       return;
     }
@@ -123,7 +108,7 @@ export default function CheckIn() {
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = window.jsQR(imageData.data, imageData.width, imageData.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
         if (code?.data) {
           handleScannedText(code.data);
           return;

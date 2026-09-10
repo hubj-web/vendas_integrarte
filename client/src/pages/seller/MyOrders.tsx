@@ -102,7 +102,7 @@ export default function MyOrders() {
                   <div className="text-right shrink-0">
                     <p className="font-semibold text-foreground">{fmt(order.totalAmount)}</p>
                     <div className="flex items-center gap-1.5 mt-1 justify-end">
-                      {order.status === "production" && (
+                      {order.status !== "delivered" && order.status !== "cancelled" && (
                         <Link href={`/vendedor/pedido/${order.id}/editar`}>
                           <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-primary">
                             <Pencil className="w-3.5 h-3.5" />

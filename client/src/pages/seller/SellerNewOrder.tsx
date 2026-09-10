@@ -565,8 +565,9 @@ export default function SellerNewOrder() {
     return selectedFlavorIds.reduce((sum, fId) => sum + (flavorQuantities[fId] || 0), 0);
   }, [selectedFlavorIds, flavorQuantities]);
 
-  // Disable editing if status is not "production" (but allow admin to edit anytime)
-  const isDisabled = isEditMode && existingOrder && existingOrder.status !== "production" && !(location.startsWith("/admin"));
+  // Vendedor só não pode editar se o pedido já foi entregue ou cancelado —
+  // admin pode editar em qualquer status.
+  const isDisabled = isEditMode && existingOrder && (existingOrder.status === "delivered" || existingOrder.status === "cancelled") && !(location.startsWith("/admin"));
 
   // Loading state for edit mode
   if (isEditMode && isLoadingOrder) {
