@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "sonner";
-import { Ticket, Plus, Minus, Copy, Check, Send } from "lucide-react";
+import { Ticket, Plus, Minus, Copy, Check, Send, ExternalLink } from "lucide-react";
 
 const fmt = (v: string | number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v));
@@ -32,6 +32,7 @@ export default function SellerEventSale() {
   const [eventId, setEventId] = useState<string>("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "pix" | "credit_card" | "debit_card">("cash");
   const { data: availablePaymentMethods = [] } = trpc.seller.paymentMethods.useQuery();
   const [items, setItems] = useState<Item[]>([]);
@@ -80,7 +81,7 @@ export default function SellerEventSale() {
   const total = items.reduce((acc, i) => acc + i.unitPrice * i.quantity, 0);
 
   function reset() {
-    setItems([]); setName(""); setPhone(""); setReceipt(null);
+    setItems([]); setName(""); setPhone(""); setEmail(""); setReceipt(null);
   }
 
   function submit() {
@@ -89,7 +90,7 @@ export default function SellerEventSale() {
     if (phone.replace(/\D/g, "").length < 8) return toast.error("Informe o telefone do cliente.");
     if (items.length === 0) return toast.error("Adicione pelo menos um item.");
     createOrder.mutate({
-      eventId: Number(eventId), customerName: name, customerPhone: phone,
+      eventId: Number(eventId), customerName: name, customerPhone: phone, customerEmail: email || undefined,
       items: items.map(i => ({ productId: i.productId, quantity: i.quantity, flavorIds: i.flavorIds })),
       paymentMethod, paymentStatus: "paid",
     });
@@ -114,6 +115,9 @@ export default function SellerEventSale() {
               <p className="text-sm text-muted-foreground">Envie o link abaixo pro cliente — é o comprovante dele, com QR code.</p>
             </div>
             <div className="bg-muted rounded-lg p-3 text-sm break-all">{receipt.url}</div>
+            <Button variant="outline" className="w-full gap-2" onClick={() => window.open(receipt.url, "_blank")}>
+              <ExternalLink className="h-4 w-4" /> Abrir e imprimir
+            </Button>
             <div className="flex gap-2">
               <Button className="flex-1 gap-2" onClick={copyLink}>
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />} Copiar link
@@ -222,6 +226,10 @@ export default function SellerEventSale() {
           <div>
             <Label>Telefone</Label>
             <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(00) 00000-0000" />
+          </div>
+          <div>
+            <Label>E-mail (pra enviar o ingresso com QR code)</Label>
+            <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="cliente@email.com" />
           </div>
           <div>
             <Label>Forma de pagamento (combinado com o cliente)</Label>

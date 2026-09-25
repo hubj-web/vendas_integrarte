@@ -20,6 +20,8 @@ import { googleSheets } from "../google-sheets";
 import { uploadReceiptToDrive } from "../google-drive";
 import { sendOrderNotification } from "../telegram";
 import { isProductOnPreOrder } from "../storeHelpers";
+import { nanoid } from "nanoid";
+import { sendReceiptEmail } from "../email";
 
 export type DB = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -283,6 +285,7 @@ export const sellerRouter = router({
         }
       }
 
+      const ticketCode = nanoid(12);
       const result = await db.insert(orders).values({
         customerId: input.customerId,
         launcherId: user.id,
@@ -294,6 +297,7 @@ export const sellerRouter = router({
         totalAmount: input.totalAmount,
         status: "received",
         paymentStatus: "pending",
+        ticketCode,
       });
       const orderId = Number((result as any).insertId || (result as any)[0]?.insertId);
       
@@ -336,6 +340,22 @@ export const sellerRouter = router({
         orderId, userId: user.id, fromStatus: null, toStatus: "received",
         notes: lotesPorItem.length > 0 ? "Pedido criado pelo vendedor (algum item vendido do Integrarte Estoque)" : "Pedido criado pelo vendedor",
       });
+
+      // Manda o recibo por e-mail pro cliente, se ele tiver e-mail cadastrado
+      // — sem AWAIT de propósito, pra não travar a resposta do pedido.
+      const [customerForEmail] = await db.select({ name: customers.name, email: customers.email }).from(customers).where(eq(customers.id, input.customerId)).limit(1);
+      if (customerForEmail?.email) {
+        (async () => {
+          try {
+            await sendReceiptEmail({
+              to: customerForEmail.email!, customerName: customerForEmail.name, ticketCode,
+              totalAmount: input.totalAmount, isTicket: false,
+            });
+          } catch (err) {
+            console.error("Erro ao enviar e-mail do recibo (pedido já criado normalmente):", err);
+          }
+        })();
+      }
 
       // Async background task to append to Google Sheets and Drive
       if (googleSheets.isConfigured()) {
@@ -397,7 +417,7 @@ export const sellerRouter = router({
         }
       }
 
-      return { success: true, orderId };
+      return { success: true, orderId, ticketCode };
     }),
 
   /** Lista os pedidos do vendedor (ou todos, se admin) */

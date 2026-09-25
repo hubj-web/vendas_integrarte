@@ -25,6 +25,7 @@ import { buscarLotesEstoque, descontarLotesEstoque, requireLauncherRole } from "
 import { isEffectivelyOpen, nextTicketNumber } from "./publicStore";
 import { isProductOnPreOrder } from "../storeHelpers";
 import { buildPixPayload, generatePixQrCodeBase64, pixConfigured } from "../pix";
+import { sendReceiptEmail, sendTicketEmail } from "../email";
 
 export const sellerEventsRouter = router({
   /** Eventos abertos disponíveis pro vendedor lançar venda */
@@ -95,6 +96,7 @@ export const sellerEventsRouter = router({
       eventId: z.number(),
       customerName: z.string().min(1),
       customerPhone: z.string().min(8),
+      customerEmail: z.string().email().optional(),
       items: z.array(z.object({
         productId: z.number(), quantity: z.number().min(1), flavorIds: z.array(z.number()).optional(),
       })).min(1),
@@ -137,8 +139,11 @@ export const sellerEventsRouter = router({
       let customerId: number;
       if (existingCustomer) {
         customerId = existingCustomer.id;
+        if (input.customerEmail && !existingCustomer.email) {
+          await db.update(customers).set({ email: input.customerEmail }).where(eq(customers.id, customerId));
+        }
       } else {
-        const result = await db.insert(customers).values({ name: input.customerName, phone: input.customerPhone });
+        const result = await db.insert(customers).values({ name: input.customerName, phone: input.customerPhone, email: input.customerEmail });
         customerId = Number((result as any)[0]?.insertId ?? (result as any).insertId);
       }
 
@@ -205,6 +210,25 @@ export const sellerEventsRouter = router({
           amount: totalAmount.toFixed(2),
           approvedAt: input.paymentStatus === "paid" ? new Date() : undefined,
         });
+      }
+
+      // Manda o recibo por e-mail, e o e-mail dedicado do evento (com QR),
+      // se o cliente informou um — sem AWAIT de propósito.
+      if (input.customerEmail) {
+        (async () => {
+          try {
+            await sendReceiptEmail({
+              to: input.customerEmail!, customerName: input.customerName, ticketCode,
+              totalAmount: totalAmount.toFixed(2), isTicket: ticketNumber !== undefined, ticketNumber,
+            });
+            await sendTicketEmail({
+              to: input.customerEmail!, customerName: input.customerName, ticketCode,
+              eventName: event.name, ticketNumber,
+            });
+          } catch (err) {
+            console.error("Erro ao enviar e-mail do recibo/ingresso (pedido já criado normalmente):", err);
+          }
+        })();
       }
 
       return { success: true, orderId, ticketCode };
@@ -384,6 +408,28 @@ export const sellerEventsRouter = router({
           amount: totalAmount.toFixed(2),
           approvedAt: input.paymentStatus === "paid" ? new Date() : undefined,
         });
+      }
+
+      // Manda o recibo por e-mail, e o e-mail dedicado do evento (com QR) se
+      // o pedido envolver algum item de evento, quando o cliente informou
+      // um e-mail — sem AWAIT de propósito.
+      if (input.customerEmail) {
+        (async () => {
+          try {
+            await sendReceiptEmail({
+              to: input.customerEmail!, customerName: input.customerName, ticketCode,
+              totalAmount: totalAmount.toFixed(2), isTicket: ticketNumber !== undefined, ticketNumber,
+            });
+            if (representativeEventId) {
+              await sendTicketEmail({
+                to: input.customerEmail!, customerName: input.customerName, ticketCode,
+                eventName: eventsById[representativeEventId]?.name ?? "Evento", ticketNumber,
+              });
+            }
+          } catch (err) {
+            console.error("Erro ao enviar e-mail do recibo/ingresso (pedido já criado normalmente):", err);
+          }
+        })();
       }
 
       return { success: true, orderId, ticketCode };

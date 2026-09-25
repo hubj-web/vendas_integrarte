@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, User, Package, XCircle, Share2, CheckCircle2, Clock } from "lucide-react";
+import { ArrowLeft, User, Package, XCircle, Share2, CheckCircle2, Clock, ExternalLink } from "lucide-react";
 import { Link } from "wouter";
 import { OrderReceiptButton } from "@/components/OrderReceipt";
 import { format } from "date-fns";
@@ -89,7 +89,14 @@ export default function SellerOrderDetail() {
         </div>
         <div className="flex flex-col items-end gap-2">
           <StatusBadge status={order.status} />
-          <OrderReceiptButton order={order as any} />
+          <div className="flex gap-2">
+            {(order as any).ticketCode && (
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => window.open(`/loja/r/${(order as any).ticketCode}`, "_blank")}>
+                <ExternalLink className="h-3.5 w-3.5" /> Ver recibo/ingresso
+              </Button>
+            )}
+            <OrderReceiptButton order={order as any} />
+          </div>
         </div>
       </div>
 
