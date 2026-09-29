@@ -35,9 +35,15 @@ export default function LojaPublica() {
   const { data: settings } = trpc.storeAdmin.getSettings.useQuery();
   const { data: products = [] } = trpc.storeAdmin.listStockProducts.useQuery();
   const [orderFilterEventId, setOrderFilterEventId] = useState<string>("all");
+  const [orderFilterProductId, setOrderFilterProductId] = useState<string>("all");
+  const orderFilterCommon = {
+    eventId: orderFilterEventId === "all" ? undefined : orderFilterEventId === "regular" ? "regular" as const : Number(orderFilterEventId),
+  };
   const { data: orders = [] } = trpc.storeAdmin.orders.useQuery({
-    eventId: orderFilterEventId === "all" ? undefined : orderFilterEventId === "regular" ? "regular" : Number(orderFilterEventId),
+    ...orderFilterCommon,
+    productId: orderFilterProductId === "all" ? undefined : Number(orderFilterProductId),
   });
+  const { data: productSummary = [] } = trpc.storeAdmin.orderProductSummary.useQuery(orderFilterCommon);
   const [detailOrderId, setDetailOrderId] = useState<number | null>(null);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set());
   const [bulkStatus, setBulkStatus] = useState("");
@@ -744,7 +750,7 @@ export default function LojaPublica() {
         <TabsContent value="pedidos" className="space-y-3 pt-3">
           <div className="flex items-center gap-2">
             <Label className="text-sm shrink-0">Filtrar por:</Label>
-            <Select value={orderFilterEventId} onValueChange={setOrderFilterEventId}>
+            <Select value={orderFilterEventId} onValueChange={v => { setOrderFilterEventId(v); setOrderFilterProductId("all"); }}>
               <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos os pedidos</SelectItem>
@@ -754,7 +760,31 @@ export default function LojaPublica() {
                 ))}
               </SelectContent>
             </Select>
+            {productSummary.length > 0 && (
+              <Select value={orderFilterProductId} onValueChange={setOrderFilterProductId}>
+                <SelectTrigger className="w-56"><SelectValue placeholder="Filtrar por produto" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os produtos</SelectItem>
+                  {productSummary.map(p => (
+                    <SelectItem key={p.productId} value={String(p.productId)}>{p.productName} ({p.totalQuantity})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
+          {productSummary.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {productSummary.map(p => (
+                <button
+                  key={p.productId}
+                  onClick={() => setOrderFilterProductId(String(p.productId))}
+                  className="text-xs bg-muted hover:bg-muted/70 rounded-full px-3 py-1.5 font-medium transition-colors"
+                >
+                  {p.productName}: <span className="font-bold">{p.totalQuantity}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <Card>
             <CardContent className="pt-4">
               {selectedOrderIds.size > 0 && (
@@ -825,6 +855,11 @@ export default function LojaPublica() {
                       <TableCell>
                         <p className="font-medium">{o.customerName}</p>
                         <p className="text-xs text-muted-foreground">{o.customerPhone}</p>
+                        {o.items?.length > 0 && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {o.items.map((it: any) => `${it.quantity}x ${it.productName ?? "Produto removido"}`).join(", ")}
+                          </p>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs">{o.eventName ?? "Venda Regular"}</TableCell>
                       <TableCell>{o.deliveryMethodName}</TableCell>

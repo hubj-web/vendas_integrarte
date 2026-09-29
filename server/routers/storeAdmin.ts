@@ -250,6 +250,7 @@ export const storeAdminRouter = router({
     .input(z.object({
       paymentStatus: z.enum(["pending", "paid", "partial", "cancelled"]).optional(),
       eventId: z.union([z.number(), z.literal("regular")]).optional(), // "regular" = sem evento (Venda Regular)
+      productId: z.number().optional(), // só mostra pedidos que contenham esse produto
     }).optional())
     .query(async ({ input }) => {
       const db = await getDb();
@@ -260,7 +261,7 @@ export const storeAdminRouter = router({
       if (input?.eventId === "regular") conditions.push(isNull(orders.eventId));
       else if (typeof input?.eventId === "number") conditions.push(eq(orders.eventId, input.eventId));
 
-      const rows = await db.select({
+      let rows = await db.select({
         id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
         totalAmount: orders.totalAmount, paymentMethod: orders.paymentMethod, channel: orders.channel,
         createdAt: orders.createdAt, deliveryMethodId: orders.deliveryMethodId, ticketNumber: orders.ticketNumber,
@@ -274,10 +275,61 @@ export const storeAdminRouter = router({
         .orderBy(desc(orders.createdAt));
 
       if (rows.length === 0) return [];
+
+      // Itens de cada pedido — pra mostrar direto na lista, sem precisar
+      // abrir um por um, e pra poder filtrar por produto específico.
+      const itemRows = await db.select({
+        orderId: orderItems.orderId, productId: orderItems.productId, productName: products.name, quantity: orderItems.quantity,
+      }).from(orderItems).leftJoin(products, eq(orderItems.productId, products.id))
+        .where(inArray(orderItems.orderId, rows.map(r => r.id)));
+      const itemsByOrder = new Map<number, { productId: number; productName: string | null; quantity: number }[]>();
+      for (const it of itemRows) (itemsByOrder.get(it.orderId) ?? itemsByOrder.set(it.orderId, []).get(it.orderId)!).push(it);
+
+      if (input?.productId) {
+        const orderIdsComEsseProduto = new Set(itemRows.filter(it => it.productId === input.productId).map(it => it.orderId));
+        rows = rows.filter(r => orderIdsComEsseProduto.has(r.id));
+      }
+
       const payments = await db.select().from(storeOrderPayments).where(inArray(storeOrderPayments.orderId, rows.map(r => r.id)));
       const paymentByOrder = new Map(payments.map(p => [p.orderId, p]));
 
-      return rows.map(r => ({ ...r, payment: paymentByOrder.get(r.id) ?? null }));
+      return rows.map(r => ({ ...r, payment: paymentByOrder.get(r.id) ?? null, items: itemsByOrder.get(r.id) ?? [] }));
+    }),
+
+  /**
+   * Soma a quantidade vendida de cada produto, dentro do mesmo filtro de
+   * evento/status da lista de pedidos acima — pra responder "quantos
+   * ingressos, quantos marmitex" sem precisar contar pedido por pedido.
+   */
+  orderProductSummary: adminProcedure
+    .input(z.object({
+      paymentStatus: z.enum(["pending", "paid", "partial", "cancelled"]).optional(),
+      eventId: z.union([z.number(), z.literal("regular")]).optional(),
+    }).optional())
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+
+      const conditions = [inArray(orders.channel, ["loja_publica", "vendedor_evento"])];
+      if (input?.paymentStatus) conditions.push(eq(orders.paymentStatus, input.paymentStatus));
+      if (input?.eventId === "regular") conditions.push(isNull(orders.eventId));
+      else if (typeof input?.eventId === "number") conditions.push(eq(orders.eventId, input.eventId));
+
+      const matchedOrders = await db.select({ id: orders.id }).from(orders).where(and(...conditions));
+      if (matchedOrders.length === 0) return [];
+
+      const itemRows = await db.select({
+        productId: orderItems.productId, productName: products.name, quantity: orderItems.quantity,
+      }).from(orderItems).leftJoin(products, eq(orderItems.productId, products.id))
+        .where(inArray(orderItems.orderId, matchedOrders.map(o => o.id)));
+
+      const totals = new Map<number, { productId: number; productName: string; totalQuantity: number }>();
+      for (const it of itemRows) {
+        const current = totals.get(it.productId) ?? { productId: it.productId, productName: it.productName ?? "Produto removido", totalQuantity: 0 };
+        current.totalQuantity += it.quantity;
+        totals.set(it.productId, current);
+      }
+      return Array.from(totals.values()).sort((a, b) => b.totalQuantity - a.totalQuantity);
     }),
 
   /** Detalhe completo de um pedido — itens, endereço, variações escolhidas */
