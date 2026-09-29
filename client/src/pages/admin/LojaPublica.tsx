@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { FONT_OPTIONS } from "../store/brand";
 import { PageHeader } from "@/components/ui/page-header";
+import Orders from "@/pages/Orders";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -747,158 +748,8 @@ export default function LojaPublica() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="pedidos" className="space-y-3 pt-3">
-          <div className="flex items-center gap-2">
-            <Label className="text-sm shrink-0">Filtrar por:</Label>
-            <Select value={orderFilterEventId} onValueChange={v => { setOrderFilterEventId(v); setOrderFilterProductId("all"); }}>
-              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos os pedidos</SelectItem>
-                <SelectItem value="regular">Só Venda Regular</SelectItem>
-                {events.map((ev: any) => (
-                  <SelectItem key={ev.id} value={String(ev.id)}>{ev.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {productSummary.length > 0 && (
-              <Select value={orderFilterProductId} onValueChange={setOrderFilterProductId}>
-                <SelectTrigger className="w-56"><SelectValue placeholder="Filtrar por produto" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os produtos</SelectItem>
-                  {productSummary.map(p => (
-                    <SelectItem key={p.productId} value={String(p.productId)}>{p.productName} ({p.totalQuantity})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-          {productSummary.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {productSummary.map(p => (
-                <button
-                  key={p.productId}
-                  onClick={() => setOrderFilterProductId(String(p.productId))}
-                  className="text-xs bg-muted hover:bg-muted/70 rounded-full px-3 py-1.5 font-medium transition-colors"
-                >
-                  {p.productName}: <span className="font-bold">{p.totalQuantity}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <Card>
-            <CardContent className="pt-4">
-              {selectedOrderIds.size > 0 && (
-                <div className="flex items-center justify-between bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 mb-3">
-                  <p className="text-sm font-medium">{selectedOrderIds.size} pedido(s) selecionado(s)</p>
-                  <div className="flex items-center gap-2">
-                    <Select value={bulkStatus} onValueChange={setBulkStatus}>
-                      <SelectTrigger className="w-[180px] h-9"><SelectValue placeholder="Mudar status pra..." /></SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(ORDER_STATUS_LABEL).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>{label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      size="sm" variant="outline" disabled={!bulkStatus || bulkUpdateStatus.isPending}
-                      onClick={() => bulkUpdateStatus.mutate({ ids: Array.from(selectedOrderIds), status: bulkStatus as any })}
-                    >
-                      Aplicar
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setSelectedOrderIds(new Set())}>Cancelar</Button>
-                    <Button
-                      size="sm" variant="destructive" disabled={bulkDeleteOrders.isPending}
-                      onClick={() => { if (confirm(`Excluir ${selectedOrderIds.size} pedido(s) definitivamente? Essa ação não pode ser desfeita.`)) bulkDeleteOrders.mutate({ ids: Array.from(selectedOrderIds) }); }}
-                    >
-                      Excluir
-                    </Button>
-                  </div>
-                </div>
-              )}
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-8">
-                      <input
-                        type="checkbox" className="h-4 w-4 cursor-pointer accent-primary"
-                        checked={orders.length > 0 && selectedOrderIds.size === orders.length}
-                        onChange={() => setSelectedOrderIds(prev => prev.size === orders.length ? new Set() : new Set(orders.map((o: any) => o.id)))}
-                      />
-                    </TableHead>
-                    <TableHead>#</TableHead>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Origem</TableHead>
-                    <TableHead>Entrega</TableHead>
-                    <TableHead>Pagamento</TableHead>
-                    <TableHead>Status Pgto</TableHead>
-                    <TableHead>Status Pedido</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">Ação</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {orders.map((o: any) => (
-                    <TableRow key={o.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setDetailOrderId(o.id)}>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox" className="h-4 w-4 cursor-pointer accent-primary"
-                          checked={selectedOrderIds.has(o.id)}
-                          onChange={() => toggleOrderSelected(o.id)}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        {o.id}
-                        {o.ticketNumber != null && (
-                          <span className="ml-1.5 text-xs font-semibold text-primary">🎟️ {String(o.ticketNumber).padStart(3, "0")}</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <p className="font-medium">{o.customerName}</p>
-                        <p className="text-xs text-muted-foreground">{o.customerPhone}</p>
-                        {o.items?.length > 0 && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {o.items.map((it: any) => `${it.quantity}x ${it.productName ?? "Produto removido"}`).join(", ")}
-                          </p>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs">{o.eventName ?? "Venda Regular"}</TableCell>
-                      <TableCell>{o.deliveryMethodName}</TableCell>
-                      <TableCell>{o.paymentMethod === "pix" ? "PIX" : o.paymentMethod === "credit_card" ? "Cartão" : o.paymentMethod === "cash" ? "Dinheiro" : o.paymentMethod}</TableCell>
-                      <TableCell>
-                        <Badge variant={o.paymentStatus === "paid" ? "default" : o.paymentStatus === "rejected" ? "destructive" : "secondary"}>
-                          {PAYMENT_STATUS_LABEL[o.paymentStatus] ?? o.paymentStatus}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{ORDER_STATUS_LABEL[o.status] ?? o.status}</TableCell>
-                      <TableCell className="text-right">{fmt(o.totalAmount)}</TableCell>
-                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
-                          {o.paymentStatus !== "paid" && o.paymentMethod === "pix" && (
-                            <Button size="sm" variant="outline" disabled={confirmPayment.isPending} onClick={() => confirmPayment.mutate({ orderId: o.id })}>
-                              Confirmar Pagamento
-                            </Button>
-                          )}
-                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setDetailOrderId(o.id)}>
-                            <Pencil className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button
-                            size="icon" variant="ghost" className="h-8 w-8 hover:text-destructive"
-                            disabled={deleteOrder.isPending}
-                            onClick={() => { if (confirm(`Excluir o pedido #${o.id} definitivamente? Essa ação não pode ser desfeita.`)) deleteOrder.mutate({ ids: [o.id] }); }}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {orders.length === 0 && (
-                    <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Nenhum pedido nesse filtro.</TableCell></TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+        <TabsContent value="pedidos" className="pt-3">
+          <Orders embedded={{ forcedView: "loja_eventos" }} />
         </TabsContent>
       </Tabs>
 

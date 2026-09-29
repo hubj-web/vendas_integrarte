@@ -207,6 +207,7 @@ export const ordersRouter = router({
         channel: orders.channel,
         eventId: orders.eventId,
         eventName: storeEvents.name,
+        ticketNumber: orders.ticketNumber,
       })
         .from(orders)
         .leftJoin(customers, eq(orders.customerId, customers.id))
@@ -324,7 +325,7 @@ export const ordersRouter = router({
           if (!productNamesMap[item.orderId]) productNamesMap[item.orderId] = [];
           const flavors = flavorMap[item.id] ?? [];
           const flavorStr = flavors.length > 0 ? ` (${flavors.join(", ")})` : "";
-          productNamesMap[item.orderId].push(`${item.productName}${flavorStr} (${item.quantity}x)`);
+          productNamesMap[item.orderId].push(`${item.quantity} ${item.productName}${flavorStr}`);
         }
 
         // Fetch minipizzas
@@ -354,7 +355,7 @@ export const ordersRouter = router({
           if (!productNamesMap[mp.orderId]) productNamesMap[mp.orderId] = [];
           const flavors = mpFlavorMap[mp.id] ?? [];
           const flavorStr = flavors.length > 0 ? ` (${flavors.join(", ")})` : "";
-          productNamesMap[mp.orderId].push(`Minipizza ${mp.typeName ?? "—"}${flavorStr} (${mp.quantity}x)`);
+          productNamesMap[mp.orderId].push(`${mp.quantity} Minipizza ${mp.typeName ?? "—"}${flavorStr}`);
         }
 
         // Fetch jellies
@@ -366,7 +367,7 @@ export const ordersRouter = router({
 
         for (const j of jRows) {
           if (!productNamesMap[j.orderId]) productNamesMap[j.orderId] = [];
-          productNamesMap[j.orderId].push(`Geleia ${j.flavorName} (${j.quantity}x)`);
+          productNamesMap[j.orderId].push(`${j.quantity} Geleia ${j.flavorName}`);
         }
 
         for (const order of data) {
@@ -383,6 +384,85 @@ export const ordersRouter = router({
       }));
 
       return { data: enrichedData, total };
+    }),
+
+  /**
+   * Soma a quantidade vendida de cada produto, dentro do mesmo filtro da
+   * lista acima (view/canal/evento/status) — pra responder "quantos
+   * ingressos, quantos marmitex" sem contar pedido por pedido. Não pagina —
+   * soma em cima de todos os pedidos que baterem com o filtro.
+   */
+  productSummary: protectedProcedure
+    .input(z.object({
+      status: z.string().optional(),
+      paymentStatus: z.string().optional(),
+      view: z.enum([
+        "all", "periodo", "loja_eventos", "aguardando_pagamento",
+        "para_produzir", "para_empacotar", "retiradas_hoje", "em_atraso",
+      ]).optional(),
+      channel: z.enum(["periodo", "loja_publica", "vendedor_evento"]).optional(),
+      eventId: z.union([z.number(), z.literal("regular")]).optional(),
+      search: z.string().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+    }).optional())
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+
+      const allOrders = await db.select({
+        id: orders.id, status: orders.status, paymentStatus: orders.paymentStatus,
+        channel: orders.channel, eventId: orders.eventId, createdAt: orders.createdAt,
+        customerName: customers.name, customerPhone: customers.phone,
+      }).from(orders).leftJoin(customers, eq(orders.customerId, customers.id));
+
+      const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+      const tresDiasAtras = new Date(hoje); tresDiasAtras.setDate(tresDiasAtras.getDate() - 3);
+
+      const filtered = allOrders.filter(o => {
+        if (ctx.user.role === "delivery" && !["in_route", "packaged", "delivered"].includes(o.status)) return false;
+        if (input?.status && o.status !== input.status) return false;
+        if (input?.paymentStatus && o.paymentStatus !== input.paymentStatus) return false;
+        if (input?.channel && o.channel !== input.channel) return false;
+        if (input?.eventId === "regular" && o.eventId != null) return false;
+        if (typeof input?.eventId === "number" && o.eventId !== input.eventId) return false;
+        switch (input?.view) {
+          case "periodo": if (o.channel !== "periodo") return false; break;
+          case "loja_eventos": if (o.channel !== "loja_publica" && o.channel !== "vendedor_evento") return false; break;
+          case "aguardando_pagamento": if (o.paymentStatus === "paid" || o.status === "cancelled") return false; break;
+          case "para_produzir": if (o.status !== "production" && o.status !== "received") return false; break;
+          case "para_empacotar": if (o.status !== "production" && o.status !== "received" && o.status !== "packaged") return false; break;
+          case "em_atraso": {
+            if (["delivered", "paid", "cancelled"].includes(o.status)) return false;
+            if (new Date(o.createdAt) >= tresDiasAtras) return false;
+            break;
+          }
+        }
+        if (input?.search) {
+          const s = input.search.toLowerCase();
+          if (!o.customerName?.toLowerCase().includes(s) && !o.customerPhone?.includes(s)) return false;
+        }
+        if (input?.dateFrom && o.createdAt < new Date(input.dateFrom)) return false;
+        if (input?.dateTo) {
+          const to = new Date(input.dateTo); to.setHours(23, 59, 59);
+          if (o.createdAt > to) return false;
+        }
+        return true;
+      });
+      if (filtered.length === 0) return [];
+
+      const itemRows = await db.select({
+        productId: orderItems.productId, productName: products.name, quantity: orderItems.quantity,
+      }).from(orderItems).leftJoin(products, eq(orderItems.productId, products.id))
+        .where(inArray(orderItems.orderId, filtered.map(o => o.id)));
+
+      const totals = new Map<number, { productId: number; productName: string; totalQuantity: number }>();
+      for (const it of itemRows) {
+        const current = totals.get(it.productId) ?? { productId: it.productId, productName: it.productName ?? "Produto removido", totalQuantity: 0 };
+        current.totalQuantity += it.quantity;
+        totals.set(it.productId, current);
+      }
+      return Array.from(totals.values()).sort((a, b) => b.totalQuantity - a.totalQuantity);
     }),
 
   getById: protectedProcedure

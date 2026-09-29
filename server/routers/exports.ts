@@ -733,7 +733,7 @@ export const exportsRouter = router({
       for (const order of rows) {
         const items = itemsMap[order.id] || [];
         productSummaryMap[order.id] = items.length > 0
-          ? items.map(i => `${i.name} (${i.qty}x)`).join("; ")
+          ? items.map(i => `${i.qty} ${i.name}`).join("; ")
           : "—";
       }
 

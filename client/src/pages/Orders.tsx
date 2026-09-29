@@ -61,15 +61,26 @@ const monthNames = [
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
 
-export default function Orders() {
+interface OrdersProps {
+  /** Usado quando essa tela é embutida dentro de outra área (ex: aba
+   * "Pedidos" da Loja Pública) — trava o filtro de canal e esconde os
+   * elementos que não fazem sentido fora do contexto próprio (cabeçalho,
+   * botão de novo pedido, visões prontas de período de vendas). */
+  embedded?: { forcedView: "loja_eventos" };
+}
+
+export default function Orders({ embedded }: OrdersProps = {}) {
   const { user } = useLocalAuth();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [paymentStatus, setPaymentStatus] = useState("all");
-  const [view, setView] = useState<(typeof viewOptions)[number]["value"]>("all");
+  const [view, setView] = useState<(typeof viewOptions)[number]["value"]>(embedded?.forcedView ?? "all");
   const [month, setMonth] = useState("all");
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [eventFilter, setEventFilter] = useState<string>("all");
+
+  const { data: events = [] } = trpc.storeAdmin.events.list.useQuery(undefined, { enabled: !!embedded || view === "loja_eventos" });
 
   const utils = trpc.useUtils();
 
@@ -127,9 +138,19 @@ export default function Orders() {
     status: status !== "all" ? status : undefined,
     paymentStatus: paymentStatus !== "all" ? paymentStatus : undefined,
     view: view !== "all" ? view : undefined,
+    eventId: eventFilter === "all" ? undefined : eventFilter === "regular" ? "regular" : Number(eventFilter),
     dateFrom,
     dateTo,
   });
+
+  const { data: productSummary = [] } = trpc.orders.productSummary.useQuery({
+    status: status !== "all" ? status : undefined,
+    paymentStatus: paymentStatus !== "all" ? paymentStatus : undefined,
+    view: view !== "all" ? view : undefined,
+    eventId: eventFilter === "all" ? undefined : eventFilter === "regular" ? "regular" : Number(eventFilter),
+    search: search || undefined,
+    dateFrom, dateTo,
+  }, { enabled: !!embedded || view === "loja_eventos" });
 
   const orders = data?.data ?? [];
   const total = data?.total ?? 0;
@@ -139,34 +160,63 @@ export default function Orders() {
 
   return (
     <div>
-      <PageHeader
-        title="Pedidos"
-        description={`${total} pedido${total !== 1 ? "s" : ""} encontrado${total !== 1 ? "s" : ""}`}
-        actions={
-          user?.role !== "delivery" ? (
-            <Link href="/admin/pedidos/novo">
-              <Button className="bg-primary text-primary-foreground gap-2"><Plus className="w-4 h-4" />Novo Pedido</Button>
-            </Link>
-          ) : undefined
-        }
-      />
+      {!embedded && (
+        <PageHeader
+          title="Pedidos"
+          description={`${total} pedido${total !== 1 ? "s" : ""} encontrado${total !== 1 ? "s" : ""}`}
+          actions={
+            user?.role !== "delivery" ? (
+              <Link href="/admin/pedidos/novo">
+                <Button className="bg-primary text-primary-foreground gap-2"><Plus className="w-4 h-4" />Novo Pedido</Button>
+              </Link>
+            ) : undefined
+          }
+        />
+      )}
 
-      {/* Visões prontas — filtros comuns num clique só */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        {viewOptions.map(v => (
-          <button
-            key={v.value}
-            onClick={() => { setView(v.value); setPage(1); }}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-              view === v.value
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-card text-muted-foreground border-border hover:border-primary/40"
-            }`}
-          >
-            {v.label}
-          </button>
-        ))}
-      </div>
+      {/* Visões prontas — filtros comuns num clique só (não faz sentido dentro da Loja Pública, que já é um recorte fixo) */}
+      {!embedded && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {viewOptions.map(v => (
+            <button
+              key={v.value}
+              onClick={() => { setView(v.value); setPage(1); }}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                view === v.value
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-card text-muted-foreground border-border hover:border-primary/40"
+              }`}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Filtro por evento — só relevante no recorte Loja e Eventos */}
+      {(embedded || view === "loja_eventos") && events.length > 0 && (
+        <div className="mb-3">
+          <Select value={eventFilter} onValueChange={v => { setEventFilter(v); setPage(1); }}>
+            <SelectTrigger className="w-56 bg-input"><SelectValue placeholder="Filtrar por evento" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos (Venda Regular + Eventos)</SelectItem>
+              <SelectItem value="regular">Só Venda Regular</SelectItem>
+              {events.map((ev: any) => <SelectItem key={ev.id} value={String(ev.id)}>{ev.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* Resumo de quantidade por produto — responde "quantos ingressos, quantos marmitex" */}
+      {productSummary.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {productSummary.map((p: any) => (
+            <span key={p.productId} className="text-xs bg-muted rounded-full px-3 py-1.5 font-medium">
+              {p.productName}: <span className="font-bold">{p.totalQuantity}</span>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Filters & Bulk Actions */}
       <div className="flex flex-col gap-4 mb-4">
@@ -278,7 +328,12 @@ export default function Orders() {
                   <TableCell>
                     <Checkbox checked={selectedIds.includes(o.id)} onCheckedChange={() => toggleSelect(o.id)} />
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-sm font-mono">#{o.id}</TableCell>
+                  <TableCell className="text-muted-foreground text-sm font-mono">
+                    #{o.id}
+                    {(o as any).ticketNumber != null && (
+                      <span className="ml-1.5 text-xs font-semibold text-primary">🎟️ {String((o as any).ticketNumber).padStart(3, "0")}</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
                       {o.channel === "periodo" ? "Período" : o.eventName ? o.eventName : o.channel === "loja_publica" ? "Loja" : "Evento"}
@@ -301,13 +356,22 @@ export default function Orders() {
                   <TableCell><StatusBadge status={o.paymentStatus} /></TableCell>
                   <TableCell className="font-semibold text-primary">{fmt(o.totalAmount)}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{new Date(o.createdAt).toLocaleDateString("pt-BR")}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground max-w-[200px]">
-                    <div className="flex items-center gap-1">
-                      <Package className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                      <span className="truncate" title={(o as any).productSummary}>
-                        {(o as any).productSummary ?? "—"}
-                      </span>
-                    </div>
+                  <TableCell className="text-xs text-muted-foreground max-w-[220px]">
+                    {((o as any).productList?.length ?? 0) > 0 ? (
+                      <div className="flex flex-col gap-0.5">
+                        {(o as any).productList.map((line: string, i: number) => (
+                          <div key={i} className="flex items-start gap-1">
+                            <Package className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                            <span>{line}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <Package className="w-3 h-3 flex-shrink-0" />
+                        <span>—</span>
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-right sticky right-0 bg-card group-hover:bg-muted/20">
                     <div className="flex items-center justify-end gap-1">
