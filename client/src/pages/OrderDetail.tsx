@@ -60,7 +60,13 @@ export default function OrderDetail() {
   const [swapPrice, setSwapPrice] = useState("");
   const { data: allProducts = [] } = trpc.catalog.products.list.useQuery(undefined, { enabled: !!swapItem });
   const swapMutation = trpc.orders.swapItemProduct.useMutation({
-    onSuccess: () => { utils.orders.getById.invalidate({ id: orderId }); toast.success("Produto trocado!"); setSwapItem(null); },
+    onSuccess: () => {
+      utils.orders.getById.invalidate({ id: orderId });
+      utils.orders.list.invalidate();
+      utils.orders.productSummary.invalidate();
+      toast.success("Produto trocado!");
+      setSwapItem(null);
+    },
     onError: e => toast.error(e.message),
   });
   function openSwap(item: { id: number; productName: string | null; unitPrice: string }) {

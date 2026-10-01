@@ -143,15 +143,6 @@ export default function Orders({ embedded }: OrdersProps = {}) {
     dateTo,
   });
 
-  const { data: productSummary = [] } = trpc.orders.productSummary.useQuery({
-    status: status !== "all" ? status : undefined,
-    paymentStatus: paymentStatus !== "all" ? paymentStatus : undefined,
-    view: view !== "all" ? view : undefined,
-    eventId: eventFilter === "all" ? undefined : eventFilter === "regular" ? "regular" : Number(eventFilter),
-    search: search || undefined,
-    dateFrom, dateTo,
-  }, { enabled: !!embedded || view === "loja_eventos" });
-
   const orders = data?.data ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / 25);
@@ -204,17 +195,6 @@ export default function Orders({ embedded }: OrdersProps = {}) {
               {events.map((ev: any) => <SelectItem key={ev.id} value={String(ev.id)}>{ev.name}</SelectItem>)}
             </SelectContent>
           </Select>
-        </div>
-      )}
-
-      {/* Resumo de quantidade por produto — responde "quantos ingressos, quantos marmitex" */}
-      {productSummary.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-4">
-          {productSummary.map((p: any) => (
-            <span key={p.productId} className="text-xs bg-muted rounded-full px-3 py-1.5 font-medium">
-              {p.productName}: <span className="font-bold">{p.totalQuantity}</span>
-            </span>
-          ))}
         </div>
       )}
 
