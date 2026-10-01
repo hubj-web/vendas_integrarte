@@ -5,13 +5,15 @@ import {
   customers, orders, orderItems, orderItemFlavors, orderMinipizzas, orderMinipizzaFlavors,
   orderJellies, orderStatusHistory, products, productFlavors, minipizzaTypes, minipizzaFlavors,
   jellyFlavors, deliveryMethods, users, deliveryRecords, paymentRecords, routeOrders, deliveryRoutes,
-  storeEvents, storeOrderPayments, orderItemVariationSelections,
+  storeEvents, storeOrderPayments, orderItemVariationSelections, estoqueAtual, estoqueAtualFlavors,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, adminProcedure, router } from "../_core/trpc";
 import { googleSheets } from "../google-sheets";
 import { uploadReceiptToDrive } from "../google-drive";
 import { sendOrderNotification } from "../telegram";
+import { isProductOnPreOrder } from "../storeHelpers";
+import { nextTicketNumber } from "./publicStore";
 
 // ─── CUSTOMERS ────────────────────────────────────────────────────────────────
 const customersAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -484,6 +486,7 @@ export const ordersRouter = router({
         customerCity: customers.city, customerLocationRef: customers.locationReference,
         launcherId: orders.launcherId, launcherName: users.name,
         deliveryMethodId: orders.deliveryMethodId, deliveryMethodName: deliveryMethods.name,
+        eventId: orders.eventId, ticketCode: orders.ticketCode, ticketNumber: orders.ticketNumber,
       })
         .from(orders)
         .leftJoin(customers, eq(orders.customerId, customers.id))
@@ -546,6 +549,87 @@ export const ordersRouter = router({
         .orderBy(desc(orderStatusHistory.changedAt));
 
       return { ...order, items, minipizzas, jellies, history };
+    }),
+
+  /**
+   * Troca o produto de um item já vendido (ex: virou Marmitex em Ingresso),
+   * mantendo (ou ajustando) o preço que o cliente já pagou — não o preço
+   * normal do produto novo. Devolve ao estoque automaticamente se o produto
+   * antigo não era sob encomenda; se o produto novo pertencer a um evento
+   * de ingresso e o pedido ainda não tiver número, gera um novo.
+   */
+  swapItemProduct: adminProcedure
+    .input(z.object({
+      orderItemId: z.number(),
+      newProductId: z.number(),
+      newUnitPrice: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      const [item] = await db.select().from(orderItems).where(eq(orderItems.id, input.orderItemId)).limit(1);
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Item não encontrado." });
+
+      const [order] = await db.select().from(orders).where(eq(orders.id, item.orderId)).limit(1);
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido não encontrado." });
+
+      const [oldProduct] = await db.select().from(products).where(eq(products.id, item.productId)).limit(1);
+      const [newProduct] = await db.select().from(products).where(eq(products.id, input.newProductId)).limit(1);
+      if (!newProduct) throw new TRPCError({ code: "BAD_REQUEST", message: "Produto novo não encontrado." });
+
+      const newSubtotal = (Number(input.newUnitPrice) * item.quantity).toFixed(2);
+
+      // Devolve o produto antigo ao estoque, automaticamente, se ele não
+      // era sob encomenda (se era, não tinha baixado estoque — não há o
+      // que devolver).
+      if (oldProduct && !isProductOnPreOrder(oldProduct)) {
+        const oldFlavors = await db.select({ productFlavorId: orderItemFlavors.productFlavorId, flavorName: orderItemFlavors.flavorName })
+          .from(orderItemFlavors).where(eq(orderItemFlavors.orderItemId, item.id));
+        const flavorIds = oldFlavors.map(f => f.productFlavorId).filter((id): id is number => id != null).sort();
+
+        const lotesExistentes = await db.select().from(estoqueAtual).where(eq(estoqueAtual.productId, item.productId));
+        let loteAlvo: typeof lotesExistentes[number] | undefined;
+        for (const lote of lotesExistentes) {
+          const lf = await db.select({ productFlavorId: estoqueAtualFlavors.productFlavorId }).from(estoqueAtualFlavors).where(eq(estoqueAtualFlavors.estoqueAtualId, lote.id));
+          const loteFlavorIds = lf.map(f => f.productFlavorId).sort();
+          if (JSON.stringify(loteFlavorIds) === JSON.stringify(flavorIds)) { loteAlvo = lote; break; }
+        }
+        if (loteAlvo) {
+          await db.update(estoqueAtual).set({ quantidade: loteAlvo.quantidade + item.quantity }).where(eq(estoqueAtual.id, loteAlvo.id));
+        } else {
+          const novoLote = await db.insert(estoqueAtual).values({ productId: item.productId, quantidade: item.quantity });
+          const novoLoteId = Number((novoLote as any)[0]?.insertId ?? (novoLote as any).insertId);
+          if (flavorIds.length > 0) {
+            await db.insert(estoqueAtualFlavors).values(oldFlavors.filter(f => f.productFlavorId != null).map(f => ({ estoqueAtualId: novoLoteId, productFlavorId: f.productFlavorId!, flavorName: f.flavorName })));
+          }
+        }
+      }
+
+      // O item passa a ser do produto novo, com o preço informado (não o
+      // preço de tabela do produto novo) — e perde os sabores antigos, já
+      // que são de outro produto.
+      await db.delete(orderItemFlavors).where(eq(orderItemFlavors.orderItemId, item.id));
+      await db.update(orderItems).set({
+        productId: input.newProductId,
+        unitPrice: input.newUnitPrice,
+        subtotal: newSubtotal,
+      }).where(eq(orderItems.id, item.id));
+
+      const novoTotal = (Number(order.totalAmount) - Number(item.subtotal) + Number(newSubtotal)).toFixed(2);
+      await db.update(orders).set({ totalAmount: novoTotal }).where(eq(orders.id, order.id));
+
+      // Se o produto novo é de um evento de ingresso e o pedido ainda não
+      // tem número, gera o próximo da sequência agora.
+      if (order.eventId && order.ticketNumber == null) {
+        const [event] = await db.select().from(storeEvents).where(eq(storeEvents.id, order.eventId)).limit(1);
+        if (event?.type === "ingresso") {
+          const numero = await nextTicketNumber(db, order.eventId);
+          await db.update(orders).set({ ticketNumber: numero }).where(eq(orders.id, order.id));
+        }
+      }
+
+      return { success: true };
     }),
 
   create: protectedProcedure

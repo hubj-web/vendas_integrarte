@@ -55,6 +55,20 @@ export default function OrderDetail() {
   const [cancelReason, setCancelReason] = useState("");
   const [statusNotes, setStatusNotes] = useState("");
 
+  const [swapItem, setSwapItem] = useState<{ id: number; productName: string; unitPrice: string } | null>(null);
+  const [swapProductId, setSwapProductId] = useState("");
+  const [swapPrice, setSwapPrice] = useState("");
+  const { data: allProducts = [] } = trpc.catalog.products.list.useQuery(undefined, { enabled: !!swapItem });
+  const swapMutation = trpc.orders.swapItemProduct.useMutation({
+    onSuccess: () => { utils.orders.getById.invalidate({ id: orderId }); toast.success("Produto trocado!"); setSwapItem(null); },
+    onError: e => toast.error(e.message),
+  });
+  function openSwap(item: { id: number; productName: string | null; unitPrice: string }) {
+    setSwapItem({ id: item.id, productName: item.productName ?? "Item", unitPrice: item.unitPrice });
+    setSwapProductId("");
+    setSwapPrice(item.unitPrice);
+  }
+
   const fmt = (v: string) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(parseFloat(v));
 
   if (isLoading) {
@@ -162,6 +176,9 @@ export default function OrderDetail() {
                 <div className="text-right">
                   <p className="text-sm text-muted-foreground">× {item.quantity}</p>
                   <p className="text-sm font-semibold text-primary">{fmt(item.subtotal)}</p>
+                  {user?.role === "admin" && (
+                    <button className="text-xs text-primary underline mt-1" onClick={() => openSwap(item)}>Trocar produto</button>
+                  )}
                 </div>
               </div>
             ))}
@@ -262,6 +279,51 @@ export default function OrderDetail() {
             <Button variant="outline" onClick={() => setCancelOpen(false)}>Voltar</Button>
             <Button onClick={() => { if (!cancelReason.trim()) return toast.error("Justificativa obrigatória."); updateStatusMutation.mutate({ id: orderId, status: "cancelled", cancelReason }); }} className="bg-destructive text-white" disabled={updateStatusMutation.isPending}>
               {updateStatusMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}Cancelar Pedido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Trocar produto de um item */}
+      <Dialog open={!!swapItem} onOpenChange={(open) => !open && setSwapItem(null)}>
+        <DialogContent className="bg-card border-border max-w-sm">
+          <DialogHeader><DialogTitle>Trocar produto</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Troca <strong>{swapItem?.productName}</strong> por outro produto, mantendo (ou ajustando) o valor já cobrado — não usa o preço de tabela do produto novo.
+            </p>
+            <div className="space-y-2">
+              <Label>Novo produto</Label>
+              <Select value={swapProductId} onValueChange={setSwapProductId}>
+                <SelectTrigger className="bg-input"><SelectValue placeholder="Selecione o produto" /></SelectTrigger>
+                <SelectContent>
+                  {allProducts.filter((p: any) => p.active).map((p: any) => (
+                    <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Preço unitário a manter</Label>
+              <input
+                type="number" step="0.01" min="0" value={swapPrice} onChange={e => setSwapPrice(e.target.value)}
+                className="w-full h-9 rounded-md border border-input bg-input px-3 text-sm"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Se o produto antigo tinha estoque (não era sob encomenda), a quantidade volta pro estoque automaticamente. Se o produto novo for de um evento de ingresso e o pedido ainda não tiver número, um número novo é gerado agora.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSwapItem(null)}>Cancelar</Button>
+            <Button
+              onClick={() => {
+                if (!swapProductId || !swapPrice) return toast.error("Escolha o produto e o preço.");
+                swapMutation.mutate({ orderItemId: swapItem!.id, newProductId: Number(swapProductId), newUnitPrice: swapPrice });
+              }}
+              className="bg-primary text-primary-foreground" disabled={swapMutation.isPending}
+            >
+              {swapMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}Confirmar troca
             </Button>
           </DialogFooter>
         </DialogContent>
