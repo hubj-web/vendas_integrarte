@@ -8,6 +8,7 @@ import {
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { googleMapsClient } from "../google-maps";
+import { calculateRouteTotalDistance, orderStopsByNearestNeighbor, planRoutes, twoOptImprove, type RouteStrategy } from "../routeBalancing";
 
 // ─── TIPOS ───────────────────────────────────────────────────────────────────
 
@@ -28,12 +29,34 @@ interface OrderWithLocation {
   deliveryMethodName: string | null;
   latitude?: number;
   longitude?: number;
+  // Preenchidos na geração das rotas:
+  /** Bairro usado pra agrupar — o do ENDEREÇO DA ENTREGA (via Google), não o do cadastro do cliente. */
+  groupNeighborhood?: string | null;
+  /** De onde veio o endereço usado: "entrega" (endereço próprio do pedido) ou "cadastro" (endereço do cliente). */
+  addressSource?: "entrega" | "cadastro";
+  addressUsed?: string;
+  /** ok = achou o endereço; aproximado = achou só a região/bairro; falhou = não achou (usou o centro da cidade). */
+  locationQuality?: "ok" | "aproximado" | "falhou";
 }
 
-function buildFullAddress(o: OrderWithLocation): string {
-  if (o.deliveryAddress && o.deliveryAddress.length > 10) return o.deliveryAddress;
+type AddressSource = Pick<OrderWithLocation, "deliveryAddress" | "customerStreet" | "customerNumber" | "customerNeighborhood" | "customerCity">;
+
+/**
+ * Escolhe o endereço que a rota deve usar. REGRA: se o pedido tem endereço de
+ * entrega próprio, ele SEMPRE vale — só cai no endereço do cadastro do cliente
+ * quando o pedido não tem nenhum. Devolve também de onde veio, pra mostrar na tela.
+ */
+function resolveAddress(o: AddressSource): { text: string; source: "entrega" | "cadastro" } {
+  const delivery = (o.deliveryAddress ?? "").trim();
+  if (delivery.length >= 5) {
+    // Texto entre parênteses (complemento, referência) atrapalha o Google — tira só pra geocodificar.
+    const clean = delivery.replace(/\s*\([^)]*\)/g, "").replace(/\s{2,}/g, " ").trim();
+    // Endereço digitado sem cidade ("Rua A, 123") pode cair em outra cidade — completa com a do cliente.
+    const hasCity = /\bmg\b|minas gerais|uberl[aâ]ndia/i.test(clean) || (o.customerCity ? clean.toLowerCase().includes(o.customerCity.toLowerCase()) : false);
+    return { text: hasCity ? clean : `${clean}, ${o.customerCity || "Uberlândia"}, MG`, source: "entrega" };
+  }
   const parts = [o.customerStreet, o.customerNumber, o.customerNeighborhood, o.customerCity, "MG"];
-  return parts.filter(Boolean).join(", ");
+  return { text: parts.filter(Boolean).join(", "), source: "cadastro" };
 }
 
 // Coordenadas aproximadas dos bairros de Uberlândia para fallback
@@ -136,193 +159,6 @@ async function calculateDistanceMatrix(
 
 // ─── FUNÇÕES AUXILIARES ─────────────────────────────────────────────────────
 
-/**
- * Ordena os pedidos dentro de uma rota usando o algoritmo do vizinho mais próximo
- * baseado em uma matriz de distância real.
- */
-function orderStopsByNearestNeighbor(
-  ordersInRoute: number[],
-  originIndex: number,
-  distanceMatrix: number[][]
-): number[] {
-  if (ordersInRoute.length <= 1) return ordersInRoute;
-
-  const remaining = [...ordersInRoute];
-  const ordered: number[] = [];
-  let currentIdx = originIndex;
-
-  while (remaining.length > 0) {
-    let nearestIdx = 0;
-    let nearestDist = Infinity;
-
-    for (let i = 0; i < remaining.length; i++) {
-      const raw = distanceMatrix?.[currentIdx]?.[remaining[i]];
-      const dist = typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearestIdx = i;
-      }
-    }
-
-    const chosen = remaining.splice(nearestIdx, 1)[0];
-    ordered.push(chosen);
-    currentIdx = chosen;
-  }
-
-  return ordered;
-}
-
-/**
- * Melhora uma rota já ordenada (ex: pelo vizinho mais próximo) usando a técnica
- * "2-opt": testa inverter trechos da rota e mantém a troca sempre que isso reduzir
- * o KM total. O "vizinho mais próximo" é rápido, mas decide passo a passo sem
- * enxergar o caminho inteiro — por isso às vezes deixa uma parada "esquecida"
- * que exige voltar depois, aumentando o total. O 2-opt corrige esse tipo de caso.
- */
-function twoOptImprove(
-  route: number[],
-  originIndex: number,
-  distanceMatrix: number[][]
-): number[] {
-  if (route.length < 3) return route;
-
-  const safeDist = (i: number, j: number): number => {
-    const v = distanceMatrix?.[i]?.[j];
-    return typeof v === "number" && Number.isFinite(v) ? v : 0;
-  };
-
-  const totalDistance = (r: number[]): number => {
-    let total = safeDist(originIndex, r[0]);
-    for (let i = 1; i < r.length; i++) total += safeDist(r[i - 1], r[i]);
-    total += safeDist(r[r.length - 1], originIndex);
-    return total;
-  };
-
-  let best = [...route];
-  let bestDistance = totalDistance(best);
-
-  // Limite de segurança: com rotas de até ~20 paradas isso termina bem rápido;
-  // o limite existe só pra garantir que nunca trave em rotas gigantes.
-  const MAX_PASSES = 40;
-  let improved = true;
-  let passes = 0;
-
-  while (improved && passes < MAX_PASSES) {
-    improved = false;
-    passes++;
-
-    for (let i = 0; i < best.length - 1; i++) {
-      for (let j = i + 1; j < best.length; j++) {
-        const candidate = [
-          ...best.slice(0, i),
-          ...best.slice(i, j + 1).reverse(),
-          ...best.slice(j + 1),
-        ];
-        const candidateDistance = totalDistance(candidate);
-
-        if (candidateDistance < bestDistance - 0.01) {
-          best = candidate;
-          bestDistance = candidateDistance;
-          improved = true;
-        }
-      }
-    }
-  }
-
-  return best;
-}
-
-/**
- * Calcula a distância total de uma rota (origem → paradas → origem) usando a matriz de distância.
- * Inclui a volta ao ponto de origem para o KM total real.
- */
-function calculateRouteTotalDistance(
-  orderedStops: number[],
-  originIndex: number,
-  distanceMatrix: number[][]
-): number {
-  if (orderedStops.length === 0) return 0;
-
-  // Lê um valor da matriz com segurança — se por algum motivo a matriz não tiver
-  // aquela posição preenchida (índice fora do esperado, célula ausente etc.),
-  // usa 0 em vez de deixar "undefined"/NaN se espalhar pelo resto da soma.
-  const safeDist = (i: number, j: number): number => {
-    const v = distanceMatrix?.[i]?.[j];
-    return typeof v === "number" && Number.isFinite(v) ? v : 0;
-  };
-
-  let total = safeDist(originIndex, orderedStops[0]); // origem → primeira parada
-
-  for (let i = 1; i < orderedStops.length; i++) {
-    total += safeDist(orderedStops[i - 1], orderedStops[i]);
-  }
-
-  total += safeDist(orderedStops[orderedStops.length - 1], originIndex); // última parada → origem
-
-  return total;
-}
-
-/**
- * Agrupa pedidos em rotas balanceadas por KM total usando a matriz de distância real.
- * Algoritmo: First-Fit Decreasing (FFD) adaptado para balanceamento de distância.
- *
- * IMPORTANTE sobre índices: `distanceMatrix` inclui a origem no índice 0 e cada
- * pedido de `ordersToProcess[i]` no índice `i + 1`. As funções auxiliares
- * `orderStopsByNearestNeighbor` e `calculateRouteTotalDistance` esperam receber
- * e retornar ÍNDICES DE MATRIZ (já deslocados). Por isso, aqui dentro trabalhamos
- * com índices de matriz (`matrixIdx = i + 1`) e só convertemos de volta para
- * índices de `ordersToProcess` (0-based) no retorno final.
- */
-function balanceRoutesByDistance(
-  ordersToProcess: OrderWithLocation[],
-  allPoints: { latitude: number; longitude: number }[],
-  originIndex: number,
-  distanceMatrix: number[][],
-  numRoutes: number
-): number[][] {
-  const clusters: number[][] = Array.from({ length: numRoutes }, () => []);
-  const routeTotalDistance: number[] = Array(numRoutes).fill(0);
-
-  // Ordenar pedidos pela distância da origem (mais distantes primeiro) para melhor balanceamento.
-  // matrixIdx = i + 1 porque o índice 0 da matriz é a origem.
-  const ordersWithDistance = ordersToProcess.map((o, i) => ({
-    matrixIdx: i + 1,
-    distFromOrigin: distanceMatrix[originIndex][i + 1],
-  })).sort((a, b) => b.distFromOrigin - a.distFromOrigin);
-
-  for (const order of ordersWithDistance) {
-    const matrixIdx = order.matrixIdx;
-
-    // Encontrar a rota que resultará no menor KM total após adicionar este pedido
-    let bestRoute = 0;
-    let bestNewDistance = Infinity;
-
-    for (let r = 0; r < numRoutes; r++) {
-      // Simular adição à rota r: recalcular a rota completa com vizinho mais próximo
-      const simulatedCluster = [...clusters[r], matrixIdx];
-      const simulatedOrdered = orderStopsByNearestNeighbor(simulatedCluster, originIndex, distanceMatrix);
-      const simulatedDistance = calculateRouteTotalDistance(simulatedOrdered, originIndex, distanceMatrix);
-
-      if (simulatedDistance < bestNewDistance) {
-        bestNewDistance = simulatedDistance;
-        bestRoute = r;
-      }
-    }
-
-    clusters[bestRoute].push(matrixIdx);
-    routeTotalDistance[bestRoute] = bestNewDistance;
-  }
-
-  // Ordenar paradas dentro de cada rota usando vizinho mais próximo
-  for (let r = 0; r < numRoutes; r++) {
-    if (clusters[r].length > 0) {
-      clusters[r] = orderStopsByNearestNeighbor(clusters[r], originIndex, distanceMatrix);
-    }
-  }
-
-  // Converter de índice de matriz de volta para índice de ordersToProcess (0-based)
-  return clusters.map(cluster => cluster.map(matrixIdx => matrixIdx - 1));
-}
 
 /**
  * Agrupa pedidos do mesmo bairro em um único grupo "atômico" (não são separados entre
@@ -365,7 +201,8 @@ function groupOrderIndicesByNeighborhood(ordersToProcess: OrderWithLocation[]): 
   const keyForIndex: string[] = [];
 
   ordersToProcess.forEach((o, i) => {
-    const normalized = normalizeNeighborhood(o.customerNeighborhood);
+    // groupNeighborhood = bairro do endereço realmente usado (null = desconhecido). Só cai no do cadastro se não foi calculado.
+    const normalized = normalizeNeighborhood(o.groupNeighborhood !== undefined ? o.groupNeighborhood : o.customerNeighborhood);
     const key = normalized || `__sem_bairro_${i}`;
     keyForIndex[i] = key;
     (groups[key] ??= []).push(i);
@@ -635,23 +472,20 @@ export async function recalculateAndSaveRouteDistances(
   const orderDetails: typeof routeOrderRows = [];
 
   for (const row of routeOrderRows) {
-    const addr = row.deliveryAddress && row.deliveryAddress.length > 10
-      ? row.deliveryAddress
-      : [row.customerStreet, row.customerNumber, row.customerNeighborhood, row.customerCity, "MG"].filter(Boolean).join(", ");
+    // Mesma regra da geração: o endereço da ENTREGA do pedido sempre vale.
+    const { text: addr, source } = resolveAddress(row);
 
     let coords = await googleMapsClient.geocode(addr);
 
-    if (!coords && row.customerNeighborhood) {
-      const neighborhood = row.customerNeighborhood.toLowerCase().trim();
-      const fallback = NEIGHBORHOOD_COORDS[neighborhood];
+    // Só recorre ao bairro do cadastro quando o endereço usado É o do cadastro.
+    if (!coords && source === "cadastro" && row.customerNeighborhood) {
+      const fallback = NEIGHBORHOOD_COORDS[normalizeNeighborhood(row.customerNeighborhood)] ?? NEIGHBORHOOD_COORDS[row.customerNeighborhood.toLowerCase().trim()];
       if (fallback) coords = { latitude: fallback.lat, longitude: fallback.lng };
     }
 
     if (!coords) {
-      coords = {
-        latitude: -18.9186 + (Math.random() - 0.5) * 0.01,
-        longitude: -48.2772 + (Math.random() - 0.5) * 0.01
-      };
+      // Posição fixa (centro da cidade) — sem sorteio, pra o resultado não variar a cada cálculo.
+      coords = { latitude: -18.9186, longitude: -48.2772 };
     }
 
     points.push(coords);
@@ -788,6 +622,8 @@ export const routeOptimizationRouter = router({
       numRoutes: z.number().int().min(1),
       startingAddress: z.string(),
       routeNamePrefix: z.string().default("Rota"),
+      // balanced = equilibra KM + nº de entregas (padrão) | km = só KM | neighborhoods = bairro inteiro numa rota só (modo antigo)
+      strategy: z.enum(["balanced", "km", "neighborhoods"]).default("balanced"),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -820,49 +656,67 @@ export const routeOptimizationRouter = router({
 
       const ordersToProcess = orderRows as OrderWithLocation[];
       const numRoutes = Math.min(input.numRoutes, ordersToProcess.length);
+      const warnings: string[] = [];
 
-      // 2. Geocodificação dos pedidos e da origem
-      console.log(`[Roteirização] Iniciando geocodificação de ${ordersToProcess.length} pedidos...`);
+      // 2. Localiza a origem e cada pedido. REGRA: o endereço da ENTREGA do pedido
+      // sempre vale; o do cadastro do cliente só é usado quando o pedido não tem um.
+      // E o bairro usado pra agrupar é o do endereço realmente usado (via Google).
+      console.log(`[Roteirização] Localizando ${ordersToProcess.length} pedidos (estratégia: ${input.strategy})...`);
+      const CITY_CENTER = { latitude: -18.9186, longitude: -48.2772 };
+      const originCoords = (await googleMapsClient.geocode(input.startingAddress)) || CITY_CENTER;
 
-      const originCoords = await googleMapsClient.geocode(input.startingAddress) || { latitude: -18.9186, longitude: -48.2772 };
-      console.log(`[Roteirização] Coordenadas da origem: ${originCoords.latitude}, ${originCoords.longitude}`);
+      if (!googleMapsClient.isConfigured()) {
+        warnings.push("O Google Maps não está configurado neste ambiente — as posições foram estimadas pelo bairro e os KM são aproximados.");
+      }
 
-      const shipments = await Promise.all(ordersToProcess.map(async (o) => {
-        const fullAddress = buildFullAddress(o);
-        let coords = await googleMapsClient.geocode(fullAddress);
+      await Promise.all(ordersToProcess.map(async (o) => {
+        const { text, source } = resolveAddress(o);
+        o.addressUsed = text;
+        o.addressSource = source;
 
-        // Fallback para bairro se a geocodificação falhar
-        if (!coords && o.customerNeighborhood) {
-          const neighborhood = o.customerNeighborhood.toLowerCase().trim();
-          const fallback = NEIGHBORHOOD_COORDS[neighborhood];
-          if (fallback) {
-            coords = { latitude: fallback.lat, longitude: fallback.lng };
-          }
+        const geo = await googleMapsClient.geocodeDetailed(text);
+        if (geo) {
+          o.latitude = geo.latitude;
+          o.longitude = geo.longitude;
+          // Sem bairro no resultado do Google: só recorre ao do cadastro se o endereço usado FOR o do cadastro.
+          o.groupNeighborhood = geo.neighborhood ?? (source === "cadastro" ? o.customerNeighborhood : null);
+          o.locationQuality = geo.approximate ? "aproximado" : "ok";
+          return;
         }
 
-        // Fallback final (centro) com um pequeno offset
-        if (!coords) {
-          coords = {
-            latitude: -18.9186 + (Math.random() - 0.5) * 0.01,
-            longitude: -48.2772 + (Math.random() - 0.5) * 0.01
-          };
-          console.warn(`[Roteirização] Geocodificação falhou para pedido #${o.id}. Usando coordenadas aproximadas.`);
+        // Não localizou: tenta a posição aproximada do bairro — mas só se o endereço
+        // usado é o do cadastro (se for um endereço de entrega próprio, o bairro do
+        // cadastro não diz nada sobre ele).
+        const approx = source === "cadastro" && o.customerNeighborhood
+          ? NEIGHBORHOOD_COORDS[normalizeNeighborhood(o.customerNeighborhood)] ?? NEIGHBORHOOD_COORDS[o.customerNeighborhood.toLowerCase().trim()]
+          : undefined;
+        if (approx) {
+          o.latitude = approx.lat;
+          o.longitude = approx.lng;
+          o.groupNeighborhood = o.customerNeighborhood;
+          o.locationQuality = "aproximado";
+        } else {
+          // Posição fixa (centro) — sem sorteio, pra o resultado ser sempre o mesmo.
+          o.latitude = CITY_CENTER.latitude;
+          o.longitude = CITY_CENTER.longitude;
+          o.groupNeighborhood = source === "cadastro" ? o.customerNeighborhood : null;
+          o.locationQuality = "falhou";
         }
-
-        o.latitude = coords.latitude;
-        o.longitude = coords.longitude;
-
-        return {
-          id: o.id,
-          location: coords,
-          label: `Pedido #${o.id} - ${o.customerName}`,
-        };
       }));
+
+      for (const o of ordersToProcess) {
+        const label = `Pedido #${o.id} (${o.customerName ?? "sem nome"})`;
+        if (o.locationQuality === "falhou") {
+          warnings.push(`${label}: não consegui localizar "${o.addressUsed}" — usei o centro da cidade, então essa parada pode ficar na rota errada. Confira o endereço do pedido.`);
+        } else if (o.locationQuality === "aproximado") {
+          warnings.push(`${label}: endereço localizado só de forma aproximada ("${o.addressUsed}") — confira se está completo.`);
+        }
+      }
 
       // Construir lista de todos os pontos (origem + pedidos)
       const allPoints: { latitude: number; longitude: number }[] = [
         originCoords,
-        ...shipments.map(s => s.location),
+        ...ordersToProcess.map(o => ({ latitude: o.latitude!, longitude: o.longitude! })),
       ];
 
       // 3. Calcular matriz de distância real via Distance Matrix API
@@ -875,28 +729,16 @@ export const routeOptimizationRouter = router({
 
         if (distanceMatrix) {
           useDistanceMatrix = true;
-          console.log(`[Roteirização] Matriz de distância calculada com sucesso (${allPoints.length}×${allPoints.length}).`);
         } else {
-          console.warn("[Roteirização] Falha ao calcular matriz de distância. Usando fallback euclidiano.");
+          warnings.push("Não consegui as distâncias reais de estrada no Google — usei distância em linha reta, então os KM são aproximados.");
         }
       }
 
-      // 4. Gerar clusters de rota — SEMPRE agrupando por bairro primeiro (pedidos do
-      // mesmo bairro nunca são separados entre rotas diferentes), usando a matriz de
-      // distância real (via Google Distance Matrix) quando disponível, ou distância
-      // euclidiana como fallback. Não usamos mais a Route Optimization API do Google
-      // para decidir o agrupamento entre veículos, porque ela não tem noção de bairro
-      // e podia separar entregas vizinhas em rotas diferentes.
-      let routeClusters: number[][];
-      let routeMetrics: { totalDistanceMeters: number; visits: { shipmentIndex: number; distanceMeters: number }[] }[];
-      const originIdx = 0; // origem é sempre o índice 0 na matriz
-
+      // 4. Dividir as paradas entre as rotas
       let matrixForClustering: number[][];
       if (useDistanceMatrix && distanceMatrix) {
-        console.log(`[Roteirização] Agrupando por bairro usando distância real de estrada (${numRoutes} rotas).`);
         matrixForClustering = distanceMatrix;
       } else {
-        console.log(`[Roteirização] Agrupando por bairro usando distância euclidiana (${numRoutes} rotas).`);
         const n = allPoints.length;
         matrixForClustering = Array.from({ length: n }, (_, i) =>
           Array.from({ length: n }, (_, j) => {
@@ -911,8 +753,22 @@ export const routeOptimizationRouter = router({
         );
       }
 
+      let routeClusters: number[][];
+      let routeMetrics: { totalDistanceMeters: number; visits: { shipmentIndex: number; distanceMeters: number }[] }[];
+      const originIdx = 0; // origem é sempre o índice 0 na matriz
+
       try {
-        routeClusters = balanceRoutesByNeighborhood(ordersToProcess, originIdx, matrixForClustering, numRoutes);
+        if (input.strategy === "neighborhoods") {
+          // Modo antigo: bairro inteiro numa rota só.
+          routeClusters = balanceRoutesByNeighborhood(ordersToProcess, originIdx, matrixForClustering, numRoutes);
+        } else {
+          // Bairros iguais (mesmo com pequenos erros de digitação) recebem a mesma chave.
+          const neighborhoodKeys: string[] = Array(ordersToProcess.length).fill("");
+          groupOrderIndicesByNeighborhood(ordersToProcess).forEach((group, gi) => group.forEach(i => { neighborhoodKeys[i] = `g${gi}`; }));
+          routeClusters = planRoutes({
+            neighborhoodKeys, originIndex: originIdx, matrix: matrixForClustering, numRoutes, strategy: input.strategy,
+          });
+        }
 
         const safeMatrixRead = (i: number, j: number): number => {
           const v = matrixForClustering?.[i]?.[j];
@@ -924,33 +780,18 @@ export const routeOptimizationRouter = router({
           // cluster contém índices de ordersToProcess (0-based); na matriz de
           // distância a origem ocupa o índice 0, então o pedido i está no índice i+1.
           const visits = cluster.map((orderIdx, i) => {
-            let distFromPrev: number;
-            if (i === 0) {
-              distFromPrev = safeMatrixRead(originIdx, orderIdx + 1);
-            } else {
-              distFromPrev = safeMatrixRead(cluster[i - 1] + 1, orderIdx + 1);
-            }
+            const distFromPrev = i === 0
+              ? safeMatrixRead(originIdx, orderIdx + 1)
+              : safeMatrixRead(cluster[i - 1] + 1, orderIdx + 1);
             totalDist += distFromPrev;
-            return {
-              shipmentIndex: orderIdx,
-              distanceMeters: distFromPrev,
-            };
+            return { shipmentIndex: orderIdx, distanceMeters: distFromPrev };
           });
-
-          // Adicionar distância de volta à origem
-          if (cluster.length > 0) {
-            totalDist += safeMatrixRead(cluster[cluster.length - 1] + 1, originIdx);
-          }
-
-          return {
-            totalDistanceMeters: Math.round(totalDist),
-            visits,
-          };
+          if (cluster.length > 0) totalDist += safeMatrixRead(cluster[cluster.length - 1] + 1, originIdx);
+          return { totalDistanceMeters: Math.round(totalDist), visits };
         });
       } catch (err) {
-        // Registra o erro completo (com stack) nos logs do servidor — se isso
-        // acontecer de novo, dá pra ver exatamente a linha que quebrou, em vez
-        // de só a mensagem genérica que chega no navegador.
+        // Registra o erro completo (com stack) nos logs do servidor, em vez de só a
+        // mensagem genérica que chega no navegador.
         console.error("[Roteirização] Falha ao agrupar/calcular rotas:", err);
         console.error("[Roteirização] Stack trace:", err instanceof Error ? err.stack : String(err));
         console.error("[Roteirização] Contexto: numOrders=", ordersToProcess.length, "numRoutes=", numRoutes, "matrixSize=", matrixForClustering?.length);
@@ -960,9 +801,11 @@ export const routeOptimizationRouter = router({
         });
       }
 
-      // 6. Salva as rotas no banco
+      // 5. Salva as rotas no banco
       const createdRouteIds: number[] = [];
       const now = new Date();
+      const routesSummary: { routeId: number; name: string; stops: number; km: number; neighborhoods: string[] }[] = [];
+      const routeNameByOrderId = new Map<number, string>();
 
       for (let i = 0; i < routeClusters.length; i++) {
         const cluster = routeClusters[i];
@@ -971,9 +814,10 @@ export const routeOptimizationRouter = router({
         const ordersInRoute = cluster.map((idx) => ordersToProcess[idx]);
         const metrics = routeMetrics[i];
         const totalDistance = metrics.totalDistanceMeters / 1000;
+        const routeName = `${input.routeNamePrefix} #${i + 1}`;
 
         const [newRoute] = await db.insert(deliveryRoutes).values({
-          name: `${input.routeNamePrefix} #${i + 1}`,
+          name: routeName,
           deliveryDate: now,
           deliveryUserId: 0,
           startingAddress: input.startingAddress,
@@ -989,6 +833,7 @@ export const routeOptimizationRouter = router({
           const order = ordersInRoute[j];
           const visit = metrics.visits[j];
           const distFromPrev = visit?.distanceMeters ? visit.distanceMeters / 1000 : 0;
+          routeNameByOrderId.set(order.id, routeName);
 
           await db.insert(routeOrders).values({
             routeId,
@@ -1000,23 +845,39 @@ export const routeOptimizationRouter = router({
           // O status do pedido só vira "Em Rota" quando a rota for de fato iniciada
           // (entregador sair para entrega) — não na criação da rota.
         }
+
+        routesSummary.push({
+          routeId, name: routeName, stops: ordersInRoute.length, km: Math.round(totalDistance * 10) / 10,
+          neighborhoods: Array.from(new Set(ordersInRoute.map(o => o.groupNeighborhood).filter((b): b is string => !!b))),
+        });
       }
 
       // Logar resumo das rotas criadas
-      console.log(`[Roteirização] === Resumo das Rotas ===`);
-      for (let i = 0; i < routeMetrics.length; i++) {
-        const km = (routeMetrics[i].totalDistanceMeters / 1000).toFixed(1);
-        const stops = routeClusters[i]?.length || 0;
-        console.log(`[Roteirização] Rota #${i + 1}: ${stops} paradas, ${km} km`);
-      }
+      console.log(`[Roteirização] === Resumo das Rotas (${input.strategy}) ===`);
+      for (const r of routesSummary) console.log(`[Roteirização] ${r.name}: ${r.stops} paradas, ${r.km} km`);
+
+      const strategyLabel = input.strategy === "balanced" ? "KM e nº de entregas equilibrados"
+        : input.strategy === "km" ? "KM equilibrado"
+        : "bairros inteiros juntos";
 
       return {
         totalRoutes: createdRouteIds.length,
         totalOrders: input.selectedOrderIds.length,
         routeIds: createdRouteIds,
-        message: `${createdRouteIds.length} rota(s) criada(s) com sucesso! (agrupadas por bairro${
-          useDistanceMatrix ? ", com distância real de estrada" : ""
-        })`,
+        strategy: input.strategy,
+        message: `${createdRouteIds.length} rota(s) criada(s) — ${strategyLabel}${useDistanceMatrix ? ", com distância real de estrada" : ""}`,
+        routes: routesSummary,
+        warnings,
+        // Relatório de cada parada: de onde veio o endereço usado, em que bairro foi agrupada e em que rota ficou.
+        stops: ordersToProcess.map(o => ({
+          orderId: o.id,
+          customerName: o.customerName ?? "—",
+          address: o.addressUsed ?? "",
+          addressSource: o.addressSource ?? "cadastro",
+          neighborhood: o.groupNeighborhood ?? null,
+          quality: o.locationQuality ?? "ok",
+          routeName: routeNameByOrderId.get(o.id) ?? "—",
+        })),
       };
     }),
 

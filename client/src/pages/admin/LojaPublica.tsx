@@ -218,6 +218,15 @@ export default function LojaPublica() {
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
 
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
+  const [editingEventId, setEditingEventId] = useState<number | null>(null);
+  function openEditEvent(ev: any) {
+    setEditingEventId(ev.id);
+    setEventForm({
+      name: ev.name, type: ev.type, description: ev.description ?? "",
+      eventDate: ev.eventDate ? new Date(ev.eventDate).toISOString().slice(0, 16) : "",
+    });
+    setEventDialogOpen(true);
+  }
   const [eventForm, setEventForm] = useState({ name: "", type: "produtos" as "ingresso" | "produtos", description: "", eventDate: "" });
 
   const [categoriesDialogEventId, setCategoriesDialogEventId] = useState<number | null>(null);
@@ -309,15 +318,17 @@ export default function LojaPublica() {
       )}
 
       <Tabs defaultValue="eventos">
-        <TabsList>
-          <TabsTrigger value="eventos">Eventos</TabsTrigger>
-          <TabsTrigger value="regular">Venda Regular</TabsTrigger>
-          <TabsTrigger value="pagamento">Formas de Pagamento</TabsTrigger>
-          <TabsTrigger value="aparencia">Aparência</TabsTrigger>
-          <TabsTrigger value="produtos">Produtos na Loja</TabsTrigger>
-          <TabsTrigger value="entregas">Formas de Entrega</TabsTrigger>
-          <TabsTrigger value="pedidos">Pedidos ({orders.length})</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+          <TabsList className="w-max">
+            <TabsTrigger value="eventos">Eventos</TabsTrigger>
+            <TabsTrigger value="regular">Venda Regular</TabsTrigger>
+            <TabsTrigger value="pagamento">Formas de Pagamento</TabsTrigger>
+            <TabsTrigger value="aparencia">Aparência</TabsTrigger>
+            <TabsTrigger value="produtos">Produtos na Loja</TabsTrigger>
+            <TabsTrigger value="entregas">Formas de Entrega</TabsTrigger>
+            <TabsTrigger value="pedidos">Pedidos ({orders.length})</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="eventos" className="space-y-3 pt-3">
           <div className="flex items-start justify-between gap-3">
@@ -326,7 +337,7 @@ export default function LojaPublica() {
               adicionais — um baile, uma festa — cada um com suas próprias categorias habilitadas.
               Quando mais de uma opção estiver aberta ao mesmo tempo, o cliente escolhe qual quer ver ao entrar na loja.
             </p>
-            <Button className="gap-1.5 shrink-0" onClick={() => { setEventForm({ name: "", type: "produtos", description: "", eventDate: "" }); setEventDialogOpen(true); }}>
+            <Button className="gap-1.5 shrink-0" onClick={() => { setEditingEventId(null); setEventForm({ name: "", type: "produtos", description: "", eventDate: "" }); setEventDialogOpen(true); }}>
               <Plus className="w-4 h-4" /> Novo Evento
             </Button>
           </div>
@@ -363,13 +374,14 @@ export default function LojaPublica() {
                         <Badge key={c.id} variant="secondary">{c.name}</Badge>
                       ))}
                     </div>
-                    <div className="flex gap-2 shrink-0">
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         size="sm" variant="outline" disabled={uploadEventImage.isPending && uploadingEventId === ev.id}
                         onClick={() => { setUploadingEventId(ev.id); eventFileInputRef.current?.click(); }}
                       >
                         {ev.imageUrl ? "Trocar imagem" : "Adicionar imagem"}
                       </Button>
+                      <Button size="sm" variant="outline" onClick={() => openEditEvent(ev)}>Editar</Button>
                       <Button size="sm" variant="outline" onClick={() => openCategoriesDialog(ev)}>Categorias</Button>
                       <Button size="sm" variant="outline" onClick={() => openSaleWindowDialog(ev)}>Janela de venda</Button>
                       <Button size="sm" variant="outline" onClick={() => openPaymentDialog(ev)}>Pagamento</Button>
@@ -901,7 +913,7 @@ export default function LojaPublica() {
 
       <Dialog open={eventDialogOpen} onOpenChange={setEventDialogOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Novo Evento</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editingEventId ? "Editar Evento" : "Novo Evento"}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div>
               <Label>Nome</Label>
@@ -929,17 +941,25 @@ export default function LojaPublica() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEventDialogOpen(false)}>Cancelar</Button>
             <Button
-              disabled={createEvent.isPending}
+              disabled={createEvent.isPending || updateEvent.isPending}
               onClick={() => {
                 if (!eventForm.name.trim()) return toast.error("Dê um nome ao evento.");
-                createEvent.mutate({
-                  name: eventForm.name, type: eventForm.type,
-                  description: eventForm.description || undefined,
-                  eventDate: eventForm.eventDate || undefined,
-                });
+                if (editingEventId) {
+                  updateEvent.mutate({
+                    id: editingEventId, name: eventForm.name, type: eventForm.type,
+                    description: eventForm.description || undefined,
+                    eventDate: eventForm.eventDate || null,
+                  }, { onSuccess: () => { toast.success("Evento atualizado!"); setEventDialogOpen(false); } });
+                } else {
+                  createEvent.mutate({
+                    name: eventForm.name, type: eventForm.type,
+                    description: eventForm.description || undefined,
+                    eventDate: eventForm.eventDate || undefined,
+                  });
+                }
               }}
             >
-              Criar
+              {editingEventId ? "Salvar" : "Criar"}
             </Button>
           </DialogFooter>
         </DialogContent>

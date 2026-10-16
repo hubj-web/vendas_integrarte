@@ -139,6 +139,57 @@ export const googleMapsClient = {
   },
 
   /**
+   * Igual ao geocode, mas devolve também o BAIRRO e a cidade do endereço
+   * encontrado (é com o bairro do endereço da ENTREGA, e não o do cadastro do
+   * cliente, que as rotas agrupam as paradas), e um aviso quando o Google só
+   * achou uma região aproximada em vez do endereço exato.
+   */
+  async geocodeDetailed(address: string): Promise<{
+    latitude: number;
+    longitude: number;
+    neighborhood: string | null;
+    city: string | null;
+    formattedAddress: string;
+    approximate: boolean;
+  } | null> {
+    if (!this.isConfigured()) return null;
+
+    try {
+      const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+      url.searchParams.append("address", address);
+      url.searchParams.append("region", "br");
+      url.searchParams.append("language", "pt-BR");
+      url.searchParams.append("components", "country:BR");
+      url.searchParams.append("key", ENV.googleMapsApiKey);
+
+      const response = await fetch(url.toString());
+      if (!response.ok) return null;
+
+      const data = await response.json();
+      const result = data.status === "OK" ? data.results?.[0] : null;
+      if (!result?.geometry?.location) {
+        console.warn(`[Google Maps] Geocodificação falhou para: "${address}". Status: ${data.status}`);
+        return null;
+      }
+
+      const components: { long_name: string; types: string[] }[] = result.address_components ?? [];
+      const find = (...types: string[]) => components.find(c => types.some(t => c.types.includes(t)))?.long_name ?? null;
+
+      return {
+        latitude: result.geometry.location.lat,
+        longitude: result.geometry.location.lng,
+        neighborhood: find("sublocality_level_1", "sublocality", "neighborhood"),
+        city: find("administrative_area_level_2", "locality"),
+        formattedAddress: result.formatted_address ?? address,
+        approximate: result.geometry.location_type === "APPROXIMATE" || result.partial_match === true,
+      };
+    } catch (error) {
+      console.error("[Google Maps] Erro na geocodificação detalhada:", error);
+      return null;
+    }
+  },
+
+  /**
    * Otimiza rotas para múltiplos entregadores usando a Google Maps Route Optimization API
    * 
    * A estrutura do request segue a documentação oficial:

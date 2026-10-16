@@ -30,6 +30,9 @@ export default function OptimizedRouteGenerator() {
   );
   const [routeNamePrefix, setRouteNamePrefix] = useState("Rota Otimizada");
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [strategy, setStrategy] = useState<"balanced" | "km" | "neighborhoods">("balanced");
+  const [result, setResult] = useState<any>(null);
+  const [showAddresses, setShowAddresses] = useState(false);
   
   // Seleção de pedidos
   const [selectedOrderIds, setSelectedOrderIds] = useState<number[]>([]);
@@ -49,21 +52,43 @@ export default function OptimizedRouteGenerator() {
     );
 
   const generateMutation = trpc.routeOptimization.generateOptimizedRoutes.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
       utils.delivery.routes.list.invalidate();
       utils.delivery.routes.availableOrders.invalidate({});
-      toast.success("Rotas otimizadas geradas com sucesso!");
       setShowConfirmDialog(false);
-      setLocation("/admin/rotas"); // Redireciona para a lista para atribuir entregadores
+      setShowAddresses(false);
+      setResult(data); // mostra o resumo (paradas e KM de cada rota) antes de ir pra lista
     },
     onError: (e) => toast.error(e.message),
   });
 
-  // Agrupa pedidos por bairro
+  // Desfaz as rotas que acabaram de ser criadas (pra tentar de novo com outro modo)
+  const undoMutation = trpc.delivery.routes.delete.useMutation({
+    onSuccess: () => {
+      utils.delivery.routes.list.invalidate();
+      utils.delivery.routes.availableOrders.invalidate({});
+      setResult(null);
+      toast.success("Rotas desfeitas. Escolha outro modo e gere de novo.");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // O pedido tem endereço de entrega PRÓPRIO (diferente do cadastro do cliente)?
+  const norm = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+  const hasOwnDeliveryAddress = (o: { deliveryAddress: string | null; customerStreet: string | null }) => {
+    const d = (o.deliveryAddress ?? "").trim();
+    if (d.length < 5) return false;
+    const street = norm(o.customerStreet ?? "");
+    return !street || !norm(d).includes(street);
+  };
+  const OTHER_ADDRESS_GROUP = "📍 Entrega em outro endereço (diferente do cadastro)";
+
+  // Agrupa pedidos por bairro — quem tem endereço de entrega próprio vai pra um grupo à parte,
+  // em vez de aparecer sob o bairro do cadastro do cliente.
   const ordersByNeighborhood = useMemo(() => {
     const map = new Map<string, typeof availableOrders>();
     for (const order of availableOrders) {
-      const key = order.customerNeighborhood || "Sem bairro";
+      const key = hasOwnDeliveryAddress(order) ? OTHER_ADDRESS_GROUP : (order.customerNeighborhood || "Sem bairro");
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(order);
     }
@@ -125,6 +150,7 @@ export default function OptimizedRouteGenerator() {
       numRoutes,
       startingAddress,
       routeNamePrefix,
+      strategy,
     });
   }
 
@@ -211,9 +237,25 @@ export default function OptimizedRouteGenerator() {
                       className="bg-input w-24"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Os pedidos serão divididos em {numRoutes} rotas com KM equilibrado.
+                      Os pedidos serão divididos em {numRoutes} rota{numRoutes > 1 ? "s" : ""}.
                     </p>
                   </div>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Como dividir as entregas</Label>
+                  <Select value={strategy} onValueChange={(v) => setStrategy(v as typeof strategy)}>
+                    <SelectTrigger className="bg-input"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="balanced">Equilibrar KM e nº de entregas (recomendado)</SelectItem>
+                      <SelectItem value="km">Equilibrar só o KM rodado</SelectItem>
+                      <SelectItem value="neighborhoods">Bairro inteiro na mesma rota (modo antigo)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {strategy === "balanced" && "Mantém os bairros juntos sempre que possível, mas divide um bairro grande entre rotas quando isso deixa o trabalho mais parelho."}
+                    {strategy === "km" && "Foca em deixar o KM de cada rota parecido. Rotas em áreas densas podem ficar com mais entregas que as outras."}
+                    {strategy === "neighborhoods" && "Nunca divide um bairro: todas as entregas do bairro vão na mesma rota. Pode deixar uma rota bem maior que as outras."}
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label>Prefixo do Nome</Label>
@@ -382,7 +424,9 @@ export default function OptimizedRouteGenerator() {
                                   <div className="flex-1 min-w-0">
                                     <p className="text-sm font-medium">{o.customerName}</p>
                                     <p className="text-xs text-muted-foreground truncate">
-                                      {[o.customerStreet, o.customerNumber, o.customerNeighborhood, o.customerCity].filter(Boolean).join(", ") || o.deliveryAddress?.replace(/\s*\([^)]*\)/g, "").trim() || "Sem endereço"}
+                                      {hasOwnDeliveryAddress(o)
+                                        ? <><span className="font-semibold text-amber-600">📍 Entrega: </span>{o.deliveryAddress?.replace(/\s*\([^)]*\)/g, "").trim()}</>
+                                        : ([o.customerStreet, o.customerNumber, o.customerNeighborhood, o.customerCity].filter(Boolean).join(", ") || o.deliveryAddress?.replace(/\s*\([^)]*\)/g, "").trim() || "Sem endereço")}
                                     </p>
                                   </div>
                                   <Badge variant="secondary" className="text-[10px]">{o.deliveryMethodName}</Badge>
@@ -435,8 +479,8 @@ export default function OptimizedRouteGenerator() {
             <div className="bg-muted/20 p-3 rounded-lg space-y-2">
               <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">O que o sistema fará:</p>
               <ul className="text-xs space-y-1.5 text-muted-foreground">
-                <li className="flex gap-2">✅ <strong>Agrupamento:</strong> Pedidos próximos ficarão na mesma rota.</li>
-                <li className="flex gap-2">✅ <strong>Equilíbrio:</strong> As rotas terão KM rodado semelhante.</li>
+                <li className="flex gap-2">✅ <strong>Endereço:</strong> Usa o endereço de entrega do pedido; só usa o do cliente quando o pedido não tem um.</li>
+                <li className="flex gap-2">✅ <strong>Divisão:</strong> {strategy === "balanced" ? "KM e nº de entregas equilibrados, mantendo bairros juntos quando possível." : strategy === "km" ? "KM rodado equilibrado entre as rotas." : "Bairros inteiros na mesma rota (modo antigo)."}</li>
                 <li className="flex gap-2">✅ <strong>Links Maps:</strong> Gerará links quebrados a cada 10 paradas.</li>
                 <li className="flex gap-2">⚠️ <strong>Entregadores:</strong> Você deverá atribuir os entregadores na tela seguinte.</li>
               </ul>
@@ -448,6 +492,75 @@ export default function OptimizedRouteGenerator() {
               {generateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Zap className="w-4 h-4 mr-2" />}
               Confirmar e Criar
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Resultado da geração */}
+      <Dialog open={!!result} onOpenChange={(open) => { if (!open) { setResult(null); setLocation("/admin/rotas"); } }}>
+        <DialogContent className="bg-card border-border max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><CheckCircle2 className="w-5 h-5 text-emerald-500" /> Rotas criadas</DialogTitle>
+          </DialogHeader>
+          {result && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">{result.message}</p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {result.routes.map((r: any) => (
+                  <div key={r.routeId} className="rounded-lg border border-border p-3">
+                    <p className="font-semibold text-sm">{r.name}</p>
+                    <p className="text-2xl font-bold text-primary">{r.stops} <span className="text-xs font-normal text-muted-foreground">entregas</span></p>
+                    <p className="text-sm">{r.km.toLocaleString("pt-BR")} km</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">{r.neighborhoods.slice(0, 4).join(", ")}{r.neighborhoods.length > 4 ? ` +${r.neighborhoods.length - 4}` : ""}</p>
+                  </div>
+                ))}
+              </div>
+
+              {result.warnings.length > 0 && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-1.5">
+                  <p className="text-xs font-bold uppercase tracking-wider text-amber-800 flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5" /> Atenção ({result.warnings.length})</p>
+                  <ul className="text-xs text-amber-900 space-y-1 list-disc pl-4">
+                    {result.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              <div>
+                <button className="text-xs text-primary underline" onClick={() => setShowAddresses(v => !v)}>
+                  {showAddresses ? "Esconder" : "Ver"} o endereço usado em cada entrega
+                </button>
+                {showAddresses && (
+                  <div className="mt-2 border border-border rounded-lg divide-y divide-border max-h-64 overflow-y-auto">
+                    {result.stops.map((st: any) => (
+                      <div key={st.orderId} className="p-2 text-xs">
+                        <div className="flex justify-between gap-2">
+                          <span className="font-medium">#{st.orderId} · {st.customerName}</span>
+                          <span className="text-muted-foreground shrink-0">{st.routeName}</span>
+                        </div>
+                        <p className="text-muted-foreground">
+                          {st.addressSource === "entrega" ? "📍 endereço da entrega" : "endereço do cadastro"}
+                          {st.neighborhood ? ` · bairro: ${st.neighborhood}` : ""}
+                          {st.quality !== "ok" ? ` · ⚠ ${st.quality === "falhou" ? "não localizado" : "aproximado"}` : ""}
+                        </p>
+                        <p className="truncate" title={st.address}>{st.address}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              disabled={undoMutation.isPending}
+              onClick={() => result && undoMutation.mutate({ routeIds: result.routeIds })}
+            >
+              {undoMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Desfazer e tentar outro modo
+            </Button>
+            <Button onClick={() => { setResult(null); setLocation("/admin/rotas"); }}>Ir para as rotas</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

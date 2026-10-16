@@ -7,7 +7,7 @@ import {
   customers, users, deliveryRecords, paymentRecords,
   products, minipizzaTypes, minipizzaFlavors, jellyFlavors,
   orderItemFlavors, orderMinipizzaFlavors, productCategories,
-  pedidosEstoque, pedidosEstoqueItens,
+  pedidosEstoque, pedidosEstoqueItens, storeEvents,
 } from "../../drizzle/schema";
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
@@ -786,5 +786,79 @@ export const reportsRouter = router({
       });
 
       return Object.values(consolidation);
+    }),
+
+  /**
+   * Relatório de Vendas / Conciliação — soma por forma de pagamento (PIX,
+   * Cartão, Dinheiro), separando pago de pendente, com filtro opcional por
+   * evento e por produto. Pensado pra bater com o extrato do Mercado Pago.
+   */
+  salesReconciliation: adminOrLauncherProcedure
+    .input(z.object({
+      dateFrom: z.string(),
+      dateTo: z.string(),
+      eventId: z.union([z.number(), z.literal("regular")]).optional(),
+      productId: z.number().optional(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return null;
+
+      const from = new Date(input.dateFrom + "T00:00:00");
+      const to = new Date(input.dateTo + "T23:59:59");
+
+      const conditions = [
+        sql`${orders.status} != 'cancelled'`,
+        gte(orders.createdAt, from), lte(orders.createdAt, to),
+      ];
+      if (input.eventId === "regular") conditions.push(isNull(orders.eventId));
+      else if (typeof input.eventId === "number") conditions.push(eq(orders.eventId, input.eventId));
+
+      let orderRows = await db.select({
+        id: orders.id, createdAt: orders.createdAt, paymentMethod: orders.paymentMethod,
+        paymentStatus: orders.paymentStatus, totalAmount: orders.totalAmount,
+        eventId: orders.eventId, eventName: storeEvents.name,
+        customerName: customers.name, customerPhone: customers.phone,
+      }).from(orders)
+        .leftJoin(customers, eq(orders.customerId, customers.id))
+        .leftJoin(storeEvents, eq(orders.eventId, storeEvents.id))
+        .where(and(...conditions))
+        .orderBy(desc(orders.createdAt));
+
+      if (orderRows.length === 0) return { byPaymentMethod: [], orders: [] };
+
+      // Itens de cada pedido — pra montar a coluna de produtos e pra poder
+      // filtrar por produto específico, se pedido.
+      const itemRows = await db.select({
+        orderId: orderItems.orderId, productId: orderItems.productId, productName: products.name, quantity: orderItems.quantity,
+      }).from(orderItems).leftJoin(products, eq(orderItems.productId, products.id))
+        .where(inArray(orderItems.orderId, orderRows.map(o => o.id)));
+
+      const itemsByOrder = new Map<number, { productId: number; productName: string | null; quantity: number }[]>();
+      for (const it of itemRows) (itemsByOrder.get(it.orderId) ?? itemsByOrder.set(it.orderId, []).get(it.orderId)!).push(it);
+
+      if (input.productId) {
+        const idsComEsseProduto = new Set(itemRows.filter(it => it.productId === input.productId).map(it => it.orderId));
+        orderRows = orderRows.filter(o => idsComEsseProduto.has(o.id));
+      }
+
+      const byPaymentMethod: Record<string, { paymentMethod: string; paidTotal: number; pendingTotal: number; paidCount: number; pendingCount: number }> = {};
+      for (const o of orderRows) {
+        const key = o.paymentMethod;
+        if (!byPaymentMethod[key]) byPaymentMethod[key] = { paymentMethod: key, paidTotal: 0, pendingTotal: 0, paidCount: 0, pendingCount: 0 };
+        const amount = Number(o.totalAmount);
+        if (o.paymentStatus === "paid") {
+          byPaymentMethod[key].paidTotal += amount;
+          byPaymentMethod[key].paidCount += 1;
+        } else {
+          byPaymentMethod[key].pendingTotal += amount;
+          byPaymentMethod[key].pendingCount += 1;
+        }
+      }
+
+      return {
+        byPaymentMethod: Object.values(byPaymentMethod),
+        orders: orderRows.map(o => ({ ...o, items: itemsByOrder.get(o.id) ?? [] })),
+      };
     }),
 });

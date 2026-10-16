@@ -8,12 +8,13 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
 } from "recharts";
-import { TrendingUp, Package, Truck, DollarSign, Users, Calendar, Loader2, FileDown } from "lucide-react";
+import { TrendingUp, Package, Truck, DollarSign, Users, Calendar, Loader2, FileDown, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 
 function downloadBase64File(base64: string, filename: string, mimeType: string) {
@@ -70,6 +71,18 @@ export default function Reports() {
   const { data: deliveryReport, isLoading: loadingDelivery } = trpc.reports.deliveries.useQuery({ dateFrom: applied.from, dateTo: applied.to });
   const { data: financialReport, isLoading: loadingFinancial, error: financialError, refetch: refetchFinancial } = trpc.reports.financial.useQuery({ dateFrom: applied.from, dateTo: applied.to });
 
+  const [reconEventId, setReconEventId] = useState<string>("all");
+  const [reconProductId, setReconProductId] = useState<string>("all");
+  const { data: events = [] } = trpc.storeAdmin.events.list.useQuery();
+  const { data: allProducts = [] } = trpc.catalog.products.list.useQuery();
+  const { data: reconData, isLoading: loadingRecon } = trpc.reports.salesReconciliation.useQuery({
+    dateFrom: applied.from, dateTo: applied.to,
+    eventId: reconEventId === "all" ? undefined : reconEventId === "regular" ? "regular" : Number(reconEventId),
+    productId: reconProductId === "all" ? undefined : Number(reconProductId),
+  });
+
+  const PAYMENT_METHOD_LABEL: Record<string, string> = { pix: "PIX", credit_card: "Cartão de Crédito", debit_card: "Cartão de Débito", cash: "Dinheiro" };
+
   const financialPdfMutation = trpc.reports.financialPdf.useMutation({
     onSuccess: (data) => {
       downloadBase64File(data.base64, data.filename, data.mimeType);
@@ -122,6 +135,7 @@ export default function Reports() {
           <TabsTrigger value="sales" className="gap-1.5"><TrendingUp className="w-3.5 h-3.5" />Vendas</TabsTrigger>
           <TabsTrigger value="delivery" className="gap-1.5"><Truck className="w-3.5 h-3.5" />Entregas</TabsTrigger>
           <TabsTrigger value="financial" className="gap-1.5"><DollarSign className="w-3.5 h-3.5" />Financeiro</TabsTrigger>
+          <TabsTrigger value="reconciliation" className="gap-1.5"><CreditCard className="w-3.5 h-3.5" />Conciliação</TabsTrigger>
 
         </TabsList>
 
@@ -325,6 +339,92 @@ export default function Reports() {
                   Exportar Relatório Financeiro em PDF
                 </Button>
               </div>
+            </div>
+          ) : null}
+        </TabsContent>
+
+        {/* CONCILIAÇÃO */}
+        <TabsContent value="reconciliation">
+          <div className="flex flex-wrap gap-3 mb-4">
+            <Select value={reconEventId} onValueChange={setReconEventId}>
+              <SelectTrigger className="w-56 bg-input"><SelectValue placeholder="Filtrar por evento" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos (Venda Regular + Eventos)</SelectItem>
+                <SelectItem value="regular">Só Venda Regular</SelectItem>
+                {events.map((ev: any) => <SelectItem key={ev.id} value={String(ev.id)}>{ev.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={reconProductId} onValueChange={setReconProductId}>
+              <SelectTrigger className="w-56 bg-input"><SelectValue placeholder="Filtrar por produto" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os produtos</SelectItem>
+                {allProducts.filter((p: any) => p.active).map((p: any) => (
+                  <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {loadingRecon ? <ReportSkeleton /> : reconData ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {reconData.byPaymentMethod.map(pm => (
+                  <Card key={pm.paymentMethod} className="bg-card border-border">
+                    <CardContent className="pt-4 pb-3">
+                      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">{PAYMENT_METHOD_LABEL[pm.paymentMethod] ?? pm.paymentMethod}</p>
+                      <p className="text-xl font-bold text-emerald-600 mt-1">{fmt(pm.paidTotal)}</p>
+                      <p className="text-xs text-muted-foreground">{pm.paidCount} pedido{pm.paidCount !== 1 ? "s" : ""} pago{pm.paidCount !== 1 ? "s" : ""}</p>
+                      {pm.pendingCount > 0 && (
+                        <p className="text-xs text-amber-600 mt-1">+ {fmt(pm.pendingTotal)} pendente ({pm.pendingCount})</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+                {reconData.byPaymentMethod.length === 0 && (
+                  <p className="text-sm text-muted-foreground col-span-full py-4">Nenhum pedido nesse filtro.</p>
+                )}
+              </div>
+
+              <Card className="bg-card border-border">
+                <CardHeader><CardTitle className="text-sm">Pedidos no período ({reconData.orders.length})</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Data</TableHead>
+                        <TableHead>Cliente</TableHead>
+                        <TableHead>Evento</TableHead>
+                        <TableHead>Produtos</TableHead>
+                        <TableHead>Pagamento</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {reconData.orders.map((o: any) => (
+                        <TableRow key={o.id}>
+                          <TableCell className="text-xs text-muted-foreground">{new Date(o.createdAt).toLocaleDateString("pt-BR")}</TableCell>
+                          <TableCell className="text-sm">{o.customerName ?? "—"}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{o.eventName ?? "Venda Regular"}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[200px]">
+                            {o.items.map((it: any, i: number) => <div key={i}>{it.quantity} {it.productName ?? "Produto removido"}</div>)}
+                          </TableCell>
+                          <TableCell className="text-xs">{PAYMENT_METHOD_LABEL[o.paymentMethod] ?? o.paymentMethod}</TableCell>
+                          <TableCell>
+                            <Badge variant={o.paymentStatus === "paid" ? "default" : "secondary"}>
+                              {o.paymentStatus === "paid" ? "Pago" : o.paymentStatus === "rejected" ? "Recusado" : "Pendente"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right text-sm font-semibold">{fmt(Number(o.totalAmount))}</TableCell>
+                        </TableRow>
+                      ))}
+                      {reconData.orders.length === 0 && (
+                        <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum pedido nesse filtro.</TableCell></TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
             </div>
           ) : null}
         </TabsContent>
