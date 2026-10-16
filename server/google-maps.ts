@@ -88,6 +88,19 @@ interface OptimizeToursResponse {
   skippedShipments?: Array<{ index: number; label?: string; reasons: string[] }>;
 }
 
+/** Resultado de geocodeDetailed: achou (ok) ou falhou com o status do Google (ZERO_RESULTS, REQUEST_DENIED...). */
+export type GeocodeDetailedResult =
+  | {
+      ok: true;
+      latitude: number;
+      longitude: number;
+      neighborhood: string | null;
+      city: string | null;
+      formattedAddress: string;
+      approximate: boolean;
+    }
+  | { ok: false; status: string; message?: string };
+
 export const googleMapsClient = {
   isConfigured(): boolean {
     const hasKey = !!ENV.googleMapsApiKey;
@@ -144,15 +157,8 @@ export const googleMapsClient = {
    * cliente, que as rotas agrupam as paradas), e um aviso quando o Google só
    * achou uma região aproximada em vez do endereço exato.
    */
-  async geocodeDetailed(address: string): Promise<{
-    latitude: number;
-    longitude: number;
-    neighborhood: string | null;
-    city: string | null;
-    formattedAddress: string;
-    approximate: boolean;
-  } | null> {
-    if (!this.isConfigured()) return null;
+  async geocodeDetailed(address: string): Promise<GeocodeDetailedResult> {
+    if (!this.isConfigured()) return { ok: false, status: "NOT_CONFIGURED" };
 
     try {
       const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
@@ -163,19 +169,23 @@ export const googleMapsClient = {
       url.searchParams.append("key", ENV.googleMapsApiKey);
 
       const response = await fetch(url.toString());
-      if (!response.ok) return null;
+      if (!response.ok) return { ok: false, status: "NETWORK_ERROR" };
 
       const data = await response.json();
       const result = data.status === "OK" ? data.results?.[0] : null;
       if (!result?.geometry?.location) {
+        // ZERO_RESULTS = o endereço realmente não foi achado. Os demais status
+        // (REQUEST_DENIED, OVER_QUERY_LIMIT...) são problema na conta/chave do Google,
+        // não no endereço — por isso devolvemos o status e a mensagem do próprio Google.
         console.warn(`[Google Maps] Geocodificação falhou para: "${address}". Status: ${data.status}`);
-        return null;
+        return { ok: false, status: data.status ?? "UNKNOWN_ERROR", message: data.error_message };
       }
 
       const components: { long_name: string; types: string[] }[] = result.address_components ?? [];
       const find = (...types: string[]) => components.find(c => types.some(t => c.types.includes(t)))?.long_name ?? null;
 
       return {
+        ok: true,
         latitude: result.geometry.location.lat,
         longitude: result.geometry.location.lng,
         neighborhood: find("sublocality_level_1", "sublocality", "neighborhood"),
@@ -185,7 +195,7 @@ export const googleMapsClient = {
       };
     } catch (error) {
       console.error("[Google Maps] Erro na geocodificação detalhada:", error);
-      return null;
+      return { ok: false, status: "NETWORK_ERROR" };
     }
   },
 

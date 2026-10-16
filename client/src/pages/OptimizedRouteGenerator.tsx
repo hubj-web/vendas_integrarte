@@ -500,10 +500,21 @@ export default function OptimizedRouteGenerator() {
       <Dialog open={!!result} onOpenChange={(open) => { if (!open) { setResult(null); setLocation("/admin/rotas"); } }}>
         <DialogContent className="bg-card border-border max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><CheckCircle2 className="w-5 h-5 text-emerald-500" /> Rotas criadas</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              {result?.googleProblem
+                ? <><AlertCircle className="w-5 h-5 text-red-500" /> Rotas criadas, mas com problema no Google Maps</>
+                : <><CheckCircle2 className="w-5 h-5 text-emerald-500" /> Rotas criadas</>}
+            </DialogTitle>
           </DialogHeader>
           {result && (
             <div className="space-y-4">
+              {result.googleProblem && (
+                <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+                  <p className="font-bold mb-1">Estas rotas não são confiáveis</p>
+                  <p>{result.googleProblem}</p>
+                  <p className="mt-2 text-xs">Use <strong>"Desfazer e tentar outro modo"</strong>, resolva o problema no Google Cloud e gere de novo.</p>
+                </div>
+              )}
               <p className="text-sm text-muted-foreground">{result.message}</p>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">

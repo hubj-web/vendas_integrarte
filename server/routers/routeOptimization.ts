@@ -669,13 +669,22 @@ export const routeOptimizationRouter = router({
         warnings.push("O Google Maps não está configurado neste ambiente — as posições foram estimadas pelo bairro e os KM são aproximados.");
       }
 
+      // Status que indicam problema na conta/chave do Google (e não no endereço do pedido).
+      const GOOGLE_ACCOUNT_STATUSES = new Set(["REQUEST_DENIED", "OVER_QUERY_LIMIT", "OVER_DAILY_LIMIT", "UNKNOWN_ERROR", "NETWORK_ERROR"]);
+      const googleProblems = new Map<string, string | undefined>(); // status -> mensagem do Google
+      const failedByGoogle = new Set<number>(); // pedidos que falharam por causa do Google, não do endereço
+
       await Promise.all(ordersToProcess.map(async (o) => {
         const { text, source } = resolveAddress(o);
         o.addressUsed = text;
         o.addressSource = source;
 
         const geo = await googleMapsClient.geocodeDetailed(text);
-        if (geo) {
+        if (!geo.ok && GOOGLE_ACCOUNT_STATUSES.has(geo.status)) {
+          googleProblems.set(geo.status, geo.message);
+          failedByGoogle.add(o.id);
+        }
+        if (geo.ok) {
           o.latitude = geo.latitude;
           o.longitude = geo.longitude;
           // Sem bairro no resultado do Google: só recorre ao do cadastro se o endereço usado FOR o do cadastro.
@@ -704,7 +713,22 @@ export const routeOptimizationRouter = router({
         }
       }));
 
+      // Quando o Google recusa as consultas, o problema é UM só (conta/chave) — não adianta
+      // listar um aviso por pedido culpando o endereço.
+      let googleProblem: string | null = null;
+      if (googleProblems.size > 0) {
+        const [status, googleMessage] = Array.from(googleProblems.entries())[0];
+        const hint = status === "REQUEST_DENIED"
+          ? "Isso quase sempre significa que o FATURAMENTO da conta do Google Cloud está desativado, ou que a chave não tem permissão para as APIs de Geocodificação e Distance Matrix."
+          : status.startsWith("OVER_")
+            ? "O limite de consultas do Google foi atingido."
+            : "O Google ficou instável ou inacessível.";
+        googleProblem = `O Google Maps recusou as consultas (${status}). ${hint}${googleMessage ? ` Mensagem do Google: "${googleMessage}".` : ""} ` +
+          `${failedByGoogle.size} de ${ordersToProcess.length} paradas ficaram só com posição estimada e os KM não são confiáveis — não use estas rotas até resolver.`;
+      }
+
       for (const o of ordersToProcess) {
+        if (failedByGoogle.has(o.id)) continue; // já explicado pelo aviso único acima
         const label = `Pedido #${o.id} (${o.customerName ?? "sem nome"})`;
         if (o.locationQuality === "falhou") {
           warnings.push(`${label}: não consegui localizar "${o.addressUsed}" — usei o centro da cidade, então essa parada pode ficar na rota errada. Confira o endereço do pedido.`);
@@ -729,7 +753,7 @@ export const routeOptimizationRouter = router({
 
         if (distanceMatrix) {
           useDistanceMatrix = true;
-        } else {
+        } else if (!googleProblem) {
           warnings.push("Não consegui as distâncias reais de estrada no Google — usei distância em linha reta, então os KM são aproximados.");
         }
       }
@@ -867,6 +891,7 @@ export const routeOptimizationRouter = router({
         strategy: input.strategy,
         message: `${createdRouteIds.length} rota(s) criada(s) — ${strategyLabel}${useDistanceMatrix ? ", com distância real de estrada" : ""}`,
         routes: routesSummary,
+        googleProblem,
         warnings,
         // Relatório de cada parada: de onde veio o endereço usado, em que bairro foi agrupada e em que rota ficou.
         stops: ordersToProcess.map(o => ({
