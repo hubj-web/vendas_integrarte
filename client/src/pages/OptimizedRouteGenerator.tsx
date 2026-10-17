@@ -59,8 +59,14 @@ export default function OptimizedRouteGenerator() {
       setShowAddresses(false);
       setResult(data); // mostra o resumo (paradas e KM de cada rota) antes de ir pra lista
     },
+    onError: (e) => toast.error(e.message, { duration: 20000 }),
+  });
+
+  // Testa o Google Maps sem criar rota nenhuma
+  const checkGoogleMutation = trpc.routeOptimization.checkGoogleMaps.useMutation({
     onError: (e) => toast.error(e.message),
   });
+  const googleCheck = checkGoogleMutation.data;
 
   // Desfaz as rotas que acabaram de ser criadas (pra tentar de novo com outro modo)
   const undoMutation = trpc.delivery.routes.delete.useMutation({
@@ -256,6 +262,34 @@ export default function OptimizedRouteGenerator() {
                     {strategy === "km" && "Foca em deixar o KM de cada rota parecido. Rotas em áreas densas podem ficar com mais entregas que as outras."}
                     {strategy === "neighborhoods" && "Nunca divide um bairro: todas as entregas do bairro vão na mesma rota. Pode deixar uma rota bem maior que as outras."}
                   </p>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <Button
+                      type="button" variant="outline" size="sm"
+                      disabled={checkGoogleMutation.isPending}
+                      onClick={() => checkGoogleMutation.mutate()}
+                    >
+                      {checkGoogleMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-2" /> : <MapPin className="w-3.5 h-3.5 mr-2" />}
+                      Testar Google Maps
+                    </Button>
+                    <span className="text-xs text-muted-foreground">Confirma se o Google está respondendo, sem criar rotas.</span>
+                  </div>
+                  {googleCheck && (
+                    <div className={`rounded-lg border p-3 text-xs ${googleCheck.ok ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-red-300 bg-red-50 text-red-900"}`}>
+                      {googleCheck.ok ? (
+                        <p>✅ Google Maps funcionando: localizou o endereço de teste e calculou distância de estrada ({Math.round((googleCheck.distance as any).meters / 100) / 10} km entre dois pontos de teste). Pode gerar as rotas.</p>
+                      ) : (
+                        <div className="space-y-1">
+                          <p className="font-semibold">❌ O Google Maps não está respondendo.</p>
+                          {!googleCheck.geocoding.ok && (
+                            <p>Geocodificação: {(googleCheck.geocoding as any).status}{(googleCheck.geocoding as any).message ? ` — ${(googleCheck.geocoding as any).message}` : ""}</p>
+                          )}
+                          {!googleCheck.distance.ok && <p>Distância de estrada: sem resposta (veja se a Distance Matrix API está ativada e com faturamento).</p>}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>Prefixo do Nome</Label>
@@ -480,6 +514,7 @@ export default function OptimizedRouteGenerator() {
               <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">O que o sistema fará:</p>
               <ul className="text-xs space-y-1.5 text-muted-foreground">
                 <li className="flex gap-2">✅ <strong>Endereço:</strong> Usa o endereço de entrega do pedido; só usa o do cliente quando o pedido não tem um.</li>
+                <li className="flex gap-2">✅ <strong>KM:</strong> Conta do ponto de partida até a última entrega — sem somar a volta.</li>
                 <li className="flex gap-2">✅ <strong>Divisão:</strong> {strategy === "balanced" ? "KM e nº de entregas equilibrados, mantendo bairros juntos quando possível." : strategy === "km" ? "KM rodado equilibrado entre as rotas." : "Bairros inteiros na mesma rota (modo antigo)."}</li>
                 <li className="flex gap-2">✅ <strong>Links Maps:</strong> Gerará links quebrados a cada 10 paradas.</li>
                 <li className="flex gap-2">⚠️ <strong>Entregadores:</strong> Você deverá atribuir os entregadores na tela seguinte.</li>

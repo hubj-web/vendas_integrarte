@@ -8,7 +8,7 @@ import {
 import { getDb } from "../db";
 import { protectedProcedure, router } from "../_core/trpc";
 import { googleMapsClient } from "../google-maps";
-import { calculateRouteTotalDistance, orderStopsByNearestNeighbor, planRoutes, twoOptImprove, type RouteStrategy } from "../routeBalancing";
+import { calculateRouteTotalDistance, optimizeVisitOrder, orderStopsByNearestNeighbor, planRoutes, type RouteStrategy } from "../routeBalancing";
 
 // ─── TIPOS ───────────────────────────────────────────────────────────────────
 
@@ -342,10 +342,7 @@ function balanceRoutesByNeighborhood(
   const clusters = routeGroups.map(groups => {
     const flat = groups.flat();
     if (flat.length === 0) return flat;
-    const nearestNeighborOrder = orderStopsByNearestNeighbor(flat, originIndex, distanceMatrix);
-    // Segunda passada: tenta melhorar a ordem já montada, corrigindo os casos em
-    // que o vizinho mais próximo "esqueceu" uma parada no caminho e precisou voltar.
-    return twoOptImprove(nearestNeighborOrder, originIndex, distanceMatrix);
+    return optimizeVisitOrder(flat, originIndex, distanceMatrix);
   });
 
   // Converter de índice de matriz de volta para índice de ordersToProcess (0-based)
@@ -514,9 +511,9 @@ export async function recalculateAndSaveRouteDistances(
     );
   }
 
-  // Ordenar paradas pelo vizinho mais próximo
+  // Reordena as paradas pela melhor ordem possível (mesma regra da geração das rotas)
   const orderIndices = orderDetails.map((_, i) => i + 1); // +1 porque índice 0 é a origem
-  const orderedIndices = orderStopsByNearestNeighbor(orderIndices, 0, distanceMatrix);
+  const orderedIndices = optimizeVisitOrder(orderIndices, 0, distanceMatrix);
 
   // Calcular distâncias e atualizar o banco
   let totalDistance = 0;
@@ -542,10 +539,7 @@ export async function recalculateAndSaveRouteDistances(
       .where(eq(routeOrders.id, row.id));
   }
 
-  // Adicionar distância de volta à origem
-  if (orderedIndices.length > 0) {
-    totalDistance += distanceMatrix[orderedIndices[orderedIndices.length - 1]][0];
-  }
+  // O entregador termina na última entrega: não soma a volta à origem.
 
   // Atualizar totalDistance da rota
   await db.update(deliveryRoutes)
@@ -723,8 +717,19 @@ export const routeOptimizationRouter = router({
           : status.startsWith("OVER_")
             ? "O limite de consultas do Google foi atingido."
             : "O Google ficou instável ou inacessível.";
-        googleProblem = `O Google Maps recusou as consultas (${status}). ${hint}${googleMessage ? ` Mensagem do Google: "${googleMessage}".` : ""} ` +
-          `${failedByGoogle.size} de ${ordersToProcess.length} paradas ficaram só com posição estimada e os KM não são confiáveis — não use estas rotas até resolver.`;
+        const googleCause = `O Google Maps recusou as consultas (${status}). ${hint}${googleMessage ? ` Mensagem do Google: "${googleMessage}".` : ""}`;
+
+        // Se o Google recusou TODAS as paradas, não há posição nenhuma pra calcular: gerar rota
+        // agora só produziria um percurso sem sentido (paradas empilhadas no mesmo ponto, KM
+        // minúsculos, ordem aleatória). Melhor não criar nada e dizer o que fazer.
+        if (failedByGoogle.size === ordersToProcess.length) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Nenhuma rota foi criada. ${googleCause} Resolva isso e use o botão "Testar Google Maps" para confirmar antes de gerar de novo.`,
+          });
+        }
+
+        googleProblem = `${googleCause} ${failedByGoogle.size} de ${ordersToProcess.length} paradas ficaram só com posição estimada e os KM não são confiáveis — não use estas rotas até resolver.`;
       }
 
       for (const o of ordersToProcess) {
@@ -810,7 +815,7 @@ export const routeOptimizationRouter = router({
             totalDist += distFromPrev;
             return { shipmentIndex: orderIdx, distanceMeters: distFromPrev };
           });
-          if (cluster.length > 0) totalDist += safeMatrixRead(cluster[cluster.length - 1] + 1, originIdx);
+          // O entregador termina na última entrega: não soma a volta à origem.
           return { totalDistanceMeters: Math.round(totalDist), visits };
         });
       } catch (err) {
@@ -910,6 +915,32 @@ export const routeOptimizationRouter = router({
    * Recalcula as distâncias de uma rota existente usando a Distance Matrix API.
    * Atualiza distanceFromPrevious em cada routeOrder e totalDistance na deliveryRoute.
    */
+  /**
+   * Testa se o Google Maps está respondendo (geocodificação + distância de estrada),
+   * sem criar nenhuma rota. Serve pra confirmar que o faturamento/chave foi resolvido.
+   */
+  checkGoogleMaps: protectedProcedure.mutation(async () => {
+    if (!googleMapsClient.isConfigured()) {
+      return {
+        ok: false as const,
+        geocoding: { ok: false as const, status: "NOT_CONFIGURED", message: "A chave GOOGLE_MAPS_API_KEY não está configurada neste ambiente." },
+        distance: { ok: false as const },
+      };
+    }
+    const geo = await googleMapsClient.geocodeDetailed("Av. Cipriano Del Fávero, 187, Centro, Uberlândia, MG");
+    // Dois pontos fixos em Uberlândia — testa a API de distância independente da geocodificação.
+    const matrix = await calculateDistanceMatrix([
+      { latitude: -18.9186, longitude: -48.2772 },
+      { latitude: -18.9050, longitude: -48.2550 },
+    ]);
+    const distanceOk = !!matrix && matrix[0][1] > 0;
+    return {
+      ok: geo.ok && distanceOk,
+      geocoding: geo.ok ? { ok: true as const } : { ok: false as const, status: geo.status, message: geo.message },
+      distance: distanceOk ? { ok: true as const, meters: matrix![0][1] } : { ok: false as const },
+    };
+  }),
+
   recalculateRouteDistances: protectedProcedure
     .input(z.object({ routeId: z.number() }))
     .mutation(async ({ input }) => {
